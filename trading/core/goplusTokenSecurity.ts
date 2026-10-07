@@ -15,11 +15,13 @@
 // or unparseable body all return `null` ("no live check happened"),
 // never a false "confirmed safe" summary.
 
+import {marketUrl} from './marketHosts';
+
 const FETCH_TIMEOUT_MS = 6000;
-const API_BASE = 'https://api.gopluslabs.io/api/v1/token_security';
+const API_PATH = '/api/v1/token_security';
 // Solana is a SEPARATE endpoint with a separate response model, not the
 // EVM one with a chain id.
-const SOLANA_API_BASE = 'https://api.gopluslabs.io/api/v1/solana/token_security';
+const SOLANA_API_PATH = '/api/v1/solana/token_security';
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
 export type TokenHolder = {
@@ -154,7 +156,7 @@ export async function checkSolanaTokenSecurity(mintAddress: string | null | unde
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(`${SOLANA_API_BASE}?contract_addresses=${encodeURIComponent(mintAddress)}`, {signal: controller.signal} as RequestInit);
+    const res = await fetch(`${marketUrl('goplus', SOLANA_API_PATH)}?contract_addresses=${encodeURIComponent(mintAddress)}`, {signal: controller.signal} as RequestInit);
     if (!res.ok) return null;
     const data = (await res.json()) as {result?: Record<string, any>};
     const result = data?.result?.[mintAddress];
@@ -202,7 +204,7 @@ export async function checkTokenSecurity(chainId: number | string | null | undef
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(`${API_BASE}/${chainId}?contract_addresses=${encodeURIComponent(tokenAddress)}`, {signal: controller.signal} as RequestInit);
+    const res = await fetch(`${marketUrl('goplus', API_PATH)}/${chainId}?contract_addresses=${encodeURIComponent(tokenAddress)}`, {signal: controller.signal} as RequestInit);
     if (!res.ok) return null;
     const data = (await res.json()) as {result?: Record<string, any>};
     const result = data?.result?.[tokenAddress.toLowerCase()];

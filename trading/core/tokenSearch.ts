@@ -1,5 +1,6 @@
 import { tradeChainForDexScreenerChainId, type DexScreenerPair } from './dexScreener';
 import type { TradeChain } from './chainData';
+import {marketUrl} from './marketHosts';
 
 export type TokenSearchResult = {
   chainKey: TradeChain;
@@ -45,13 +46,20 @@ export async function searchTokens(query: string): Promise<TokenSearchResult[]> 
   return request;
 }
 
-async function searchDexScreener(query: string): Promise<TokenSearchResult[]> {
-  try {
-    const response = await fetch(
-      `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(query)}`,
-    );
-    if (!response.ok) return [];
+/** Thrown when the search provider can't be reached, so callers can tell "nothing found" from "search failed". */
+export class TokenSearchUnavailableError extends Error {}
 
+async function searchDexScreener(query: string): Promise<TokenSearchResult[]> {
+  let response: Response;
+  try {
+    response = await fetch(
+      marketUrl('dexscreener', `/latest/dex/search?q=${encodeURIComponent(query)}`),
+    );
+  } catch {
+    throw new TokenSearchUnavailableError('Search could not reach market data. Check your connection and try again.');
+  }
+  if (!response.ok) throw new TokenSearchUnavailableError(response.status === 429 ? 'Market data is busy. Try again in a few seconds.' : 'Search could not reach market data. Try again.');
+  try {
     const body = (await response.json()) as { pairs?: DexScreenerPair[] };
     const pairs = Array.isArray(body?.pairs) ? body.pairs : [];
     const bestByKey = new Map<string, TokenSearchResult>();
@@ -97,6 +105,6 @@ async function searchDexScreener(query: string): Promise<TokenSearchResult[]> {
 
     return Array.from(bestByKey.values()).sort((a, b) => b.liquidityUsd - a.liquidityUsd);
   } catch {
-    return [];
+    throw new TokenSearchUnavailableError('Market data returned an unreadable answer. Try again.');
   }
 }

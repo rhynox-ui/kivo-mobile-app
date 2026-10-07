@@ -8,6 +8,7 @@ import {dexScreenerChainForChain, type DexScreenerPair, type TokenSocialLink} fr
 import type {TradeChain} from '../core/chainData';
 import {geckoTerminalNetworkForChainOrNull} from '../core/geckoTerminalNetworks';
 import type {KivoToken} from './tokens';
+import {marketUrl} from '../core/marketHosts';
 
 export type TokenMarket = {
   token: KivoToken;
@@ -32,7 +33,7 @@ export async function fetchTokenMarket(chainKey: TradeChain, tokenAddress: strin
   const chainId = dexScreenerChainForChain(chainKey);
   if (!chainId) return null;
   try {
-    const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${encodeURIComponent(tokenAddress)}`);
+    const response = await fetch(marketUrl('dexscreener', `/latest/dex/tokens/${encodeURIComponent(tokenAddress)}`));
     if (!response.ok) return null;
     const body = (await response.json()) as {pairs?: FullPair[]};
     let best: FullPair | null = null;
@@ -47,7 +48,7 @@ export async function fetchTokenMarket(chainKey: TradeChain, tokenAddress: strin
       if (liquidity > bestLiquidity) { bestLiquidity = liquidity; best = pair; }
     }
     if (!best || !best.pairAddress) {
-      const searchResponse = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(tokenAddress)}`);
+      const searchResponse = await fetch(marketUrl('dexscreener', `/latest/dex/search?q=${encodeURIComponent(tokenAddress)}`));
       if (searchResponse.ok) {
         const searchBody = (await searchResponse.json()) as {pairs?: FullPair[]};
         for (const pair of Array.isArray(searchBody?.pairs) ? searchBody.pairs : []) {
@@ -116,7 +117,7 @@ export async function fetchCandles(chainKey: TradeChain, pairAddress: string, ra
   if (cached && Date.now() - cached.fetchedAt < CANDLE_TTL_MS) return cached.data;
   const {timeframe, aggregate, limit} = RANGE_QUERY[range];
   try {
-    const response = await fetch(`https://api.geckoterminal.com/api/v2/networks/${network}/pools/${encodeURIComponent(pairAddress)}/ohlcv/${timeframe}?aggregate=${aggregate}&limit=${limit}&currency=usd`);
+    const response = await fetch(marketUrl('geckoterminal', `/api/v2/networks/${network}/pools/${encodeURIComponent(pairAddress)}/ohlcv/${timeframe}?aggregate=${aggregate}&limit=${limit}&currency=usd`));
     if (!response.ok) return [];
     const body = (await response.json()) as {data?: {attributes?: {ohlcv_list?: unknown[][]}}};
     const list = body?.data?.attributes?.ohlcv_list ?? [];

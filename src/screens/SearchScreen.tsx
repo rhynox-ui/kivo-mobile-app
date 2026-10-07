@@ -15,6 +15,8 @@ export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: Token
   const [results, setResults] = useState<TokenSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [retry, setRetry] = useState(0);
   const [chainFilter, setChainFilter] = useState<'All' | TradeChain>('All');
   const chainFilters: Array<'All' | TradeChain> = ['All', 'ethereum', 'base', 'bnb', 'arbitrum', 'solana'];
   const [trending, setTrending] = useState<TokenSearchResult[]>([]);
@@ -40,6 +42,13 @@ export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: Token
       searchTokens(trimmed).then(found => {
         if (requestId !== requestIdRef.current) return;
         setResults(found.map(toKivoToken));
+        setSearchError('');
+        setLoading(false);
+        setSearched(true);
+      }).catch(error => {
+        if (requestId !== requestIdRef.current) return;
+        setResults([]);
+        setSearchError(error instanceof Error ? error.message : 'Search could not reach market data. Try again.');
         setLoading(false);
         setSearched(true);
       });
@@ -49,7 +58,7 @@ export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: Token
       if (debounceRef.current) clearTimeout(debounceRef.current);
       requestIdRef.current += 1;
     };
-  }, [query]);
+  }, [query, retry]);
 
   const source = query.trim() ? results : trending;
   const visibleResults = chainFilter === 'All' ? source : source.filter(item => item.chainKey === chainFilter);
@@ -75,7 +84,15 @@ export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: Token
         {loading && <ActivityIndicator size="small" color={kivoTheme.colors.accent} />}
       </View>
 
-      {!loading && searched && visibleResults.length === 0 && (
+      {!loading && searched && searchError ? (
+        <View style={styles.state}>
+          <Text style={styles.stateTitle}>Search unavailable</Text>
+          <Text style={styles.hint}>{searchError}</Text>
+          <Pressable onPress={() => setRetry(n => n + 1)} style={styles.retry}><Text style={styles.retryText}>Retry</Text></Pressable>
+        </View>
+      ) : null}
+
+      {!loading && searched && !searchError && visibleResults.length === 0 && (
         <View style={styles.state}>
           <Text style={styles.stateTitle}>No tokens found</Text>
           <Text style={styles.hint}>Try a token name, ticker, or another search term.</Text>
@@ -156,6 +173,8 @@ const styles = StyleSheet.create({
   state: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28, paddingBottom: 100 },
   stateTitle: { color: kivoTheme.colors.text, fontSize: 18, fontWeight: '800', marginBottom: 7 },
   hint: { color: kivoTheme.colors.textMuted, fontSize: 13, lineHeight: 20, textAlign: 'center' },
+  retry: { marginTop: 14, paddingHorizontal: 18, height: 38, borderRadius: 19, backgroundColor: kivoTheme.colors.surfaceRaised, justifyContent: 'center' },
+  retryText: { color: kivoTheme.colors.cream, fontWeight: '800' },
   list: { paddingTop: 8, paddingBottom: 28 },
   sectionTitle: { color: kivoTheme.colors.text, fontSize: 17, fontWeight: '800', marginTop: 18 },
   row: {

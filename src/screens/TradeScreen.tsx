@@ -252,6 +252,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
               </Pressable>
             </View>
 
+            <View style={styles.cardsRow}>
             <View style={styles.card}>
               <Text style={styles.cardLabel}>YOU PAY</Text>
               <View style={styles.cardRow}>
@@ -267,6 +268,8 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
                 {quoteState === 'loading' ? <ActivityIndicator color={kivoTheme.colors.accent} /> : <Text style={styles.receive} numberOfLines={1} adjustsFontSizeToFit>{view?.receive.amount ? formatAmount(Number(view.receive.amount)) : '—'}</Text>}
               </View>
               <Text style={styles.avail}>{view?.receive.usd != null ? `≈ ${formatUsd(view.receive.usd)}` : ''}</Text>
+            </View>
+
             </View>
 
             <View style={styles.feeRow}>
@@ -436,15 +439,16 @@ const styles = StyleSheet.create({
   presetCustom: { flex: 1.3, backgroundColor: c.surfaceRaised },
   presetText: { color: c.text, fontWeight: '800', fontSize: 13 },
   presetCustomText: { color: c.cream },
-  card: { marginTop: 10, padding: 14, borderRadius: 18, borderWidth: 1, borderColor: c.border, backgroundColor: 'rgba(3,37,33,0.5)', gap: 8 },
+  cardsRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  card: { flex: 1, minWidth: 0, padding: 12, borderRadius: 18, borderWidth: 1, borderColor: c.border, backgroundColor: 'rgba(3,37,33,0.5)', gap: 8 },
   cardLabel: { color: c.textMuted, fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
-  cardRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  cardRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   chipAsset: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 4, paddingRight: 12, height: 34, borderRadius: 17, backgroundColor: c.surfaceRaised },
   chipIcon: { width: 26, height: 26, borderRadius: 13, backgroundColor: c.background, alignItems: 'center', justifyContent: 'center' },
   chipLetter: { color: c.cream, fontWeight: '900', fontSize: 11 },
   chipSymbol: { color: c.text, fontWeight: '800', fontSize: 13.5 },
-  amountInput: { flex: 1, minWidth: 0, color: c.cream, fontSize: 24, fontWeight: '800', textAlign: 'right', paddingVertical: 4 },
-  receive: { flex: 1, minWidth: 0, color: c.text, fontSize: 22, fontWeight: '800', textAlign: 'right' },
+  amountInput: { flexGrow: 1, minWidth: 70, color: c.cream, fontSize: 22, fontWeight: '800', textAlign: 'right', paddingVertical: 4 },
+  receive: { flexGrow: 1, minWidth: 60, color: c.text, fontSize: 20, fontWeight: '800', textAlign: 'right' },
   avail: { color: c.textMuted, fontSize: 11.5, textAlign: 'right', minHeight: 14 },
   feeRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingHorizontal: 14, height: 44, borderRadius: 22, borderWidth: 1, borderColor: c.border },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.textMuted, marginRight: 8 },

@@ -74,6 +74,7 @@
 import {chainKeyForDexScreenerChainId, type DexScreenerPair} from './dexScreener';
 import {geckoTerminalNetworkForChainOrNull} from './geckoTerminalNetworks';
 import {CHAIN_LABEL, type ChainKey} from './chainData';
+import {marketUrl} from './marketHosts';
 
 // Every ChainKey this app has — CHAIN_LABEL's own type (Record<ChainKey,
 // string>) guarantees Object.keys covers all of them, same derivation
@@ -120,7 +121,7 @@ const TRENDING_RESULT_LIMIT = 40;
 
 async function hydrateBoostedToken(chainKey: ChainKey, dexScreenerChainId: string, tokenAddress: string): Promise<DiscoveryToken | null> {
   try {
-    const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${encodeURIComponent(tokenAddress)}`);
+    const res = await fetch(marketUrl('dexscreener', `/latest/dex/tokens/${encodeURIComponent(tokenAddress)}`));
     if (!res.ok) return null;
     const body = (await res.json()) as {pairs?: DexScreenerPair[]};
     const pairs = Array.isArray(body?.pairs) ? body.pairs : [];
@@ -182,7 +183,7 @@ async function hydrateBoostedToken(chainKey: ChainKey, dexScreenerChainId: strin
  */
 async function fetchDexScreenerBoostedTrending(): Promise<DiscoveryResult> {
   try {
-    const res = await fetch('https://api.dexscreener.com/token-boosts/top/v1');
+    const res = await fetch(marketUrl('dexscreener', '/token-boosts/top/v1'));
     if (!res.ok) return {tokens: [], error: `DexScreener returned ${res.status}.`};
     const body = (await res.json()) as DexScreenerBoost[] | {boosts?: DexScreenerBoost[]};
     const boosts = Array.isArray(body) ? body : Array.isArray(body?.boosts) ? body.boosts : [];
@@ -224,7 +225,6 @@ async function fetchDexScreenerBoostedTrending(): Promise<DiscoveryResult> {
 // graduate does on Solana — this app doesn't need a bespoke connector
 // per launchpad protocol to show its trending activity.
 
-const GECKOTERMINAL_BASE_URL = 'https://api.geckoterminal.com/api/v2';
 // Capped low per chain (not "take everything") — this runs across every
 // supported chain in parallel already, and GeckoTerminal's free tier is
 // the one source in this file with a real, live-confirmed rate limit.
@@ -243,7 +243,7 @@ async function fetchTrendingPoolsForChain(chainKey: ChainKey): Promise<Discovery
   const network = geckoTerminalNetworkForChainOrNull(chainKey);
   if (!network) return [];
   try {
-    const res = await fetchGeckoTerminalWithRetry(`${GECKOTERMINAL_BASE_URL}/networks/${network}/trending_pools?include=base_token`);
+    const res = await fetchGeckoTerminalWithRetry(marketUrl('geckoterminal', `/api/v2/networks/${network}/trending_pools?include=base_token`));
     if (!res.ok) return [];
     const body = (await res.json()) as {
       data?: {

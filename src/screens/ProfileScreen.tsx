@@ -81,7 +81,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
       <View style={styles.identity}>
         <View style={styles.avatarRow}>
           <Pressable onPress={onEditProfile} style={styles.avatarWrap} accessibilityLabel="Edit profile">
-            {profile.avatarUri ? <Image source={{ uri: profile.avatarUri }} style={styles.avatar} /> : <View style={styles.avatar}><KivoMark size={96} /></View>}
+            {profile.avatarUri ? <Image source={{ uri: profile.avatarUri }} style={styles.avatar} /> : <View style={styles.avatar}><KivoMark size={70} /></View>}
             <View style={styles.editDot}><Text style={styles.editDotText}>✎</Text></View>
           </Pressable>
           <View style={styles.identityActions}>
@@ -121,7 +121,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
             {RANGES.map(r => <Pressable key={r} onPress={() => setRange(r)} style={[styles.range, range === r && styles.rangeActive]}><Text style={[styles.rangeText, range === r && styles.rangeTextActive]}>{r}</Text></Pressable>)}
           </View>
         </View>
-        <View style={styles.chart}>
+        <View style={[styles.chart, !(points.length >= 2 && !hidden) && styles.chartEmptyBox]}>
           {!portfolio && loading ? <ActivityIndicator color={kivoTheme.colors.accent} />
             : hidden ? <Text style={styles.chartEmpty}>Balances hidden</Text>
             : points.length >= 2 ? <LineChart values={points.map(p => p.totalUsd)} />
@@ -200,29 +200,29 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: c.background },
   content: { paddingBottom: 40 },
   flex: { flex: 1 },
-  corner: { height: 50, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 22 },
-  cornerIcon: { color: c.cream, fontSize: 24 },
-  identity: { paddingHorizontal: 20, gap: 8 },
+  corner: { height: 40, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 22 },
+  cornerIcon: { color: c.cream, fontSize: 21 },
+  identity: { paddingHorizontal: 20, gap: 6 },
   avatarRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  avatarWrap: { width: 104, height: 104 },
-  avatar: { width: 104, height: 104, borderRadius: 30, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  editDot: { position: 'absolute', right: -6, bottom: -6, width: 34, height: 34, borderRadius: 17, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: c.background },
-  editDotText: { color: c.backgroundDeep, fontSize: 14, fontWeight: '900' },
+  avatarWrap: { width: 76, height: 76 },
+  avatar: { width: 76, height: 76, borderRadius: 22, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  editDot: { position: 'absolute', right: -5, bottom: -5, width: 28, height: 28, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: c.background },
+  editDotText: { color: c.backgroundDeep, fontSize: 12, fontWeight: '900' },
   identityActions: { flexDirection: 'row', gap: 10 },
-  iconButton: { width: 50, height: 50, borderRadius: 16, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' },
-  iconButtonText: { color: c.text, fontSize: 19 },
-  username: { color: c.text, fontSize: 28, fontWeight: '800', marginTop: 6 },
+  iconButton: { width: 42, height: 42, borderRadius: 14, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' },
+  iconButtonText: { color: c.text, fontSize: 17 },
+  username: { color: c.text, fontSize: 23, fontWeight: '800', marginTop: 4 },
   bio: { color: c.text, fontSize: 14.5, lineHeight: 20 },
-  addBio: { color: c.textMuted, fontSize: 15, fontWeight: '700' },
+  addBio: { color: c.textMuted, fontSize: 14, fontWeight: '700' },
   follows: { flexDirection: 'row', gap: 22 },
-  followText: { color: c.textMuted, fontSize: 15 },
+  followText: { color: c.textMuted, fontSize: 14 },
   count: { color: c.text, fontWeight: '800' },
   socialRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 16, rowGap: 6, marginTop: 2 },
   socialItem: { color: c.textMuted, fontSize: 13 },
-  divider: { height: 1, backgroundColor: c.border, marginHorizontal: 20, marginTop: 16 },
-  portfolioCard: { margin: 18, marginBottom: 0, padding: 16, borderRadius: 22, backgroundColor: c.surface, borderWidth: 1, borderColor: 'rgba(159,232,112,0.22)' },
+  divider: { height: 1, backgroundColor: c.border, marginHorizontal: 20, marginTop: 12 },
+  portfolioCard: { margin: 16, marginBottom: 0, padding: 14, borderRadius: 22, backgroundColor: c.surface, borderWidth: 1, borderColor: 'rgba(159,232,112,0.22)' },
   portfolioTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
-  value: { color: c.text, fontSize: 34, fontWeight: '800' },
+  value: { color: c.text, fontSize: 30, fontWeight: '800' },
   valueLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
   valueLabel: { color: c.accent, fontSize: 13.5 },
   change: { fontSize: 13, fontWeight: '800' },
@@ -234,7 +234,8 @@ const styles = StyleSheet.create({
   rangeActive: { backgroundColor: MINT },
   rangeText: { color: c.textMuted, fontSize: 11.5, fontWeight: '800' },
   rangeTextActive: { color: '#10301F' },
-  chart: { height: 170, marginTop: 12, alignItems: 'center', justifyContent: 'center' },
+  chart: { height: 130, marginTop: 10, alignItems: 'center', justifyContent: 'center' },
+  chartEmptyBox: { height: 64 },
   chartEmpty: { color: c.textMuted, fontSize: 12.5, textAlign: 'center', paddingHorizontal: 20 },
   small: { color: c.textMuted, fontSize: 11.5 },
   padded: { paddingHorizontal: 20, marginTop: 8 },

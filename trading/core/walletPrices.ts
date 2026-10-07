@@ -16,6 +16,7 @@
 // source's own list, since their CoinGecko ids weren't independently
 // confirmed there either. A missing price is a real, disclosed gap on
 // those specific chains, not silently guessed.
+import {marketUrl} from './marketHosts';
 
 export const SYMBOL_TO_COINGECKO_ID: Record<string, string> = {
   ETH: 'ethereum',
@@ -44,7 +45,7 @@ export async function fetchWalletPrices(currency = 'usd'): Promise<Record<string
   if (inFlight) return inFlight;
 
   const ids = [...new Set(Object.values(SYMBOL_TO_COINGECKO_ID))];
-  const promise = fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=${currency}`)
+  const promise = fetch(`${marketUrl('coingecko', '/api/v3/simple/price')}?ids=${ids.join(',')}&vs_currencies=${currency}`)
     .then(res => {
       if (!res.ok) throw new Error(`CoinGecko price fetch failed: ${res.status}`);
       return res.json() as Promise<Record<string, Record<string, number>>>;

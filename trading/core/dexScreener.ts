@@ -1,4 +1,5 @@
 import { NEAR_ENABLED, type ChainKey, type TradeChain } from './chainData';
+import {marketUrl} from './marketHosts';
 
 const DEXSCREENER_CHAIN_IDS: Partial<Record<ChainKey, string>> = {
   ethereum: 'ethereum',
@@ -122,7 +123,7 @@ export async function resolveDexScreenerPair({
 async function resolveDexScreenerPairUncached(chainId: string, tokenAddress: string): Promise<ResolvedPair | null> {
   try {
     const response = await fetch(
-      `https://api.dexscreener.com/latest/dex/tokens/${encodeURIComponent(tokenAddress)}`,
+      marketUrl('dexscreener', `/latest/dex/tokens/${encodeURIComponent(tokenAddress)}`),
     );
     if (!response.ok) return null;
     const body = (await response.json()) as { pairs?: DexScreenerPair[] };
