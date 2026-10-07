@@ -117,7 +117,7 @@ async function solanaOutputVerificationFor(quote: RelayQuote, intent: Transactio
   const output = quote.details?.currencyOut;
   const mint = output?.currency?.address;
   const minimumAmount = output?.minimumAmount ?? output?.amount;
-  if (!mint || !minimumAmount || !/^\\d+$/.test(minimumAmount)) return {};
+  if (!mint || !minimumAmount || !/^\d+$/.test(minimumAmount)) return {};
   if (mint === SYSTEM_PROGRAM_ID || mint === 'So11111111111111111111111111111111111111112') return {};
   try {
     const [{PublicKey}, splToken] = await Promise.all([import('@solana/web3.js'), import('@solana/spl-token')]);

@@ -2,11 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { kivoTheme } from '../theme/kivoTheme';
 import { CHAIN_LABEL, TOKEN_ADDRESSES, type ChainKey } from '@kivo/trading/core/chainData';
-import { fetchCashBalances, pickPayChain, totalCashUsd, readTokenBalance, type CashBalanceRow, type TokenBalance } from '@kivo/trading/kivo/balances';
+import { fetchCashBalances, totalCashUsd, readTokenBalance, type CashBalanceRow, type TokenBalance } from '@kivo/trading/kivo/balances';
+import { planUnifiedBuy, totalSpendableCash, type UnifiedPlan } from '@kivo/trading/kivo/unified';
 import { explorerTxUrl, KivoExecutionError, preflightKivoQuote, relayRequestUrl, type ExecutionUpdate } from '@kivo/trading/kivo/execute';
 import { executeKivoQuoteGasless, fetchGaslessStatus, type GaslessStatus } from '@kivo/trading/kivo/gasless';
 import { recordTrade } from '@kivo/trading/kivo/history';
-import { describeQuoteError, isQuoteExpired, parseAmountInput, requestKivoQuote, type KivoQuote } from '@kivo/trading/kivo/quote';
+import { describeQuoteError, isQuoteExpired, parseAmountInput, requestKivoQuote } from '@kivo/trading/kivo/quote';
 import { chainLabel, formatAmount, formatUsd, nativeSymbol, shortAddress, tradeSupportFor, type KivoToken, type TradeSide } from '@kivo/trading/kivo/tokens';
 import { getWalletSession, subscribeToWallet, walletKind, withDeviceAccount, type WalletSession } from '../state/walletStore';
 import { addNotification } from '../state/notificationStore';
@@ -33,11 +34,10 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const [amount, setAmount] = useState('');
   const [wallet, setWallet] = useState<WalletSession | null>(getWalletSession());
   const [cash, setCash] = useState<CashBalanceRow[] | null>(null);
-  const [payChain, setPayChain] = useState<ChainKey | null>(null);
-  const [payManual, setPayManual] = useState(false);
   const [tokenBalance, setTokenBalance] = useState<TokenBalance | null>(null);
   const [balanceError, setBalanceError] = useState('');
-  const [quote, setQuote] = useState<KivoQuote | null>(null);
+  // Buy: a unified-cash plan (one or more legs). Sell: a single-leg plan.
+  const [plan, setQuote] = useState<UnifiedPlan | null>(null);
   const [quoteState, setQuoteState] = useState<QuoteState>('idle');
   const [quoteError, setQuoteError] = useState('');
   const [now, setNow] = useState(Date.now());
@@ -65,7 +65,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   // Reset the ticket whenever the token, side or wallet changes.
   useEffect(() => {
     setAmount(''); setQuote(null); setQuoteState('idle'); setQuoteError(''); setResult(null);
-    setCash(null); setTokenBalance(null); setBalanceError(''); setPayManual(false);
+    setCash(null); setTokenBalance(null); setBalanceError('');
     quoteSeq.current++;
   }, [selectedToken?.chainKey, selectedToken?.tokenAddress, side, address]);
 
@@ -77,7 +77,6 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
     fetchCashBalances(address).then(rows => {
       if (cancelled) return;
       setCash(rows);
-      if (side === 'buy') setPayChain(current => current && rows.some(r => r.chainKey === current) ? current : pickPayChain(rows, token.chainKey, null));
     });
     if (side === 'sell') {
       readTokenBalance(token.chainKey, token.tokenAddress, address, token.symbol)
@@ -89,7 +88,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   }, [token?.chainKey, token?.tokenAddress, side, address]);
 
   const available = side === 'buy'
-    ? (() => { const row = cash?.find(r => r.chainKey === payChain); return row?.status === 'ok' ? row.balance.amount : null; })()
+    ? (cash && token ? totalSpendableCash(cash, token.chainKey) : null)
     : tokenBalance?.amount ?? null;
   const parsed = parseAmountInput(amount);
   const amountProblem = !amount.trim() ? null : parsed == null ? 'Enter a valid amount greater than zero.'
@@ -97,19 +96,24 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
 
   const fetchQuote = useCallback(async () => {
     if (!token || !address || parsed == null || amountProblem) return;
-    if (side === 'buy' && !payChain) return;
+    if (side === 'buy' && !cash) return;
     if (side === 'sell' && !tokenBalance) return;
     const seq = ++quoteSeq.current;
     setQuoteState('loading'); setQuote(null); setQuoteError('');
     try {
-      const next = await requestKivoQuote({ side, token, amount, userAddress: address, payChain: side === 'buy' ? payChain! : token.chainKey, tokenDecimals: tokenBalance?.decimals ?? 18, slippageBps: settings.slippageBps ?? undefined, execution: 'gasless' });
+      const next: UnifiedPlan = side === 'buy'
+        ? await planUnifiedBuy({ token, amountUsd: parsed, userAddress: address, cash: cash!, slippageBps: settings.slippageBps ?? undefined })
+        : await (async () => {
+            const single = await requestKivoQuote({ side, token, amount, userAddress: address, payChain: token.chainKey, tokenDecimals: tokenBalance?.decimals ?? 18, slippageBps: settings.slippageBps ?? undefined, execution: 'gasless' });
+            return { legs: [{ chainKey: token.chainKey, amountUsd: single.view.pay.usd ?? 0, quote: single }], view: single.view };
+          })();
       if (seq !== quoteSeq.current) return;
       setQuote(next); setQuoteState('ready');
     } catch (error) {
       if (seq !== quoteSeq.current) return;
       setQuoteState('error'); setQuoteError(describeQuoteError(error));
     }
-  }, [token, address, parsed, amountProblem, side, payChain, tokenBalance, amount, settings.slippageBps]);
+  }, [token, address, parsed, amountProblem, side, cash, tokenBalance, amount, settings.slippageBps]);
 
   // Debounced auto-quote while typing.
   useEffect(() => {
@@ -119,7 +123,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
     const timer = setTimeout(fetchQuote, 650);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [amount, payChain, tokenBalance?.decimals, settings.slippageBps]);
+  }, [amount, cash, tokenBalance?.decimals, settings.slippageBps]);
 
   useEffect(() => {
     if (quoteState !== 'ready') return;
@@ -128,11 +132,11 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   }, [quoteState]);
 
   const preflight = useMemo(() => {
-    if (!quote || !address) return null;
-    try { return { ok: true as const, warnings: preflightKivoQuote(quote, address).warnings }; }
+    if (!plan || !address) return null;
+    try { return { ok: true as const, warnings: plan.legs.flatMap(leg => preflightKivoQuote(leg.quote, address).warnings) }; }
     catch (error) { return { ok: false as const, error: error instanceof Error ? error.message : 'Safety check failed.' }; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quote, address, reviewOpen]);
+  }, [plan, address, reviewOpen]);
 
   const choosePreset = (pct: number) => {
     if (available == null) return;
@@ -147,12 +151,29 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   };
 
   const execute = async () => {
-    if (!quote || !token || running) return;
+    if (!plan || !token || running) return;
     setRunning(true); setResult(null); setUpdate(null);
-    const view = quote.view;
+    const view = plan.view;
     const tokenInfo = { chainKey: token.chainKey, address: token.tokenAddress, symbol: token.symbol, name: token.name, imageUrl: token.imageUrl };
     try {
-      const outcome = await withDeviceAccount(`Confirm ${side} ${token.symbol}`, account => executeKivoQuoteGasless(quote, account, setUpdate));
+      // One unlock, then each leg in turn (mango-pro executes unified-cash legs sequentially).
+      const outcome = await withDeviceAccount(`Confirm ${side} ${token.symbol}`, async account => {
+        const done = { status: 'success' as 'success' | 'pending' | 'refunded', txHashes: [] as string[], chainIds: [] as number[], requestId: null as string | null };
+        for (let index = 0; index < plan.legs.length; index++) {
+          const leg = plan.legs[index];
+          try {
+            const legResult = await executeKivoQuoteGasless(leg.quote, account, setUpdate);
+            done.txHashes.push(...legResult.txHashes); done.chainIds.push(...legResult.chainIds);
+            done.requestId = done.requestId ?? legResult.requestId;
+            if (legResult.status !== 'success') done.status = legResult.status;
+          } catch (legError) {
+            const message = legError instanceof Error ? legError.message : 'Trade failed.';
+            const partial = index > 0 ? ` ${index} of ${plan.legs.length} parts already completed; the rest was not sent.` : '';
+            throw new KivoExecutionError(message + partial, [...done.txHashes, ...(legError instanceof KivoExecutionError ? legError.txHashes : [])]);
+          }
+        }
+        return done;
+      });
       const tone = outcome.status === 'success' ? 'success' : 'pending';
       const message = outcome.status === 'success' ? `${side === 'buy' ? 'Bought' : 'Sold'} ${token.symbol}.`
         : outcome.status === 'refunded' ? 'The route could not be filled and was refunded.' : 'Submitted — the route is still settling.';
@@ -176,13 +197,13 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
     setResult(null); setUpdate(null);
   };
 
-  const view = quote?.view;
+  const view = plan?.view;
   const expired = view ? isQuoteExpired(view, now) : false;
 
   const feePct = view && view.fees.appUsd != null && view.pay.usd ? (view.fees.appUsd / view.pay.usd) * 100 : null;
   const cashTotal = cash ? totalCashUsd(cash).total : null;
   const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && walletKind(wallet) === 'evm-local' && gasless?.available === true;
-  const tradeChain = side === 'buy' && payChain ? payChain : token?.chainKey ?? selectedToken?.chainKey ?? null;
+  const tradeChain = token?.chainKey ?? selectedToken?.chainKey ?? null;
   const receiveSymbol = side === 'buy' ? token?.symbol ?? '' : token && TOKEN_ADDRESSES.USDC?.[token.chainKey] ? 'USDC' : token ? nativeSymbol(token.chainKey) : '';
   const hint = !wallet ? 'Create or import a Kivo wallet on this phone to trade.'
     : gasless && !gasless.available ? gasless.reason ?? 'Gasless trading is not available right now.'
@@ -207,8 +228,8 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
         <Text style={styles.cashValue}>{!wallet ? '—' : cashTotal == null ? '…' : settings.hideBalances ? '••••' : formatUsd(cashTotal)}</Text>
       </View>
       <View style={styles.toolbar}>
-        <Pressable onPress={() => { if (side === 'buy' && cash) setChainOpen(true); }} style={[styles.pill, styles.grow]}>
-          <Text style={styles.pillMuted} numberOfLines={1}>{side === 'buy' ? 'Paying on ' : 'Trading on '}<Text style={styles.pillStrong}>{tradeChain ? chainLabel(tradeChain) : '—'}</Text>{side === 'buy' && cash ? '  ›' : ''}</Text>
+        <Pressable onPress={() => { if (cash) setChainOpen(true); }} style={[styles.pill, styles.grow]}>
+          <Text style={styles.pillMuted} numberOfLines={1}>Trading on <Text style={styles.pillStrong}>{tradeChain ? chainLabel(tradeChain) : '—'}</Text>{cash ? '  ›' : ''}</Text>
         </Pressable>
         <Pressable onPress={onToken} style={styles.pill}><Text style={styles.pillStrong}>⌕  Search</Text></Pressable>
         <Pressable onPress={() => setSettingsOpen(true)} style={styles.round} accessibilityLabel="Trade settings"><Text style={styles.gear}>⚙</Text></Pressable>
@@ -298,18 +319,19 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       <Modal visible={chainOpen} transparent animationType="slide" onRequestClose={() => setChainOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setChainOpen(false)}>
           <Pressable style={styles.sheet} onPress={() => {}}>
-            <Text style={styles.sheetTitle}>Pay with USDC on</Text>
-            {(cash ?? []).filter(r => r.status === 'error' || r.balance.amount > 0 || r.chainKey === payChain).map(row => {
-              const usable = row.status === 'ok' && row.balance.amount > 0;
+            <Text style={styles.sheetTitle}>Your cash</Text>
+            <Text style={styles.noticeText}>Buys spend your total USDC across every network. You never pick a chain: Kivo routes each part straight to {tradeChain ? chainLabel(tradeChain) : 'the token'}, gas-free.</Text>
+            {(cash ?? []).filter(r => r.status === 'error' || r.balance.amount > 0).map(row => {
+              const leg = plan?.legs.find(l => l.chainKey === row.chainKey);
               return (
-                <Pressable key={row.chainKey} disabled={!usable} onPress={() => { setPayChain(row.chainKey); setPayManual(true); setChainOpen(false); }} style={[styles.payRow, row.chainKey === payChain && styles.payRowSelected, !usable && styles.disabled]}>
+                <View key={row.chainKey} style={[styles.payRow, leg && styles.payRowSelected]}>
                   <Text style={styles.payName}>{CHAIN_LABEL[row.chainKey]}</Text>
                   <Text style={styles.payAmount}>{row.status === 'ok' ? `${formatAmount(row.balance.amount, 2)} USDC` : 'Unavailable'}</Text>
-                  {row.chainKey === payChain && <Text style={styles.check}>✓</Text>}
-                </Pressable>
+                  {leg && <Text style={styles.check}>  uses {leg.amountUsd.toFixed(2)}</Text>}
+                </View>
               );
             })}
-            <Text style={styles.small}>{payManual ? 'Chosen manually.' : 'Kivo picked the chain with enough USDC, preferring the token’s own chain.'}</Text>
+            {plan && plan.legs.length > 1 && side === 'buy' && <Text style={styles.small}>This buy is split across {plan.legs.length} networks, each part checked by the firewall and signed together.</Text>}
           </Pressable>
         </Pressable>
       </Modal>

@@ -96,7 +96,7 @@ export function buildQuoteView(request: KivoTradeRequest, quote: RelayQuote, inp
   const outDecimals = details.currencyOut?.currency?.decimals ?? output.decimals;
   let minimumReceived: string | null = null;
   const minimumRaw = details.currencyOut?.minimumAmount;
-  if (typeof minimumRaw === 'string' && /^\\d+$/.test(minimumRaw)) { try { minimumReceived = formatUnits(BigInt(minimumRaw), outDecimals); } catch { minimumReceived = null; } }
+  if (typeof minimumRaw === 'string' && /^\d+$/.test(minimumRaw)) { try { minimumReceived = formatUnits(BigInt(minimumRaw), outDecimals); } catch { minimumReceived = null; } }
   const tagged = intentForQuote(quote);
   const quotedAt = tagged?.quotedAt ?? Date.now();
   const slippageBps = num(details.slippageTolerance?.total);
