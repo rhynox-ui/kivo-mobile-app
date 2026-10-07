@@ -1,0 +1,123 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import type { ApiCommunity, ApiMember } from '@kivo/shared/api/types';
+import { canDemoteGroupAdmin, canPromoteGroupAdmin, canRemoveGroupMember } from '@kivo/shared/social/rules';
+import type { KivoGroup } from '@kivo/shared/social/types';
+import { refreshConversations } from '@kivo/shared/chat/store';
+import { getProfile } from '@kivo/shared/profile/store';
+import { kivoTheme } from '../theme/kivoTheme';
+import { api, socialReady } from '../state/session';
+import { Avatar } from './ChatListScreen';
+
+function memberName(member: ApiMember) {
+  if (member.profile?.username) return '@' + member.profile.username;
+  const address = member.userId.replace(/^kivo:/, '');
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
+
+/** Group/channel info: description, members/team and owner-controlled roles (same rules as web and the API). */
+export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: string; onBack: () => void; onOpenChat: (id: string) => void; onOpenPerson?: (userId: string) => void }) {
+  const [data, setData] = useState<{ community: ApiCommunity; members: ApiMember[] } | null>(null);
+  const [error, setError] = useState('');
+  const [address, setAddress] = useState('');
+  const load = useCallback(() => api.community(id).then(setData).catch(e => setError(e instanceof Error ? e.message : 'Not available.')), [id]);
+  useEffect(() => { void load(); }, [load]);
+
+  const run = (action: () => Promise<unknown>, done?: () => void) => async () => {
+    if (!socialReady()) { Alert.alert('Kivo', 'Turn on chats first (Chats tab).'); return; }
+    try { await action(); await refreshConversations().catch(() => {}); done ? done() : void load(); }
+    catch (e) { Alert.alert('Community', e instanceof Error ? e.message : 'Action failed.'); }
+  };
+
+  if (error) return <View style={styles.root}><Header title="Community" onBack={onBack} /><Text style={styles.muted}>{error}</Text></View>;
+  if (!data) return <View style={styles.root}><Header title="Community" onBack={onBack} /><ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 40 }} /></View>;
+
+  const { community: c, members } = data;
+  const me = socialReady() ? getProfile().userId : null;
+  const isChannel = c.kind === 'channel';
+  const manager = c.myRole === 'owner' || c.myRole === 'admin';
+  const group: KivoGroup = { id: c.id, name: c.name, ownerId: c.ownerId, adminIds: members.filter(m => m.role === 'admin').map(m => m.userId), memberCount: c.memberCount };
+
+  return (
+    <View style={styles.root}>
+      <Header title={c.name} onBack={onBack} onShare={() => Share.share({ message: `Join ${c.name} on Kivo: https://kivo-web.pages.dev/${c.kind}/${c.id}` })} />
+      <ScrollView contentContainerStyle={styles.body}>
+        <View style={styles.hero}>
+          <Avatar name={c.name} uri={c.avatarUrl} size={88} />
+          <Text style={styles.title}>{c.name}</Text>
+          <Text style={styles.muted}>{c.visibility === 'private' ? 'Private' : 'Public'} {isChannel ? 'channel' : 'group'} · {c.memberCount} {isChannel ? 'subscribers' : 'members'} · {c.postCount} {isChannel ? 'posts' : 'messages'}</Text>
+          {c.description ? <Text style={styles.description}>{c.description}</Text> : null}
+          {c.myRole ? <Text style={styles.role}>{c.myRole.toUpperCase()}</Text> : null}
+          {c.myRole
+            ? <Pressable onPress={() => onOpenChat(c.id)} style={styles.primary}><Text style={styles.primaryText}>{isChannel ? 'Open channel' : 'Open chat'}</Text></Pressable>
+            : <Pressable onPress={run(() => api.join(c.id), () => onOpenChat(c.id))} style={styles.primary}><Text style={styles.primaryText}>{c.visibility === 'private' ? 'Private' : isChannel ? 'Subscribe' : 'Join group'}</Text></Pressable>}
+        </View>
+
+        {manager && <View style={styles.card}>
+          <Text style={styles.cardTitle}>Add member</Text>
+          <TextInput value={address} onChangeText={setAddress} autoCapitalize="none" autoCorrect={false} placeholder="0x… wallet address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.input} />
+          <Pressable onPress={run(async () => { if (!/^0x[0-9a-fA-F]{40}$/.test(address.trim())) throw new Error('Enter a valid 0x wallet address.'); await api.addMember(c.id, address.trim()); setAddress(''); })} style={styles.secondary}><Text style={styles.secondaryText}>Add</Text></Pressable>
+        </View>}
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>{isChannel && !manager ? 'Team' : 'Members'} · {members.length}</Text>
+          {members.length === 0 ? <Text style={styles.muted}>{c.myRole ? 'No members to show.' : 'Join to see members.'}</Text> : members.map(member => {
+            const target = member.userId;
+            return (
+              <View key={target} style={styles.memberRow}>
+                <Pressable onPress={() => onOpenPerson?.(target)} style={styles.memberMain}>
+                  <Avatar name={memberName(member)} uri={member.profile?.avatarUrl} size={38} />
+                  <View style={styles.flex}><Text style={styles.memberName}>{memberName(member)}</Text><Text style={styles.small}>{member.role === 'owner' ? 'Owner · protected' : member.role === 'admin' ? 'Admin' : 'Member'}</Text></View>
+                </Pressable>
+                {me && canPromoteGroupAdmin(me, target, group) && <Pressable onPress={run(() => api.setAdmin(c.id, target, true))} style={styles.chip}><Text style={styles.chipText}>Make admin</Text></Pressable>}
+                {me && canDemoteGroupAdmin(me, target, group) && <Pressable onPress={run(() => api.setAdmin(c.id, target, false))} style={styles.chip}><Text style={styles.chipText}>Remove admin</Text></Pressable>}
+                {me && canRemoveGroupMember(me, target, group) && <Pressable onPress={() => Alert.alert('Remove', `Remove ${memberName(member)}?`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: run(() => api.removeMember(c.id, target)) }])}><Text style={styles.danger}>Remove</Text></Pressable>}
+              </View>
+            );
+          })}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Permissions</Text>
+          <Text style={styles.muted}>Owner: full control, cannot be removed or demoted. Only the owner promotes or demotes admins. {isChannel ? 'Owner and admins post; subscribers read.' : 'Admins add and remove regular members only.'} Admin is never ownership.</Text>
+        </View>
+        {c.myRole && c.myRole !== 'owner' && <Pressable onPress={run(() => api.leave(c.id), onBack)} style={styles.leave}><Text style={styles.danger}>{isChannel ? 'Unsubscribe' : 'Leave group'}</Text></Pressable>}
+      </ScrollView>
+    </View>
+  );
+}
+
+function Header({ title, onBack, onShare }: { title: string; onBack: () => void; onShare?: () => void }) {
+  return <View style={styles.header}><Pressable onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>{onShare ? <Pressable onPress={onShare}><Text style={styles.share}>Share</Text></Pressable> : <View />}</View>;
+}
+
+const c = kivoTheme.colors;
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: c.background },
+  header: { minHeight: 60, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: c.border },
+  back: { color: c.cream, fontSize: 36, width: 24 },
+  headerTitle: { flex: 1, color: c.text, fontSize: 17, fontWeight: '800' },
+  share: { color: c.accent, fontWeight: '800' },
+  body: { padding: 18, gap: 12, paddingBottom: 40 },
+  hero: { alignItems: 'center', gap: 8, paddingVertical: 8 },
+  title: { color: c.text, fontSize: 24, fontWeight: '800', textAlign: 'center' },
+  description: { color: c.text, fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  role: { color: c.accent, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
+  muted: { color: c.textMuted, fontSize: 12.5, lineHeight: 18, textAlign: 'center' },
+  small: { color: c.textMuted, fontSize: 11.5 },
+  primary: { marginTop: 6, alignSelf: 'stretch', height: 50, borderRadius: 25, backgroundColor: c.cream, alignItems: 'center', justifyContent: 'center' },
+  primaryText: { color: c.backgroundDeep, fontWeight: '900' },
+  card: { padding: 14, borderRadius: 18, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, gap: 8 },
+  cardTitle: { color: c.text, fontWeight: '800', fontSize: 15 },
+  input: { borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: c.text, backgroundColor: c.backgroundDeep },
+  secondary: { height: 42, borderRadius: 21, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
+  secondaryText: { color: c.cream, fontWeight: '800' },
+  memberRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, borderTopWidth: 1, borderTopColor: c.border },
+  memberMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  flex: { flex: 1 },
+  memberName: { color: c.text, fontWeight: '700' },
+  chip: { borderWidth: 1, borderColor: c.border, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  chipText: { color: c.cream, fontSize: 11, fontWeight: '800' },
+  danger: { color: c.danger, fontWeight: '800', fontSize: 12.5 },
+  leave: { alignItems: 'center', padding: 14 },
+});
