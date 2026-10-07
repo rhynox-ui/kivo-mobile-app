@@ -16,11 +16,8 @@
   "exclude": [
     "node_modules",
     "android",
-    "trading/core/executeRelayQuote.ts",
     "trading/core/fallbackDex.ts",
     "trading/core/fallbackTxFirewall.ts",
-    "trading/core/solanaSpendGuard.ts",
-    "trading/core/solanaTxIntent.ts",
     "trading/core/tradeErrors.ts",
     "trading/core/usdcBalances.ts"
   ]
