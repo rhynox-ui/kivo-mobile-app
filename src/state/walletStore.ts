@@ -1,10 +1,33 @@
 import * as Keychain from 'react-native-keychain';
+import { Platform } from 'react-native';
 import { english, generateMnemonic, mnemonicToAccount, type HDAccount } from 'viem/accounts';
 import { createWalletClient, getAddress, type Hex } from 'viem';
 import { transportFor, viemChainForChainId } from '@kivo/trading/core/chainRegistry';
 import type { EvmCall, KivoEvmSigner } from '@kivo/trading/kivo/execute';
 
 const SERVICE = 'com.kivo.chat.wallet';
+
+async function walletStorageOptions() {
+  const options: Keychain.SetOptions = {
+    service: SERVICE,
+    accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  };
+  // Android 23+ uses Android Keystore for react-native-keychain. Prefer
+  // hardware-backed protection when the device actually exposes it, but do
+  // not make wallet creation fail on devices that only provide secure software.
+  if (Platform.OS === 'android') {
+    try {
+      const level = await Keychain.getSecurityLevel();
+      options.securityLevel = level === Keychain.SECURITY_LEVEL.SECURE_HARDWARE
+        ? Keychain.SECURITY_LEVEL.SECURE_HARDWARE
+        : Keychain.SECURITY_LEVEL.SECURE_SOFTWARE;
+    } catch {
+      // Keep the platform's normal secure-storage default if the capability
+      // query is unavailable on this device.
+    }
+  }
+  return options;
+}
 
 export type WalletSession = {
   address: string;
@@ -19,7 +42,7 @@ function emit(){const value=session?{...session}:null;listeners.forEach(listener
 export async function createLocalWallet(){
   const mnemonic=generateMnemonic(english,128);
   const account=mnemonicToAccount(mnemonic);
-  await Keychain.setGenericPassword('kivo',mnemonic,{service:SERVICE});
+  await Keychain.setGenericPassword('kivo',mnemonic,await walletStorageOptions());
   session={address:account.address,source:'local'};
   emit();
   return {mnemonic,address:account.address};
@@ -29,7 +52,7 @@ export async function importLocalWallet(mnemonic:string){
   const normalized=mnemonic.trim().replace(/\s+/g,' ');
   if(normalized.split(' ').length!==12&&normalized.split(' ').length!==24) throw new Error('Recovery phrase must contain 12 or 24 words.');
   const account=mnemonicToAccount(normalized);
-  await Keychain.setGenericPassword('kivo',normalized,{service:SERVICE});
+  await Keychain.setGenericPassword('kivo',normalized,await walletStorageOptions());
   session={address:account.address,source:'local'};
   emit();
   return {address:account.address};
@@ -55,12 +78,14 @@ export async function enableBiometricUnlock(){
   if(!credentials) throw new Error('No local wallet is available on this device.');
   const supported=await Keychain.getSupportedBiometryType();
   if(!supported) throw new Error('This device does not report a supported biometric method.');
-  await Keychain.setGenericPassword('kivo',credentials.password,{service:SERVICE,accessControl:Keychain.ACCESS_CONTROL.BIOMETRY_CURRENT_SET,accessible:Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,authenticationPrompt:'Authenticate to protect your Kivo wallet'});
+  await Keychain.setGenericPassword('kivo',credentials.password,{...(await walletStorageOptions()),accessControl:Keychain.ACCESS_CONTROL.BIOMETRY_CURRENT_SET,authenticationPrompt:'Authenticate to protect your Kivo wallet'});
   return supported;
 }
 
 export async function clearLocalWallet(){
   await Keychain.resetGenericPassword({service:SERVICE});
+  const remaining=await Keychain.getGenericPassword({service:SERVICE});
+  if (remaining) throw new Error('Kivo could not verify secure wallet deletion.');
   session=null;emit();
 }
 

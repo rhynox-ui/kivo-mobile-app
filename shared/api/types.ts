@@ -88,8 +88,25 @@ export type SyncResponse = {messages: ApiMessage[]; cursor: number; more: boolea
 
 export type AuthChallenge = {nonce: string; message: string};
 export type AuthSession = {token: string; expiresAt: number; profile: ApiProfile};
+export type ProfileApprovalChallenge = {nonce: string; message: string};
 
 /** Deterministic DM conversation id for two user ids. */
+export function profileApprovalMessage(address: string, nonce: string, issuedAt: number, origin: string, username: string, bio: string, avatarAction: 'keep' | 'remove' | 'upload'): string {
+  return [
+    'Kivo profile update approval.',
+    '',
+    `Address: ${address.toLowerCase()}`,
+    `Nonce: ${nonce}`,
+    `Issued: ${new Date(issuedAt).toISOString()}`,
+    `URI: ${origin}`,
+    `Username: @${username}`,
+    `Bio: ${bio}`,
+    `Avatar: ${avatarAction}`,
+    '',
+    'This signature approves only this Kivo profile update. It cannot move funds or approve blockchain transactions.',
+  ].join('\\n');
+}
+
 export function dmConversationId(a: string, b: string): string {
   const [x, y] = [a.toLowerCase(), b.toLowerCase()].sort();
   return `dm_${x.replace(/^kivo:/, '')}_${y.replace(/^kivo:/, '')}`;

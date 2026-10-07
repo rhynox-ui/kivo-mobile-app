@@ -39,9 +39,25 @@ export async function fetchTokenMarket(chainKey: TradeChain, tokenAddress: strin
     let bestLiquidity = -1;
     for (const pair of Array.isArray(body?.pairs) ? body.pairs : []) {
       if (pair?.chainId !== chainId || !pair.pairAddress) continue;
-      if (pair.baseToken?.address?.toLowerCase() !== tokenAddress.toLowerCase()) continue;
+      const target = tokenAddress.toLowerCase();
+      const isBase = pair.baseToken?.address?.toLowerCase() === target;
+      const isQuote = pair.quoteToken?.address?.toLowerCase() === target;
+      if (!isBase && !isQuote) continue;
       const liquidity = num(pair.liquidity?.usd) ?? 0;
       if (liquidity > bestLiquidity) { bestLiquidity = liquidity; best = pair; }
+    }
+    if (!best || !best.pairAddress) {
+      const searchResponse = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(tokenAddress)}`);
+      if (searchResponse.ok) {
+        const searchBody = (await searchResponse.json()) as {pairs?: FullPair[]};
+        for (const pair of Array.isArray(searchBody?.pairs) ? searchBody.pairs : []) {
+          if (pair?.chainId !== chainId || !pair.pairAddress) continue;
+          const target = tokenAddress.toLowerCase();
+          if (pair.baseToken?.address?.toLowerCase() !== target && pair.quoteToken?.address?.toLowerCase() !== target) continue;
+          const liquidity = num(pair.liquidity?.usd) ?? 0;
+          if (liquidity > bestLiquidity) { bestLiquidity = liquidity; best = pair; }
+        }
+      }
     }
     if (!best || !best.pairAddress) return null;
     const socialLinks: TokenSocialLink[] = [];
@@ -55,8 +71,8 @@ export async function fetchTokenMarket(chainKey: TradeChain, tokenAddress: strin
       token: {
         chainKey,
         tokenAddress,
-        symbol: String(best.baseToken?.symbol ?? '?'),
-        name: String(best.baseToken?.name ?? best.baseToken?.symbol ?? 'Unknown token'),
+        symbol: String((best.baseToken?.address?.toLowerCase() === tokenAddress.toLowerCase() ? best.baseToken?.symbol : best.quoteToken?.symbol) ?? '?'),
+        name: String((best.baseToken?.address?.toLowerCase() === tokenAddress.toLowerCase() ? best.baseToken?.name : best.quoteToken?.name) ?? best.quoteToken?.symbol ?? 'Unknown token'),
         imageUrl: typeof best.info?.imageUrl === 'string' ? best.info.imageUrl : null,
         priceUsd: num(best.priceUsd),
         change24h: num(best.priceChange?.h24),

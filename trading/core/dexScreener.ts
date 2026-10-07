@@ -43,6 +43,7 @@ export type DexScreenerPair = {
   pairAddress?: string;
   liquidity?: { usd?: number };
   baseToken?: { address?: string; symbol?: string; name?: string };
+  quoteToken?: { address?: string; symbol?: string; name?: string };
   priceUsd?: string;
   priceChange?: { h24?: number };
   marketCap?: number;

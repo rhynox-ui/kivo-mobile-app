@@ -5,6 +5,7 @@ import { API_LIMITS } from '@kivo/shared/api/types';
 import { validBio, validProfileUsername } from '../domain/socialValidation';
 import { getProfile, updateProfile } from '../state/profileStore';
 import { api, socialReady } from '../state/session';
+import { signMessageWithLocalWallet } from '../state/walletStore';
 import { getWalletSession } from '../state/walletStore';
 import { KivoMark } from '../components/KivoMark';
 import { kivoTheme } from '../theme/kivoTheme';
@@ -35,13 +36,23 @@ export function EditProfileScreen({ onBack }: { onBack: () => void }) {
     try {
       let finalAvatar = avatarUri;
       if (socialReady()) {
+        const avatarAction: 'keep' | 'remove' | 'upload' = avatarFile ? 'upload' : avatarUri ? 'keep' : 'remove';
+        const approval = await api.requestProfileApproval({ username, bio, avatarAction });
+        const signature = await signMessageWithLocalWallet(approval.message);
         let avatarKey: string | null | undefined;
         if (avatarFile) {
           const bytes = await (await fetch(avatarFile.uri)).blob();
           const uploaded = await api.uploadImage(bytes, avatarFile.type, 'avatar');
           avatarKey = uploaded.key;
-        } else if (!avatarUri) avatarKey = null;
-        const saved = await api.updateProfile({ username, bio, ...(avatarKey !== undefined ? { avatarKey } : {}) });
+        } else if (avatarAction === 'remove') avatarKey = null;
+        const saved = await api.updateProfile({
+          username,
+          bio,
+          ...(avatarKey !== undefined ? { avatarKey } : {}),
+          approvalNonce: approval.nonce,
+          approvalSignature: signature,
+          approvalAvatarAction: avatarAction,
+        });
         finalAvatar = saved.avatarUrl ?? undefined;
       }
       updateProfile({ username, bio, avatarUri: finalAvatar });

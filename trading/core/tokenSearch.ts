@@ -58,7 +58,11 @@ async function searchDexScreener(query: string): Promise<TokenSearchResult[]> {
 
     for (const pair of pairs) {
       const chainKey = pair?.chainId ? tradeChainForDexScreenerChainId(pair.chainId) : null;
-      const tokenAddress = pair?.baseToken?.address;
+      const baseAddress = pair?.baseToken?.address;
+      const quoteAddress = pair?.quoteToken?.address;
+      const matchesBase = typeof baseAddress === 'string' && baseAddress.toLowerCase() === query.trim().toLowerCase();
+      const matchesQuote = typeof quoteAddress === 'string' && quoteAddress.toLowerCase() === query.trim().toLowerCase();
+      const tokenAddress = matchesBase ? baseAddress : matchesQuote ? quoteAddress : baseAddress;
       if (!chainKey || typeof tokenAddress !== 'string' || !tokenAddress) continue;
 
       const liquidityUsd = Number(pair?.liquidity?.usd);
@@ -81,8 +85,8 @@ async function searchDexScreener(query: string): Promise<TokenSearchResult[]> {
       bestByKey.set(dedupeKey, {
         chainKey,
         tokenAddress,
-        symbol: String(pair?.baseToken?.symbol ?? '?'),
-        name: String(pair?.baseToken?.name ?? pair?.baseToken?.symbol ?? 'Unknown token'),
+        symbol: String(matchesQuote ? pair?.quoteToken?.symbol ?? '?' : pair?.baseToken?.symbol ?? '?'),
+        name: String(matchesQuote ? pair?.quoteToken?.name ?? pair?.quoteToken?.symbol ?? 'Unknown token' : pair?.baseToken?.name ?? pair?.baseToken?.symbol ?? 'Unknown token'),
         imageUrl,
         priceUsd: Number.isFinite(priceUsd) ? priceUsd : null,
         change24h: Number.isFinite(change24h) ? change24h : null,

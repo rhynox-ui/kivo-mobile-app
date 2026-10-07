@@ -25,7 +25,7 @@
 // third-party dependency (their own API, proxied through the backend
 // below).
 //
-// Quoting for 1inch/0x goes through mango-bridge.jsx's own backend proxy
+// Quoting for 1inch/0x goes through Kivo's own backend proxy
 // — same reason mobile's version does: both require a real developer
 // API key in the request header, and a key shipped inside a decompilable
 // mobile APK isn't a secret at all. This app holds none of its own; the
@@ -56,7 +56,7 @@
 //
 // sweepFallbackFeeFromNativeBalance below closes the one gap flagged
 // when this file was first written: mobile's own
-// settleFallbackFeeFromNativeBalance sweeps Mango's fee separately when
+// settleFallbackFeeFromNativeBalance sweeps Kivo's fee separately when
 // the winning provider didn't collect it inline (0x doesn't; 1inch's own
 // Integrator Fee does) — that depended on a live native-asset USD price
 // feed this app didn't have yet. walletPrices.ts now exists (same
@@ -101,7 +101,7 @@ import type {DerivedAccounts} from '../wallet/keys';
 // own Solana functions already avoid '@solana/web3.js' at their top level
 // for this exact reason — this follows the same established rule.
 
-const FALLBACK_QUOTE_URL = 'https://mangoprotocol.site/api/v1/bridge/fallback-quote';
+const FALLBACK_QUOTE_URL = 'https://kivotrade.site/api/fallback/quote';
 // Same RPC sendUsdc.ts and executeRelayQuote.ts already use for every
 // other direct Solana call this app makes.
 const SOLANA_RPC_URL = 'https://rpc.solanatracker.io/public';
@@ -152,7 +152,7 @@ async function fetchFallbackQuote({
 }): Promise<RawFallbackQuote> {
   // Same appFeeBps() every other quote path already uses — the backend
   // proxy forwards this rate as-is, converting to whatever unit each
-  // provider's own API expects (see fallback-quote.js, mango-bridge.jsx).
+  // provider's own API expects (see Kivo fallback proxy).
   const feeBps = isFeeExemptWallet(takerAddress) ? '0' : appFeeBps(originAmountUsd);
   const res = await fetch(FALLBACK_QUOTE_URL, {
     method: 'POST',
@@ -560,7 +560,7 @@ export async function tryFallbackProviders(params: FallbackExecuteParams): Promi
           entry.provider === 'pump-fun'
             ? await pumpfun.executePumpFunTrade({connection, session: params.session, mintAddress: parsed.mintAddress, side: parsed.side, amountBaseUnits})
             : await pumpswap.executePumpSwapTrade({connection, session: params.session, mintAddress: parsed.mintAddress, side: parsed.side, amountBaseUnits});
-        // Neither provider collects Mango's fee inline (no fee mechanism
+        // Neither provider collects Kivo's fee inline (no fee mechanism
         // built into either) — feeCollectedInline: false tells the
         // caller to run the post-success sweep, same contract as the
         // EVM path below. sweepFallbackFeeFromSolanaBalance (this

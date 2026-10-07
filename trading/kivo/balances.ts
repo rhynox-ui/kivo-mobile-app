@@ -4,9 +4,11 @@
 // an error row, never as a zero balance.
 
 import {erc20Abi, formatUnits, getAddress, type Address} from 'viem';
-import {MAINNET_CHAIN_IDS, TOKEN_ADDRESSES, assetDecimalsForChain, type ChainKey} from '../core/chainData';
+import {MAINNET_CHAIN_IDS, TOKEN_ADDRESSES, assetDecimalsForChain, currencyAddress, type ChainKey} from '../core/chainData';
 import {publicClientForChainId} from '../core/chainRegistry';
-import {USDC_CHAINS, nativeSymbol} from './tokens';
+import {EVM_TRADE_CHAINS, USDC_CHAINS, nativeSymbol} from './tokens';
+
+const EVM_CASH_CHAINS = EVM_TRADE_CHAINS;
 
 const READ_TIMEOUT_MS = 12_000;
 
@@ -98,3 +100,29 @@ export function pickPayChain(rows: CashBalanceRow[], tokenChain: ChainKey, amoun
 export function usdcDecimals(chainKey: ChainKey): number {
   return assetDecimalsForChain(chainKey, 'USDC') ?? 6;
 }
+
+export type PayBalanceRow = {
+  asset: {chainKey: ChainKey; address: string; symbol: string; decimals: number};
+  status: 'ok' | 'error';
+  balance?: TokenBalance;
+  error?: string;
+};
+
+/** Verified native + registry token balances allowed by the web trade ticket. */
+export async function fetchPayBalances(owner: string, chains: ChainKey[] = EVM_CASH_CHAINS): Promise<PayBalanceRow[]> {
+  const assets: Array<{chainKey: ChainKey; address: string; symbol: string; decimals: number}> = [];
+  for (const chainKey of chains) {
+    assets.push({chainKey, address: currencyAddress(chainKey, nativeSymbol(chainKey)), symbol: nativeSymbol(chainKey), decimals: assetDecimalsForChain(chainKey, nativeSymbol(chainKey)) ?? 18});
+    for (const symbol of VERIFIED_PAY_ASSETS) {
+      const address = TOKEN_ADDRESSES[symbol]?.[chainKey];
+      if (!address) continue;
+      assets.push({chainKey, address, symbol, decimals: assetDecimalsForChain(chainKey, symbol) ?? 18});
+    }
+  }
+  const settled = await Promise.allSettled(assets.map(asset => readTokenBalance(asset.chainKey, asset.address, owner, asset.symbol)));
+  return settled.map((outcome, index) => outcome.status === 'fulfilled'
+    ? {asset: assets[index], status: 'ok', balance: outcome.value}
+    : {asset: assets[index], status: 'error', error: outcome.reason instanceof Error ? outcome.reason.message : 'Balance unavailable.'});
+}
+
+export const VERIFIED_PAY_ASSETS = ['USDC', 'USDT', 'WBTC', 'USDT0', 'USDG'] as const;

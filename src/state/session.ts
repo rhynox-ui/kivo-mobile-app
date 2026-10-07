@@ -36,9 +36,18 @@ export async function startKivoSession() {
   await loadSettings();
   configureProfileStore({ storage });
   configureTradeHistory({ storage });
-  // Mobile model (like Mango Pro): the device wallet signs, the user only
-  // needs USDC, and Relay submits the trade with Kivo covering gas.
-  configureRelayEndpoints({ quoteUrl: `${KIVO_API_BASE_URL}/api/relay/quote`, sponsorship: true });
+  // Mobile model: the device wallet signs, the user only needs USDC, and
+  // Relay may submit gaslessly when Kivo's backend says sponsorship is live.
+  // Do not advertise/assume sponsorship merely because the client wants it.
+  let sponsorship = false;
+  try {
+    const response = await fetch(`${KIVO_API_BASE_URL}/api/relay/config`);
+    const body = await response.json().catch(() => ({})) as {gasless?: boolean};
+    sponsorship = response.ok && body.gasless === true;
+  } catch {
+    sponsorship = false;
+  }
+  configureRelayEndpoints({ quoteUrl: `${KIVO_API_BASE_URL}/api/relay/quote`, sponsorship });
   configureRelayExecuteUrl(`${KIVO_API_BASE_URL}/api/relay/execute`);
   configureGaslessStatusUrl(`${KIVO_API_BASE_URL}/api/relay/config`);
   // Phones are the archive: keep a deep local history per conversation.
@@ -91,8 +100,7 @@ async function pullServerProfile() {
     const local = getProfile();
     if (me.username && (me.username !== local.username || me.bio !== local.bio || (me.avatarUrl ?? undefined) !== local.avatarUri)) {
       updateProfile({ username: me.username, bio: me.bio, avatarUri: me.avatarUrl ?? undefined });
-    } else if (!me.username && local.username && !local.username.startsWith('kivo_')) {
-      await api.updateProfile({ username: local.username, bio: local.bio }).catch(() => {});
     }
+    // Never publish a local profile change silently. Profile mutations require an explicit wallet approval from the user.
   } catch { /* offline: keep the local copy */ }
 }
