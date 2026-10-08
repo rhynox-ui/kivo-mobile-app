@@ -158,7 +158,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
           ? (open.length ? open.map(h => (
             <View key={h.key} style={styles.position}>
               <View style={styles.tokenIcon}>{h.imageUrl ? <Image source={{ uri: h.imageUrl }} style={styles.tokenImage} /> : <Text style={styles.tokenLetter}>{h.symbol.slice(0, 1)}</Text>}</View>
-              <View style={styles.flex}><Text style={styles.tokenName}>{h.symbol}</Text><Text style={styles.small}>{hidden ? '••••' : formatAmount(h.amount)} · {CHAIN_LABEL[h.chainKey]}</Text>{!hidden && h.pnlUsd != null ? <Text style={[styles.small,h.pnlUsd>=0?styles.up:styles.down]}>PnL {h.pnlUsd>=0?'+':''}{formatUsd(h.pnlUsd)} {h.pnlPct!=null?`(${h.pnlPct>=0?'+':''}${h.pnlPct.toFixed(2)}%)`:''}</Text> : null}</View>
+              <View style={styles.flex}><Text style={styles.tokenName}>{h.symbol}</Text><Text style={styles.small}>{hidden ? '••••' : formatAmount(h.amount)} · {CHAIN_LABEL[h.chainKey]}</Text>{!hidden && h.pnlUsd != null ? <Text style={[styles.small,h.pnlUsd>=0?styles.up:styles.down]}>PnL {h.pnlUsd>=0?'+':''}{formatUsd(h.pnlUsd)} {h.pnlPct!=null?'('+(h.pnlPct>=0?'+':'')+h.pnlPct.toFixed(2)+'%)':''}</Text> : null}{!hidden && h.pnlUsd != null ? <Text style={[styles.small,h.pnlUsd>=0?styles.up:styles.down]}>PnL {h.pnlUsd>=0?'+':''}{formatUsd(h.pnlUsd)} {h.pnlPct!=null?`(${h.pnlPct>=0?'+':''}${h.pnlPct.toFixed(2)}%)`:''}</Text> : null}</View>
               <Text style={styles.positionValue}>{h.valueUsd == null ? 'No price' : money(h.valueUsd)}</Text>
             </View>
           )) : <Empty title="No positions yet" body="Your tokens and trading positions will appear here." />)
