@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Clipboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -217,24 +216,16 @@ function DepositSheet({
   onClose: () => void;
 }) {
   const [network, setNetwork] = useState<DepositNetwork | null>(null);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!visible) {
       setNetwork(null);
-      setCopied(false);
     }
   }, [visible]);
 
   const selected = network;
   const address = selected ? networkAddress(wallet, selected) : '';
 
-  const copyAddress = async () => {
-    if (!address) return;
-    await Clipboard.setString(address);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
-  };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -289,11 +280,8 @@ function DepositSheet({
                 {address || 'Address unavailable'}
               </Text>
               <View style={styles.addressActions}>
-                <Pressable disabled={!address} onPress={copyAddress} style={[styles.copyButton, !address && styles.disabled]}>
-                  <Text style={styles.copyButtonText}>{copied ? 'Copied' : 'Copy address'}</Text>
-                </Pressable>
                 <Pressable disabled={!address} onPress={() => Share.share({ message: address })} style={[styles.shareButton, !address && styles.disabled]}>
-                  <Text style={styles.shareButtonText}>Share</Text>
+                  <Text style={styles.shareButtonText}>Share address</Text>
                 </Pressable>
               </View>
 
@@ -626,8 +614,6 @@ const styles = StyleSheet.create({
   addressPanelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   addressLabel: { color: c.textMuted, fontSize: 11, fontWeight: '700' },
   addressActions: { flexDirection: 'row', gap: 8, marginTop: 8 },
-  copyButton: { flex: 1, height: 44, borderRadius: 14, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center' },
-  copyButtonText: { color: c.backgroundDeep, fontWeight: '900', fontSize: 13 },
   shareButton: { flex: 1, height: 44, borderRadius: 14, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' },
   shareButtonText: { color: c.text, fontWeight: '800', fontSize: 13 },
   addressFull: { color: c.text, fontSize: 14, fontWeight: '600', marginTop: 8, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
