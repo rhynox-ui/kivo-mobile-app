@@ -39,9 +39,9 @@ type Sheet = null | 'deposit' | 'withdraw';
 type DepositNetwork = ChainKey | 'near';
 type WithdrawNetwork = ChainKey | 'near';
 
-const DEPOSIT_CHAINS: ChainKey[] = [
+const DEPOSIT_CHAINS: DepositNetwork[] = [
   'ethereum', 'base', 'avalanche', 'arbitrum', 'unichain',
-  'solana', 'bnb', 'hyperevm', 'ink', 'abstract', 'xlayer', 'arc', 'robinhood',
+  'solana', 'bnb', 'hyperevm', 'ink', 'abstract', 'xlayer', 'arc', 'robinhood', 'near',
 ];
 
 const NETWORK_GLYPH: Partial<Record<ChainKey | 'near', string>> = {
