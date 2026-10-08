@@ -25,7 +25,7 @@ async function pickCompressedPhoto(): Promise<{ bytes: Blob; type: string; width
   return { bytes, type: asset.type === 'image/png' ? 'image/png' : 'image/jpeg', width: asset.width ?? 0, height: asset.height ?? 0, previewUrl: asset.uri };
 }
 
-export function ConversationScreen({ id, onBack, onOpenInfo }: { id: string; onBack?: () => void; onOpenInfo?: (id: string, kind: 'group' | 'channel') => void }) {
+export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { id: string; onBack?: () => void; onOpenInfo?: (id: string, kind: 'group' | 'channel') => void; onOpenPerson?: (userId: string) => void }) {
   useActiveConversation(id);
   const state = useChatState();
   const conversation = state.conversations.find(c => c.id === id);
@@ -107,7 +107,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo }: { id: string; onB
           return (
             <View style={[styles.bubbleRow, mine && styles.bubbleRowMine]}>
               <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted]}>
-                {item.showName && <Text style={styles.sender}>{displayName(message.senderId)}</Text>}
+                {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><Text style={styles.sender}>{displayName(message.senderId)}</Text></Pressable>}
                 {message.media && <Image source={{ uri: message.media.url }} style={[styles.photo, message.media.width && message.media.height ? { aspectRatio: message.media.width / message.media.height } : null]} resizeMode="cover" />}
                 {message.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : message.text ? <Text style={styles.text}>{message.text}</Text> : null}
                 <Text style={styles.meta}>
