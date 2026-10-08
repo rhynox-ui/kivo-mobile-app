@@ -52,11 +52,14 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const [running, setRunning] = useState(false);
   const [chainOpen, setChainOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [draftSlippage, setDraftSlippage] = useState<number | null>(null);
+  const [customSlippage, setCustomSlippage] = useState('');
   const [showDetails, setShowDetails] = useState(false);
   const quoteSeq = useRef(0);
   const amountRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const settings = useSettings();
   const [gasless, setGasless] = useState<GaslessStatus | null>(null);
+  useEffect(() => { if (settingsOpen) { setDraftSlippage(settings.slippageBps ?? null); setCustomSlippage(settings.slippageBps != null && ![50,100,300].includes(settings.slippageBps) ? String(settings.slippageBps / 100) : ''); } }, [settingsOpen, settings.slippageBps]);
 
   useEffect(() => { fetchGaslessStatus().then(setGasless); }, []);
 
@@ -380,20 +383,39 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
 
       <Modal visible={settingsOpen} transparent animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setSettingsOpen(false)}>
-          <Pressable style={styles.sheet} onPress={() => {}}>
-            <Text style={styles.sheetTitle}>Trade settings</Text>
-            <Text style={styles.noticeText}>Max slippage — the most the price may move before the route refuses to fill. Auto lets the router choose a safe bound for each route.</Text>
-            <View style={styles.slippageRow}>
-              {[null, 50, 100, 200, 500].map(bps => (
-                <Pressable key={String(bps)} onPress={() => { updateSettings({ slippageBps: bps }); setSettingsOpen(false); }} style={[styles.chip, settings.slippageBps === bps && styles.chipActive]}>
-                  <Text style={[styles.chipText, settings.slippageBps === bps && styles.chipTextActive]}>{bps == null ? 'Auto' : `${bps / 100}%`}</Text>
+          <Pressable style={[styles.sheet, styles.settingsSheet]} onPress={() => {}}>
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <View style={styles.settingsHeader}>
+                <Text style={styles.sheetTitle}>Trade Settings</Text>
+                <View style={styles.activeBadge}><Text style={styles.activeBadgeText}>Active: {draftSlippage == null ? 'Auto' : (draftSlippage / 100) + '%'}</Text></View>
+              </View>
+              <Text style={styles.settingsLabel}>Slippage</Text>
+              <Text style={styles.noticeText}>Max slippage — the most the price may move before the route refuses to fill. Auto lets the router choose a safe bound for each route.</Text>
+              <View style={styles.slippageRow}>
+                {[null, 50, 100, 300].map(bps => (
+                  <Pressable key={String(bps)} onPress={() => { setDraftSlippage(bps); setCustomSlippage(''); }} style={[styles.chip, draftSlippage === bps && !customSlippage && styles.chipActive]}>
+                    <Text style={[styles.chipText, draftSlippage === bps && !customSlippage && styles.chipTextActive]}>{bps == null ? 'Auto' : (bps / 100) + '%'}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <View style={styles.customRow}>
+                <Pressable style={[styles.chip, styles.customChip, customSlippage.length > 0 && styles.chipActive]} onPress={() => setCustomSlippage(customSlippage || (draftSlippage != null ? String(draftSlippage / 100) : ''))}>
+                  <Text style={[styles.chipText, customSlippage.length > 0 && styles.chipTextActive]}>Custom</Text>
                 </Pressable>
-              ))}
-            </View>
+                <TextInput value={customSlippage} onChangeText={value => { const pct = Number(value); setCustomSlippage(value); setDraftSlippage(Number.isFinite(pct) && pct > 0 && pct <= 100 ? Math.round(pct * 100) : null); }} placeholder="0.00" placeholderTextColor={c.textMuted} keyboardType="decimal-pad" style={styles.customInput} />
+                <Text style={styles.customPercent}>%</Text>
+              </View>
+              {customSlippage.length > 0 && draftSlippage == null && <Text style={styles.error}>Enter a value between 0.01 and 100.</Text>}
+              {draftSlippage != null && draftSlippage > 500 && <Text style={styles.warning}>High slippage tolerance — you may receive significantly less than quoted.</Text>}
+              <Text style={styles.minimumReceived}>Minimum received = quoted × (1 − {draftSlippage != null ? (draftSlippage / 100) + '%' : '0%'})</Text>
+              <Pressable style={styles.saveButton} onPress={() => { updateSettings({ slippageBps: draftSlippage }); setSettingsOpen(false); }}>
+                <Text style={styles.saveButtonText}>Save</Text>
+              </Pressable>
+              <Text style={styles.settingsHint}>Closing without saving keeps {settings.slippageBps == null ? 'Auto' : (settings.slippageBps / 100) + '%'} active.</Text>
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
-
       <Modal visible={reviewOpen} transparent animationType="slide" onRequestClose={closeReview}>
         <View style={styles.sheetBackdrop}>
           <View style={styles.sheet}>
@@ -543,7 +565,21 @@ const styles = StyleSheet.create({
   secondaryText: { color: c.cream, fontWeight: '800' },
   disabled: { opacity: 0.45 },
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(1,15,13,0.7)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: c.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 34, borderWidth: 1, borderColor: c.border },
+  sheet: { backgroundColor: c.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 34, borderWidth: 1, borderColor: c.border, maxHeight: '92%' },
+  settingsSheet: { paddingBottom: 26 },
+  settingsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  activeBadge: { backgroundColor: c.surfaceRaised, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  activeBadgeText: { color: c.text, fontSize: 11, fontWeight: '800' },
+  settingsLabel: { color: c.textMuted, fontSize: 12, fontWeight: '800', marginBottom: 8 },
+  customRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  customChip: { flex: 0, paddingHorizontal: 16 },
+  customInput: { flex: 1, height: 40, borderRadius: 20, backgroundColor: c.surface, color: c.text, paddingHorizontal: 14, textAlign: 'right' },
+  customPercent: { color: c.text, fontWeight: '800' },
+  warning: { color: c.danger, fontSize: 11.5, marginTop: 8 },
+  minimumReceived: { color: c.textMuted, fontSize: 11, marginTop: 14, marginBottom: 16 },
+  saveButton: { backgroundColor: '#2FD67B', borderRadius: 14, paddingVertical: 15, alignItems: 'center' },
+  saveButtonText: { color: c.backgroundDeep, fontSize: 14.5, fontWeight: '900' },
+  settingsHint: { color: c.textMuted, fontSize: 10.5, textAlign: 'center', marginTop: 10 },
   sheetTitle: { color: c.text, fontSize: 20, fontWeight: '800', marginBottom: 12, textTransform: 'capitalize' },
   summary: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 16, backgroundColor: c.backgroundDeep, marginBottom: 8 },
   summaryValue: { color: c.text, fontWeight: '800', fontSize: 15, marginVertical: 2 },
