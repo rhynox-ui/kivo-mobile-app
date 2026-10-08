@@ -200,9 +200,9 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
               <Text style={styles.small}>{g.kind === 'channel' ? 'Channel' : 'Group'} · {g.myRole === 'owner' ? 'Owner' : g.myRole === 'admin' ? 'Admin' : 'Member'}</Text>
             </Pressable>
           ))}
-          <ConvertCashSheet visible={convertOpen} onClose={() => setConvertOpen(false)} onConverted={load} />
       </ScrollView>
       ) : <Empty title="No groups yet" body={socialReady ? 'Join communities to make your profile social, not just financial.' : 'Turn on chats to join groups and channels.'} />}
+      <ConvertCashSheet visible={convertOpen} onClose={() => setConvertOpen(false)} onConverted={load} />
     </ScrollView>
   );
 }
