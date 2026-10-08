@@ -18,6 +18,10 @@ import { ConvertCashSheet } from '../components/ConvertCashSheet';
 const RANGES: PortfolioRange[] = ['24h', '7d', '30d', 'All'];
 type PositionTab = 'open' | 'closed';
 type PositionFilter = 'all' | 'tokens' | 'cash';
+const SMALL_BALANCE_THRESHOLD_USD = 0.5;
+function shouldHideSmallHolding(holding: Portfolio['holdings'][number]): boolean {
+  return holding.kind !== 'native' && holding.valueUsd != null && Number.isFinite(holding.valueUsd) && holding.valueUsd < SMALL_BALANCE_THRESHOLD_USD;
+}
 
 /** Mango Pro profile layout with Kivo graphics: identity + social row, portfolio chart, cash, positions, joined groups. */
 export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onOpenNotifications, onEditProfile, onOpenChat, onOpenCommunities, onOpenTrade, onOpenChats }: {
@@ -69,6 +73,8 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const points = filterHistoryByRange(history, range);
   const change = computePortfolioChange(points);
   const open = portfolio ? openHoldings(portfolio).filter(h => filter === 'all' || (filter === 'tokens' ? h.kind !== 'cash' : h.kind === 'cash')) : [];
+  const hiddenOpen = open.filter(shouldHideSmallHolding);
+  const visibleOpen = settings.hideSmallBalances ? open.filter(h => !shouldHideSmallHolding(h)) : open;
   const closed = portfolio ? closedPositions(portfolio, trades) : [];
   const money = (value: number | null | undefined) => (hidden ? '••••' : formatUsd(value));
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -155,10 +161,10 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
       </View>}
       {!portfolio ? <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 16 }} />
         : positionTab === 'open'
-          ? (open.length ? open.map(h => (
+          ? (visibleOpen.length ? visibleOpen.map(h => (
             <View key={h.key} style={styles.position}>
               <View style={styles.tokenIcon}>{h.imageUrl ? <Image source={{ uri: h.imageUrl }} style={styles.tokenImage} /> : <Text style={styles.tokenLetter}>{h.symbol.slice(0, 1)}</Text>}</View>
-              <View style={styles.flex}><Text style={styles.tokenName}>{h.symbol}</Text><Text style={styles.small}>{hidden ? '••••' : formatAmount(h.amount)} · {CHAIN_LABEL[h.chainKey]}</Text>{!hidden && h.pnlUsd != null ? <Text style={[styles.small,h.pnlUsd>=0?styles.up:styles.down]}>PnL {h.pnlUsd>=0?'+':''}{formatUsd(h.pnlUsd)} {h.pnlPct!=null?'('+(h.pnlPct>=0?'+':'')+h.pnlPct.toFixed(2)+'%)':''}</Text> : null}{!hidden && h.pnlUsd != null ? <Text style={[styles.small,h.pnlUsd>=0?styles.up:styles.down]}>PnL {h.pnlUsd>=0?'+':''}{formatUsd(h.pnlUsd)} {h.pnlPct!=null?`(${h.pnlPct>=0?'+':''}${h.pnlPct.toFixed(2)}%)`:''}</Text> : null}</View>
+              <View style={styles.flex}><Text style={styles.tokenName}>{h.symbol}</Text><Text style={styles.small}>{hidden ? '••••' : formatAmount(h.amount)} · {CHAIN_LABEL[h.chainKey]}</Text>{!hidden && h.entryPriceUsd != null && h.entryPriceUsd > 0 && h.priceUsd != null && h.priceUsd > 0 ? <Text style={[styles.small, h.priceUsd >= h.entryPriceUsd ? styles.up : styles.down]}>Entry {formatUsd(h.entryPriceUsd)} · {h.priceUsd >= h.entryPriceUsd ? '▲' : '▼'} {Math.abs((h.priceUsd / h.entryPriceUsd - 1) * 100).toFixed(2)}%</Text> : null}{!hidden && h.pnlUsd != null ? <Text style={[styles.small,h.pnlUsd>=0?styles.up:styles.down]}>PnL {h.pnlUsd>=0?'+':''}{formatUsd(h.pnlUsd)} {h.pnlPct!=null?`(${h.pnlPct>=0?'+':''}${h.pnlPct.toFixed(2)}%)`:''}</Text> : null}</View>
               <Text style={styles.positionValue}>{h.valueUsd == null ? 'No price' : money(h.valueUsd)}</Text>
             </View>
           )) : <Empty title="No positions yet" body="Your tokens and trading positions will appear here." />)
@@ -168,7 +174,18 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
               <View style={styles.flex}><Text style={styles.tokenName}>{p.symbol}</Text><Text style={styles.small}>{CHAIN_LABEL[p.chainKey]} · closed</Text></View>
             </View>
           )) : <Empty title="No closed positions" body="Tokens you fully sell appear here." />)}
-      <Text style={[styles.small, styles.padded]}>Native coins and USDC on every supported chain, plus tokens you traded in Kivo.</Text>
+      <View style={styles.assetVisibilityRow}>
+        <View style={styles.assetVisibilityCopy}>
+          <Text style={styles.assetVisibilityTitle}>Hide zero or small balances</Text>
+          <Text style={styles.assetVisibilityHint}>Hide balances under $0.50 from this list</Text>
+        </View>
+        <Pressable onPress={() => updateSettings({hideSmallBalances: !settings.hideSmallBalances})} style={[styles.visibilitySwitch, settings.hideSmallBalances && styles.visibilitySwitchOn]} accessibilityRole="switch" accessibilityState={{checked: settings.hideSmallBalances}}>
+          <View style={[styles.visibilityThumb, settings.hideSmallBalances && styles.visibilityThumbOn]} />
+        </Pressable>
+      </View>
+      {settings.hideSmallBalances && hiddenOpen.length > 0 ? <Pressable style={styles.showHiddenPill} onPress={() => updateSettings({hideSmallBalances: false})}><Text style={styles.showHiddenText}>Show hidden ({hiddenOpen.length})</Text></Pressable> : null}
+
+      <Text style={[styles.small, styles.padded]}>Native coins and cash on every supported chain, plus tokens you traded in Kivo.</Text>
 
       <View style={styles.positionsHead}>
         <Text style={styles.sectionTitle}>Joined groups</Text>
@@ -241,6 +258,16 @@ const styles = StyleSheet.create({
   chartEmptyBox: { height: 64 },
   chartEmpty: { color: c.textMuted, fontSize: 12.5, textAlign: 'center', paddingHorizontal: 20 },
   small: { color: c.textMuted, fontSize: 11.5 },
+  assetVisibilityRow: { marginHorizontal: 20, marginTop: 16, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  assetVisibilityCopy: { flex: 1, paddingRight: 14 },
+  assetVisibilityTitle: { color: c.text, fontSize: 13, fontWeight: '800' },
+  assetVisibilityHint: { color: c.textMuted, fontSize: 10.5, marginTop: 2 },
+  visibilitySwitch: { width: 46, height: 28, borderRadius: 14, backgroundColor: c.backgroundDeep, borderWidth: 1, borderColor: c.border, padding: 2, justifyContent: 'center' },
+  visibilitySwitchOn: { backgroundColor: MINT, borderColor: MINT },
+  visibilityThumb: { width: 22, height: 22, borderRadius: 11, backgroundColor: c.textMuted },
+  visibilityThumbOn: { alignSelf: 'flex-end', backgroundColor: '#10301F' },
+  showHiddenPill: { alignSelf: 'center', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, marginTop: 2 },
+  showHiddenText: { color: c.accent, fontSize: 11.5, fontWeight: '800' },
   padded: { paddingHorizontal: 20, marginTop: 8 },
   cashCard: { margin: 18, marginBottom: 0, padding: 14, borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cashLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
