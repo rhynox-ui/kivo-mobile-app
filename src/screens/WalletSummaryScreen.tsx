@@ -444,7 +444,7 @@ This transfer cannot be reversed.`,
                 {!chain ? (
                   <ScrollView style={styles.networkList} nestedScrollEnabled showsVerticalScrollIndicator>
                     {!rows && <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginVertical: 12 }} />}
-                    {chains.map(chainKey => {
+                    {DEPOSIT_CHAINS.map((chainKey: DepositNetwork) => {
                       const balanceRow = rows?.find(r => r.chainKey === chainKey);
                       const balance = chainKey === 'near' ? nearBalance : (balanceRow?.status === 'ok' ? balanceRow.balance.amount : 0);
                       return (
