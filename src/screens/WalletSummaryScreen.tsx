@@ -93,17 +93,45 @@ function Action({ glyph, label, onPress }: { glyph: string; label: string; onPre
 }
 
 function DepositSheet({ visible, address, onClose }: { visible: boolean; address: string; onClose: () => void }) {
-  const share = async () => { try { await Share.share({ message: address }); } catch { /* dismissed */ } };
+  const [network, setNetwork] = useState<ChainKey | null>(null);
+  const selected = network ?? USDC_CHAINS[0] ?? null;
+  const share = async () => {
+    try {
+      await Share.share({
+        message: selected
+          ? `Kivo USDC deposit · ${CHAIN_LABEL[selected]}\n\n${address}\n\nSend USDC only on ${CHAIN_LABEL[selected]}.`
+          : address,
+      });
+    } catch { /* dismissed */ }
+  };
+
+  useEffect(() => {
+    if (visible) setNetwork(current => current ?? USDC_CHAINS[0] ?? null);
+  }, [visible]);
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={() => {}}>
           <Text style={styles.sheetTitle}>Deposit USDC</Text>
-          <Text style={styles.note}>Send USDC to this address on any of these networks. It is the same address on all of them.</Text>
-          <View style={styles.addressBox}><Text style={styles.addressFull} selectable>{address}</Text></View>
-          <View style={styles.chips}>{USDC_CHAINS.map(chain => <Text key={chain} style={styles.chip}>{CHAIN_LABEL[chain]}</Text>)}</View>
-          <Text style={styles.warn}>Only send USDC on the networks above. Other assets or networks may not show up in your cash.</Text>
-          <Pressable onPress={share} style={styles.primary}><Text style={styles.primaryText}>Share address</Text></Pressable>
+          <Text style={styles.note}>Choose the network you are sending from. Your Kivo deposit address is the same EVM address across the supported networks.</Text>
+
+          <Text style={styles.label}>Send USDC on</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+            {USDC_CHAINS.map(chain => (
+              <Pressable key={chain} onPress={() => setNetwork(chain)} style={[styles.chipButton, selected === chain && styles.chipActive]}>
+                <Text style={[styles.chipButtonText, selected === chain && styles.chipActiveText]}>{CHAIN_LABEL[chain]}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          <View style={styles.addressBox}>
+            <Text style={styles.addressLabel}>{selected ? `USDC deposit address · ${CHAIN_LABEL[selected]}` : 'USDC deposit address'}</Text>
+            <Text style={styles.addressFull} selectable>{address}</Text>
+          </View>
+
+          <Text style={styles.warn}>Only send USDC on the selected network. Do not send another token. Deposits sent on an unsupported network may not appear in your Kivo cash balance.</Text>
+          <Pressable onPress={share} disabled={!selected} style={[styles.primary, !selected && styles.disabled]}><Text style={styles.primaryText}>Share deposit details</Text></Pressable>
           <Pressable onPress={onClose} style={styles.ghost}><Text style={styles.ghostText}>Done</Text></Pressable>
         </Pressable>
       </Pressable>
@@ -129,7 +157,7 @@ function WithdrawSheet({ visible, rows, gasless, onClose, onDone }: { visible: b
     : parsed > available + 1e-9 ? `More than your ${formatAmount(available, 2)} USDC on ${chain ? CHAIN_LABEL[chain] : ''}.` : null;
   const canSend = Boolean(gasless?.available && chain && to && amount && !problem && !busy);
 
-  const send = async () => {
+  const executeSend = async () => {
     if (!chain || !canSend) return;
     setBusy(true); setResult(null);
     try {
@@ -143,6 +171,18 @@ function WithdrawSheet({ visible, rows, gasless, onClose, onDone }: { visible: b
     } finally {
       setBusy(false);
     }
+  };
+
+  const send = () => {
+    if (!chain || !canSend) return;
+    Alert.alert(
+      'Confirm withdrawal',
+      `Send ${amount} USDC on ${CHAIN_LABEL[chain]} to ${shortAddress(to)}?\n\nKivo pays the network gas. This transfer cannot be reversed.`,
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {text: 'Confirm', style: 'destructive', onPress: () => { void executeSend(); }},
+      ],
+    );
   };
   const explorer = result?.hash && result.chainId ? explorerTxUrl(result.chainId, result.hash) : null;
 
