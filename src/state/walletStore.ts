@@ -1,6 +1,6 @@
 import { mnemonicToAccount, type HDAccount } from 'viem/accounts';
 import { validateMnemonic } from '@scure/bip39';
-import { english } from '@scure/bip39/wordlists/english';
+import { wordlist as english } from '@scure/bip39/wordlists/english.js';
 import { createWalletClient, bytesToHex, type Hex } from 'viem';
 import type { Keypair } from '@solana/web3.js';
 import bs58 from 'bs58';
