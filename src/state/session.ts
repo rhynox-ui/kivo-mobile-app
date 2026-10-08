@@ -3,7 +3,6 @@
 // wallet session — the same way the web client wires them to the browser.
 
 import { configureRelayEndpoints } from '@kivo/trading/core/relayQuote';
-import { configureRelayExecuteUrl } from '@kivo/trading/core/relayGaslessEvm';
 import { configureGaslessStatusUrl } from '@kivo/trading/kivo/gasless';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
@@ -60,9 +59,7 @@ export async function startKivoSession() {
   const relayQuoteUrl = `${KIVO_API_BASE_URL}/api/relay/quote`;
   const relayExecuteUrl = `${KIVO_API_BASE_URL}/api/relay/execute`;
   const relayConfigUrl = `${KIVO_API_BASE_URL}/api/relay/config`;
-  configureRelayEndpoints({ quoteUrl: relayQuoteUrl, sponsorship: false });
-  configureRelayExecuteUrl(relayExecuteUrl);
-  configureGaslessStatusUrl(relayConfigUrl);
+  configureRelayEndpoints({ quoteUrl: relayQuoteUrl, sponsorship: false });configureGaslessStatusUrl(relayConfigUrl);
   void (async () => {
     try {
       const response = await fetch(relayConfigUrl);
