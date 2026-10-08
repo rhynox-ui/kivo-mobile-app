@@ -128,7 +128,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       if (seq !== quoteSeq.current) return;
       setQuoteState('error'); setQuoteError(describeQuoteError(error));
     }
-  }, [token, address, parsed, amountProblem, side, cash, tokenBalance, amount, settings.slippageBps]);
+  }, [token, address, parsed, amountProblem, side, cash, tokenBalance, amount, settings.slippageBps, gaslessTradingEnabled]);
 
   // Debounced auto-quote while typing.
   useEffect(() => {
