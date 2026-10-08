@@ -17,6 +17,7 @@ import {cashAssetSymbol, fetchCashBalances, readNativeBalance, readSolanaNativeB
 import type {TradeRecord} from './history';
 import {EVM_TRADE_CHAINS} from './tokens';
 import {fetchWalletAssets} from './walletAssets';
+import {fetchNearTokenBalance} from '../core/nearTrade';
 
 export type Holding = {
   key: string;
