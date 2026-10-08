@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {ActivityIndicator, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import {parseUnits} from 'viem';
+import bs58 from 'bs58';
 import {kivoTheme} from '../theme/kivoTheme';
 import {NEAR_USDC, NEAR_USDC_DECIMALS} from '@kivo/trading/core/chainData';
 import {fetchNearTokenBalance, fetchNearTokenMeta, executeNearTrade, quoteNearTrade, type NearTradeQuote} from '@kivo/trading/core/nearTrade';
@@ -17,7 +18,7 @@ function sessionFromAccounts(accounts: {evm: any; solana: any; near: {address: s
   if (!evmKey) throw new Error('The device wallet key is unavailable.');
   return {
     evm: {address: accounts.evm.address, privateKey: `0x${Buffer.from(evmKey).toString('hex')}`},
-    solana: {address: accounts.solana.publicKey.toBase58(), privateKey: require('bs58').encode(accounts.solana.secretKey)},
+    solana: {address: accounts.solana.publicKey.toBase58(), privateKey: bs58.encode(accounts.solana.secretKey)},
     near: accounts.near,
     authMethod: 'seed',
   };
