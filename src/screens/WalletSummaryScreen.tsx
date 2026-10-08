@@ -333,12 +333,13 @@ function WithdrawSheet({
   const [review, setReview] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string; hash?: string; chainId?: number } | null>(null);
 
-  const chains = useMemo<WithdrawNetwork[]>(() => { const base = rows?.map(r => r.chainKey) ?? CASH_CHAINS; return [...new Set<WithdrawNetwork>([...base, ...(nearBalance > 0 && wallet.nearAddress ? ['near' as const] : [])])]; }, [rows, nearBalance, wallet.nearAddress]);
+  const chains = useMemo<WithdrawNetwork[]>(() => { const funded = (rows ?? []).filter(r => r.status === 'ok' && r.balance.amount > 0).map(r => r.chainKey); if (nearBalance > 0 && wallet.nearAddress) funded.push('near'); return [...new Set<WithdrawNetwork>(funded)]; }, [rows, nearBalance, wallet.nearAddress]);
   const row = chain && chain !== 'near' ? rows?.find(r => r.chainKey === chain) : null;
   const available = chain === 'near' ? nearBalance : (row?.status === 'ok' ? row.balance.amount : 0);
   const parsed = Number(amount);
   const addressValid = chain ? (chain === 'near' ? isValidRecipientAddress(destination, to.trim()) : isValidRecipientAddress(chain, to.trim())) : false;
-  const amountValid = Number.isFinite(parsed) && parsed > 0 && parsed <= available + 1e-9;
+  const maxWithdrawable = Math.max(0, available);
+  const amountValid = Number.isFinite(parsed) && parsed > 0 && parsed <= maxWithdrawable + 1e-9;
   const sponsorshipNeeded = chain !== 'solana' && chain !== 'near';
   const nearDestinationReady = chain !== 'near' || nearCashMoveChains().includes(destination);
   const sponsorshipReady = !sponsorshipNeeded || gasless?.available === true;
@@ -350,7 +351,7 @@ function WithdrawSheet({
     setReview(false);
     setTo('');
     setAmount('');
-    setChain(current => current ?? rows?.find(r => r.status === 'ok' && r.balance.amount > 0)?.chainKey ?? (nearBalance > 0 ? 'near' : rows?.[0]?.chainKey ?? DEPOSIT_CHAINS[0]));
+    setChain(null);
     const nearChains = nearCashMoveChains();
     setDestination(current => nearChains.includes(current) ? current : (nearChains[0] ?? 'base'));
   }, [visible, rows?.length, nearBalance]);
@@ -445,6 +446,7 @@ This transfer cannot be reversed.`,
 
                 {!chain ? (
                   <ScrollView style={styles.networkList} nestedScrollEnabled showsVerticalScrollIndicator>
+                    {chains.length === 0 && <Text style={styles.note}>No network has a withdrawable USDC balance.</Text>}
                     {chains.map(chainKey => {
                       const balanceRow = rows?.find(r => r.chainKey === chainKey);
                       const balance = chainKey === 'near' ? nearBalance : (balanceRow?.status === 'ok' ? balanceRow.balance.amount : 0);
@@ -500,12 +502,12 @@ This transfer cannot be reversed.`,
                         placeholderTextColor={kivoTheme.colors.textMuted}
                         style={[styles.input, styles.flexInput]}
                       />
-                      <Pressable onPress={() => setAmount(String(Math.floor(available * 1e6) / 1e6))} style={styles.max}>
+                      <Pressable onPress={() => setAmount(String(Math.floor(maxWithdrawable * 1e6) / 1e6))} style={styles.max}>
                         <Text style={styles.maxText}>MAX</Text>
                       </Pressable>
                     </View>
 
-                    <Text style={styles.available}>Available on {chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}: {formatUsd(available)}</Text>
+                    <Text style={styles.available}>Available on {chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}: {formatUsd(maxWithdrawable)}</Text>
                     {problem && <Text style={styles.warn}>{problem}</Text>}
                     {chain === 'near'
                       ? <Text style={styles.note}>NEAR withdrawals use NEAR Intents. Kivo pays NEAR transaction gas through the existing sponsored call path.</Text>
