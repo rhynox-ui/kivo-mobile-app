@@ -2,8 +2,8 @@ import React from 'react';
 import { Alert, Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { kivoTheme } from '../theme/kivoTheme';
 import { updateSettings, useSettings } from '../state/settingsStore';
-import { enableBiometricUnlock } from '../state/walletStore';
-import { disableBiometricUnlock, getBiometryLabel, isBiometricAvailable, isBiometricUnlockEnabled } from '../wallet/biometricAuth';
+import { disableBiometricUnlock, enableBiometricUnlock } from '../state/walletStore';
+import { getBiometryLabel, isBiometricAvailable, isBiometricUnlockEnabled } from '../wallet/biometricAuth';
 import { getTradeHistory } from '@kivo/trading/kivo/history';
 
 type SettingsItem = {
