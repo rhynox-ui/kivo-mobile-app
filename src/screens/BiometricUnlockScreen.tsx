@@ -1,8 +1,10 @@
 import React, {useState} from 'react';
-import {ActivityIndicator, Pressable, StyleSheet, Text, View} from 'react-native';
+import {ActivityIndicator, Image, Pressable, StyleSheet, Text, View} from 'react-native';
 import {kivoTheme} from '../theme/kivoTheme';
 import {getBiometryLabel} from '../wallet/biometricAuth';
 import {unlockWalletWithBiometric} from '../state/walletStore';
+
+const KIVO_MARK = require('../assets/kivo-logo.png');
 
 export function BiometricUnlockScreen({onUnlocked}: {onUnlocked: () => void}) {
   const [busy, setBusy] = useState(false);
@@ -27,7 +29,7 @@ export function BiometricUnlockScreen({onUnlocked}: {onUnlocked: () => void}) {
   return (
     <View style={styles.container}>
       <View style={styles.hero}>
-        <View style={styles.icon}><Text style={styles.mark}>⌁</Text></View>
+        <View style={styles.icon}><Image source={KIVO_MARK} resizeMode="contain" style={styles.logo} /></View>
         <Text style={styles.title}>Unlock Kivo</Text>
         <Text style={styles.body}>Use your {label} or device passcode to unlock your wallet.</Text>
         {!!error && <Text style={styles.error}>{error}</Text>}
@@ -43,7 +45,7 @@ const styles=StyleSheet.create({
   container:{flex:1,backgroundColor:kivoTheme.colors.background,padding:24},
   hero:{flex:1,alignItems:'center',justifyContent:'center'},
   icon:{width:132,height:132,borderRadius:40,backgroundColor:'rgba(183,226,123,0.08)',alignItems:'center',justifyContent:'center'},
-  mark:{fontSize:76,color:kivoTheme.colors.accent},
+  logo:{width:82,height:82,borderRadius:22},
   title:{color:kivoTheme.colors.text,fontSize:30,fontWeight:'700',marginTop:36,textAlign:'center'},
   body:{color:kivoTheme.colors.textMuted,fontSize:15,lineHeight:23,textAlign:'center',maxWidth:320,marginTop:12},
   error:{color:'#E0443E',fontSize:13,textAlign:'center',marginTop:16,maxWidth:320},
