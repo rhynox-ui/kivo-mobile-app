@@ -330,7 +330,7 @@ function WithdrawSheet({
   const [review, setReview] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string; hash?: string; chainId?: number } | null>(null);
 
-  const chains = useMemo<WithdrawNetwork[]>(() => { const funded = (rows ?? []).filter(r => r.status === 'ok' && r.balance.amount > 0).map(r => r.chainKey); if (nearBalance > 0 && wallet.nearAddress) funded.push('near'); return [...new Set<WithdrawNetwork>(funded)]; }, [rows, nearBalance, wallet.nearAddress]);
+  const chains = useMemo<WithdrawNetwork[]>(() => { const funded: WithdrawNetwork[] = (rows ?? []).filter(r => r.status === 'ok' && r.balance.amount > 0).map(r => r.chainKey); if (nearBalance > 0 && wallet.nearAddress) funded.push('near'); return [...new Set<WithdrawNetwork>(funded)]; }, [rows, nearBalance, wallet.nearAddress]);
   const row = chain && chain !== 'near' ? rows?.find(r => r.chainKey === chain) : null;
   const available = chain === 'near' ? nearBalance : (row?.status === 'ok' ? row.balance.amount : 0);
   const parsed = Number(amount);
