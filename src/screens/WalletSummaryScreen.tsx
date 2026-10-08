@@ -26,7 +26,8 @@ import { nearView } from '@kivo/trading/core/nearRpc';
 
 import { getWalletSession, loadWalletSession, subscribeToWallet, withDeviceAccounts, type WalletSession } from '../state/walletStore';
 import { useSettings } from '../state/settingsStore';
-import { addNotification } from '../state/notificationStore';\nimport { markOwnAction } from '../wallet/depositWatcher';
+import { addNotification } from '../state/notificationStore';
+import { markOwnAction } from '../wallet/depositWatcher';
 import { CHAIN_LABEL, type ChainKey } from '@kivo/trading/core/chainData';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, type CashBalanceRow } from '@kivo/trading/kivo/balances';
 import { isValidRecipientAddress, withdrawUsdc } from '@kivo/trading/kivo/cash';
@@ -418,8 +419,12 @@ function WithdrawSheet({
     Alert.alert(
       'Confirm withdrawal',
       chain === 'near'
-        ? `Send ${amount} USDC from NEAR to ${CHAIN_LABEL[destination]} at ${shortAddress(to.trim())}?\\n\\nThis transfer cannot be reversed.`
-        : `Send ${amount} USDC on ${CHAIN_LABEL[chain]} to ${shortAddress(to.trim())}?\\n\\nThis transfer cannot be reversed.`,
+        ? `Send ${amount} USDC from NEAR to ${CHAIN_LABEL[destination]} at ${shortAddress(to.trim())}?\
+\
+This transfer cannot be reversed.`
+        : `Send ${amount} USDC on ${CHAIN_LABEL[chain]} to ${shortAddress(to.trim())}?\
+\
+This transfer cannot be reversed.`,
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Confirm', style: 'destructive', onPress: () => { void executeSend(); } },
