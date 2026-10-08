@@ -3,7 +3,7 @@
 // failures never produce a history row.
 
 import type {KeyValueStorage} from '../../shared/storage';
-import type {ChainKey} from '../core/chainData';
+import type {TradeChain} from '../core/chainData';
 import type {TradeSide} from './tokens';
 
 export type TradeRecordStatus = 'success' | 'pending' | 'refunded' | 'failed';
@@ -13,7 +13,7 @@ export type TradeRecord = {
   wallet: string;
   createdAt: number;
   side: TradeSide;
-  token: {chainKey: ChainKey; address: string; symbol: string; name: string; imageUrl: string | null};
+  token: {chainKey: TradeChain; address: string; symbol: string; name: string; imageUrl: string | null};
   pay: {amount: string; symbol: string; chainKey: ChainKey};
   receive: {amount: string | null; symbol: string; chainKey: ChainKey};
   txHashes: string[];
