@@ -6,10 +6,12 @@ import { fetchCashBalances, totalCashUsd, readTokenBalance, type CashBalanceRow,
 import { planUnifiedBuy, totalSpendableCash, type UnifiedPlan } from '@kivo/trading/kivo/unified';
 import { explorerTxUrl, KivoExecutionError, preflightKivoQuote, relayRequestUrl, type ExecutionUpdate } from '@kivo/trading/kivo/execute';
 import { executeKivoQuoteGasless, fetchGaslessStatus, preflightGaslessQuote, type GaslessStatus } from '@kivo/trading/kivo/gasless';
+import { executeRelayQuote } from '@kivo/trading/core/executeRelayQuote';
+import bs58 from 'bs58';
 import { recordTrade } from '@kivo/trading/kivo/history';
 import { describeQuoteError, isQuoteExpired, parseAmountInput, requestKivoQuote } from '@kivo/trading/kivo/quote';
 import { chainLabel, formatAmount, formatUsd, nativeSymbol, shortAddress, tradeSupportFor, type KivoToken, type TradeSide } from '@kivo/trading/kivo/tokens';
-import { getWalletSession, subscribeToWallet, walletKind, withDeviceAccount, type WalletSession } from '../state/walletStore';
+import { getWalletSession, subscribeToWallet, walletKind, withDeviceAccounts, type WalletSession } from '../state/walletStore';
 import { addNotification } from '../state/notificationStore';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { TokenChartPanel } from '../components/TokenChartPanel';
@@ -159,16 +161,25 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       // Unlock once. Before ANY broadcast, validate every leg's intent and
       // gasless sponsorship capability. This prevents leg 1 from succeeding
       // and leg 2 failing because sponsorship/route safety was only checked later.
-      const outcome = await withDeviceAccount(`Confirm ${side} ${token.symbol}`, async account => {
-        await Promise.all(plan.legs.map(leg => preflightGaslessQuote(leg.quote, account)));
+      const outcome = await withDeviceAccounts(`Confirm ${side} ${token.symbol}`, async ({evm, solana}) => {
+        const session = {
+          evm: {address: evm.address, privateKey: `0x${Buffer.from(evm.getHdKey().privateKey!).toString('hex')}`},
+          solana: {address: solana.publicKey.toBase58(), privateKey: bs58.encode(solana.secretKey)},
+          authMethod: 'seed' as const,
+        };
         const done = { status: 'success' as 'success' | 'pending' | 'refunded', txHashes: [] as string[], chainIds: [] as number[], requestId: null as string | null };
         for (let index = 0; index < plan.legs.length; index++) {
           const leg = plan.legs[index];
           try {
-            const legResult = await executeKivoQuoteGasless(leg.quote, account, setUpdate);
-            done.txHashes.push(...legResult.txHashes); done.chainIds.push(...legResult.chainIds);
-            done.requestId = done.requestId ?? legResult.requestId;
-            if (legResult.status !== 'success') done.status = legResult.status;
+            const hasSolanaStep = (leg.quote.quote.steps ?? []).some(step => (step.items ?? []).some(item => Boolean(item.data?.instructions)));
+            const legResult = hasSolanaStep
+              ? await executeRelayQuote(leg.quote.quote, session, step => setUpdate({stage: step === 'build' ? 'preflight' : step === 'signing' ? 'awaiting-signature' : step === 'filling' ? 'filling' : 'success', step: index + 1, totalSteps: plan.legs.length, txHashes: [...done.txHashes], requestId: done.requestId, message: step === 'done' ? 'Trade complete.' : 'Processing trade…'}))
+              : await (async () => {
+                  await preflightGaslessQuote(leg.quote, evm);
+                  return executeKivoQuoteGasless(leg.quote, evm, setUpdate);
+                })();
+            done.txHashes.push(...legResult.txHashes); done.chainIds.push(...(legResult.chainIds ?? leg.quote.view ? [leg.quote.input.chainKey] : [] as any));
+            done.requestId = done.requestId ?? legResult.requestId ?? null;
           } catch (legError) {
             const message = legError instanceof Error ? legError.message : 'Trade failed.';
             const partial = index > 0 ? ` ${index} of ${plan.legs.length} parts already completed; the rest was not sent.` : '';
