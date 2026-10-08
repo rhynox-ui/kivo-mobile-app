@@ -6,6 +6,7 @@ import { configureRelayEndpoints } from '@kivo/trading/core/relayQuote';
 import { configureRelayExecuteUrl } from '@kivo/trading/core/relayGaslessEvm';
 import { configureGaslessStatusUrl } from '@kivo/trading/kivo/gasless';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Keychain from 'react-native-keychain';
 import { useEffect, useState } from 'react';
 import type { KeyValueStorage } from '@kivo/shared/storage';
 import { KivoApi } from '@kivo/shared/api/client';
@@ -19,13 +20,30 @@ import { loadSettings } from './settingsStore';
 /** Same Cloudflare Pages project as the web app (stable URL). */
 export const KIVO_API_BASE_URL = 'https://kivo-web.pages.dev';
 
+const SESSION_SERVICE = 'com.kivo.chat.api-session';
+const secureSessionStorage: KeyValueStorage = {
+  async getItem(key) {
+    const credentials = await Keychain.getGenericPassword({service: SESSION_SERVICE});
+    return credentials && credentials.username === key ? credentials.password : null;
+  },
+  async setItem(key, value) {
+    await Keychain.setGenericPassword(key, value, {
+      service: SESSION_SERVICE,
+      accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    });
+  },
+  async removeItem() {
+    await Keychain.resetGenericPassword({service: SESSION_SERVICE});
+  },
+};
+
 export const storage: KeyValueStorage = {
   getItem: key => AsyncStorage.getItem(key),
   setItem: (key, value) => AsyncStorage.setItem(key, value),
   removeItem: key => AsyncStorage.removeItem(key),
 };
 
-export const api = new KivoApi({ baseUrl: KIVO_API_BASE_URL, storage, client: 'mobile' });
+export const api = new KivoApi({ baseUrl: KIVO_API_BASE_URL, storage, sessionStorage: secureSessionStorage, client: 'mobile' });
 
 let started = false;
 let lastAddress: string | null | undefined;
