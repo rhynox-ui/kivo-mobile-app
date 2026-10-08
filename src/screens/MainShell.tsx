@@ -11,6 +11,7 @@ import { WalletSummaryScreen } from './WalletSummaryScreen';
 import { EditProfileScreen } from './EditProfileScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { ProfileScreen } from './ProfileScreen';
+import { SecurityScreen } from './SecurityScreen';
 import { DiscoverScreen } from './DiscoverScreen';
 import { NotificationScreen } from './NotificationScreen';
 import { ActivityScreen } from './ActivityScreen';
@@ -28,7 +29,7 @@ type View_ =
   | { name: 'communities'; kind: CommunityKind }
   | { name: 'person'; userId: string }
   | { name: 'token' }
-  | { name: 'wallet'; action?: 'deposit' | 'withdraw' } | { name: 'editProfile' } | { name: 'settings' } | { name: 'notifications' } | { name: 'activity' };
+  | { name: 'wallet'; action?: 'deposit' | 'withdraw' } | { name: 'editProfile' } | { name: 'settings' } | { name: 'notifications' } | { name: 'activity' } | { name: 'security' };
 
 const TAB_GLYPH: Record<Tab, string> = { Chats: '💬', Discover: '◎', Trade: '⇄', Profile: '◯' };
 
@@ -58,7 +59,8 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
     case 'editProfile': return <EditProfileScreen onBack={back} />;
     case 'notifications': return <NotificationScreen onBack={back} />;
     case 'activity': return <ActivityScreen onBack={back} />;
-    case 'settings': return <SettingsScreen onBack={back} onOpenWallet={() => push({ name: 'wallet' })} onOpenProfile={() => push({ name: 'editProfile' })} onLogout={onLogout} />;
+    case 'security': return <SecurityScreen onBack={back} />;
+    case 'settings': return <SettingsScreen onBack={back} onOpenWallet={() => push({ name: 'wallet' })} onOpenProfile={() => push({ name: 'editProfile' })} onOpenSecurity={() => push({ name: 'security' })} onLogout={onLogout} />;
     default: break;
   }
 
