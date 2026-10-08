@@ -9,6 +9,8 @@ import {publicClientForChainId} from '../core/chainRegistry';
 import {EVM_TRADE_CHAINS, USDC_CHAINS, nativeSymbol} from './tokens';
 
 const EVM_CASH_CHAINS = EVM_TRADE_CHAINS;
+/** Mango parity: real spendable cash is USDC on verified USDC chains, plus USDG on Robinhood. */
+export const CASH_CHAINS: ChainKey[] = Array.from(new Set([...USDC_CHAINS, ...(TOKEN_ADDRESSES.USDG?.robinhood ? ['robinhood' as ChainKey] : [])]));
 
 /** USDC kept on Arc so the wallet can still pay the network gas after a trade. */
 export const ARC_GAS_RESERVE_USDC = 0.01;
@@ -128,7 +130,7 @@ export async function readSolanaUsdcBalance(owner: string): Promise<TokenBalance
 
 /** USDC across every chain Kivo can pay from. Each chain fails independently. */
 export async function fetchCashBalances(owner: string, chains: ChainKey[] = CASH_CHAINS, solanaOwner: string = owner): Promise<CashBalanceRow[]> {
-  const key = owner.toLowerCase() + ':' + chains.join(',');
+  const key = owner.toLowerCase() + ':' + solanaOwner + ':' + chains.join(',');
   if (cashCache && cashCache.key === key && Date.now() - cashCache.at < CASH_CACHE_TTL_MS) return cashCache.rows;
   if (cashInFlight?.key === key) return cashInFlight.promise;
   const promise = (async () => {
