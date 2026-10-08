@@ -49,10 +49,11 @@ export async function planUnifiedBuy(params: {
   amountUsd: number;
   userAddress: string;
   solanaAddress?: string;
+  tokenDecimals?: number;
   cash: CashBalanceRow[];
   slippageBps?: number;
 }): Promise<UnifiedPlan> {
-  const {token, amountUsd, userAddress, cash, slippageBps} = params;
+  const {token, amountUsd, userAddress, solanaAddress, tokenDecimals = 18, cash, slippageBps} = params;
   const remaining = cashContributors(cash, token.chainKey);
   let remainingUsd = amountUsd;
   const legs: UnifiedLeg[] = [];
@@ -67,8 +68,8 @@ export async function planUnifiedBuy(params: {
       const quote = await requestKivoQuote({
         side: 'buy', token, amount: legUsd.toFixed(2), userAddress, payChain: contributor.chainKey,
         payAsset: {chainKey: contributor.chainKey, address: contributor.address, symbol: contributor.symbol, decimals: contributor.decimals},
-        recipientAddress: token.chainKey === 'solana' ? params.solanaAddress : userAddress,
-        tokenDecimals: 18, slippageBps, execution: 'gasless',
+        recipientAddress: token.chainKey === 'solana' ? solanaAddress : userAddress,
+        tokenDecimals, slippageBps, execution: 'gasless',
       });
       const impact = quote.view.priceImpactPct;
       if (impact != null && Math.abs(impact) > EXTREME_PRICE_IMPACT_PCT) throw new Error('route price impact too high');
