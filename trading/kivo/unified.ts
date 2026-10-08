@@ -62,7 +62,7 @@ export async function planUnifiedBuy(params: {
       const legUsd = Math.min(remainingUsd, contributor.balance);
       if (legUsd < MIN_LEG_USD) throw new Error('leg too small');
       const quote = await requestKivoQuote({
-        side: 'buy', token, amount: legUsd.toFixed(2), userAddress, payChain: contributor.chainKey,
+        side: 'buy', token, amount: legUsd.toFixed(Math.max(2, contributor.decimals)), userAddress, payChain: contributor.chainKey,
         payAsset: {chainKey: contributor.chainKey, address: contributor.address, symbol: contributor.symbol, decimals: contributor.decimals},
         recipientAddress: token.chainKey === 'solana' ? solanaAddress : userAddress,
         tokenDecimals, slippageBps, execution: 'gasless',
