@@ -87,7 +87,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
     if (!token || !address) return;
     let cancelled = false;
     // Cash (USDC on every supported chain) feeds the header total on both sides.
-    fetchCashBalances(address).then(rows => {
+    fetchCashBalances(address, undefined, wallet?.solanaAddress ?? address).then(rows => {
       if (cancelled) return;
       setCash(rows);
     });
