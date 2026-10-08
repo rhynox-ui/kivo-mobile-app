@@ -1,5 +1,5 @@
 import React, {useEffect, useMemo, useState} from 'react';
-import {ActivityIndicator, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
+import {ActivityIndicator, Image, Modal, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import {parseUnits} from 'viem';
 import bs58 from 'bs58';
 import {kivoTheme} from '../theme/kivoTheme';
@@ -112,7 +112,7 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
             token:{chainKey:'near',address:token.tokenAddress,symbol:token.symbol,name:token.name,imageUrl:token.imageUrl??null},
             pay:{amount,symbol:side==='buy'?'USDC':token.symbol,chainKey:'near'},
             receive:{amount:kind==='ok'||kind==='partial'?String(receiveAmount??''):null,symbol:side==='buy'?token.symbol:'USDC',chainKey:'near'},
-            txHashes:hashes,chainIds:[],requestId:null,status:kind==='ok'?'success':kind==='refunded'?'refunded':kind==='partial'?'pending':'failed'
+            txHashes:hashes,chainIds:[],requestId:null,status:kind==='ok'||kind==='partial'?'success':kind==='refunded'?'refunded':'failed',error:kind==='partial'?'Partially filled — the unfilled amount was returned.':kind==='refunded'?'The exchange cancelled this trade and returned the funds.':undefined
           });
         }
         await refreshBalances();
