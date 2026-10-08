@@ -2,7 +2,7 @@ import * as Keychain from 'react-native-keychain';
 import { Platform } from 'react-native';
 import bs58 from 'bs58';
 import { english, generateMnemonic, mnemonicToAccount, type HDAccount } from 'viem/accounts';
-import { createWalletClient, getAddress, type Hex } from 'viem';
+import { bytesToHex, createWalletClient, getAddress, type Hex } from 'viem';
 import { transportFor, viemChainForChainId } from '@kivo/trading/core/chainRegistry';
 import type { EvmCall, KivoEvmSigner } from '@kivo/trading/kivo/execute';
 import type { Keypair } from '@solana/web3.js';
@@ -187,7 +187,7 @@ export async function withDeviceAccounts<T>(title: string, action: (accounts: { 
   const evm = mnemonicToAccount(credentials.password);
   if (evm.address.toLowerCase() !== current.address.toLowerCase()) throw new Error('The unlocked wallet does not match the active session.');
   const solana = deriveSolanaKeypair(credentials.password);
-  const evmPrivateKey = evm.getHdKey().privateKey;
+  const evmPrivateKey = evm.getHdKey().privateKey ? bytesToHex(evm.getHdKey().privateKey) : null;
   if (!evmPrivateKey) throw new Error('The device wallet key is unavailable.');
   const near = deriveNearAccount(credentials.password);
   const relay = {evm: {address: evm.address, privateKey: evmPrivateKey}, solana: {address: solana.publicKey.toBase58(), privateKey: bs58.encode(solana.secretKey)}, near};
