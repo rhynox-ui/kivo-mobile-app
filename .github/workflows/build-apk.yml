@@ -36,8 +36,26 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Prepare Android signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/kivo-release.keystore
+          test -s android/app/kivo-release.keystore
+
       - name: Build release APK
         working-directory: android
+        env:
+          ANDROID_KEYSTORE_FILE: kivo-release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon
 
       - name: Upload APK
@@ -46,3 +64,7 @@ jobs:
           name: kivo-android-release-apk
           path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f android/app/kivo-release.keystore

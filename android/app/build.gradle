@@ -33,13 +33,25 @@ android {
             keyAlias "androiddebugkey"
             keyPassword "android"
         }
+        release {
+            def releaseKeystore = System.getenv("ANDROID_KEYSTORE_FILE")
+            if (releaseKeystore) {
+                storeFile file(releaseKeystore)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         debug { signingConfig signingConfigs.debug }
         release {
             // Production signing is supplied by the release pipeline/Play Console.
-            // CI must never ship an APK signed with the debug key.
+            // CI must never ship an unsigned APK.
+            if (System.getenv("ANDROID_KEYSTORE_FILE")) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
