@@ -168,7 +168,7 @@ export function WalletSummaryScreen({
             <Text style={styles.cardTitle}>Cash by network</Text>
             {rows == null ? (
               <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 12 }} />
-            ) : funded.length === 0 ? (
+            ) : funded.length === 0 && nearBalance <= 0 ? (
               <Text style={styles.note}>No USDC yet. Tap Deposit and send USDC on any supported network.</Text>
             ) : (
               <>
