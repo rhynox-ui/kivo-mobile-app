@@ -15,7 +15,7 @@ import {resolveDexScreenerPair} from '../core/dexScreener';
 import {fetchWalletPrices} from '../core/walletPrices';
 import {fetchCashBalances, readNativeBalance, readTokenBalance} from './balances';
 import type {TradeRecord} from './history';
-import {EVM_TRADE_CHAINS} from './tokens';
+import {EVM_TRADE_CHAINS} from './tokens';\nimport {fetchWalletAssets} from './walletAssets';
 
 export type Holding = {
   key: string;
@@ -53,13 +53,13 @@ function tradedTokens(history: TradeRecord[]) {
   return [...seen.values()];
 }
 
-export async function fetchPortfolio(owner: string, history: TradeRecord[]): Promise<Portfolio> {
+export async function fetchPortfolio(owner: string, history: TradeRecord[], addresses?: {solanaAddress?: string; nearAddress?: string}): Promise<Portfolio> {
   let complete = true;
   const prices = await fetchWalletPrices().catch(() => { complete = false; return {} as Record<string, number>; });
 
   // Arc's native coin IS USDC (same balance as the ERC-20 view) — counted once, as cash.
   const nativeChains = EVM_TRADE_CHAINS.filter(chain => chain !== 'arc');
-  const [natives, cash, tokens] = await Promise.all([
+  const [natives, cash, tokens, indexedAssets] = await Promise.all([
     Promise.allSettled(nativeChains.map(chain => readNativeBalance(chain, owner))),
     fetchCashBalances(owner),
     Promise.allSettled(tradedTokens(history).filter(t => t.chainKey !== 'solana').map(async token => {
@@ -85,7 +85,7 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[]): Pro
     cashUsd += row.balance.amount;
     holdings.push({key: `${row.chainKey}:usdc`, kind: 'cash', chainKey: row.chainKey, address: row.balance.tokenAddress, symbol: 'USDC', name: `USDC · ${CHAIN_LABEL[row.chainKey]}`, amount: row.balance.amount, priceUsd: 1, valueUsd: row.balance.amount, imageUrl: null});
   }
-  for (const outcome of tokens) {
+  if (indexedAssets.status === 'fulfilled' && indexedAssets.value) {\n    if (!indexedAssets.value.complete) complete = false;\n    for (const asset of indexedAssets.value.holdings) {\n      if (asset.isNative || asset.chainKey === 'near' || asset.symbol === 'USDC' || asset.symbol === 'USDG' || asset.amount <= 0) continue;\n      const key = asset.chainKey + ':' + asset.address;\n      if (holdings.some(h => h.key.toLowerCase() === key.toLowerCase())) continue;\n      holdings.push({key,kind:'token',chainKey:asset.chainKey,address:asset.address,symbol:asset.symbol,name:asset.name,amount:asset.amount,priceUsd:asset.priceUsd,valueUsd:asset.valueUsd,imageUrl:asset.imageUrl});\n    }\n  }\n  for (const outcome of tokens) {
     if (outcome.status !== 'fulfilled') { complete = false; continue; }
     const {token, balance, priceUsd} = outcome.value;
     holdings.push({key: `${token.chainKey}:${token.address.toLowerCase()}`, kind: 'token', chainKey: token.chainKey, address: token.address, symbol: token.symbol, name: token.name, amount: balance.amount, priceUsd, valueUsd: priceUsd == null ? null : balance.amount * priceUsd, imageUrl: token.imageUrl});

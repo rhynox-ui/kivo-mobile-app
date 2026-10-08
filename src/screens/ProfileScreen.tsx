@@ -54,7 +54,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
     if (!wallet) return;
     setLoading(true);
     try {
-      const next = await fetchPortfolio(wallet.address, trades);
+      const next = await fetchPortfolio(wallet.address, trades, {solanaAddress: wallet.solanaAddress, nearAddress: wallet.nearAddress});
       setPortfolio(next);
       setHistory(next.complete ? await recordPortfolioSnapshot(storage, wallet.address, next.totalUsd) : await getPortfolioHistory(storage, wallet.address));
     } catch {
