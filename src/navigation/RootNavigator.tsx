@@ -13,12 +13,13 @@ import { ImportWalletScreen } from '../screens/ImportWalletScreen';
 import { RecoveryBackupScreen } from '../screens/RecoveryBackupScreen';
 import { VerifyRecoveryScreen } from '../screens/VerifyRecoveryScreen';
 import { BiometricScreen } from '../screens/BiometricScreen';
+import { BiometricUnlockScreen } from '../screens/BiometricUnlockScreen';
 import { ProfileSetupScreen } from '../screens/ProfileSetupScreen';
 import { MainShell } from '../screens/MainShell';
 import { kivoTheme } from '../theme/kivoTheme';
 import { loadWalletSession } from '../state/walletStore';
 import { api, startKivoSession } from '../state/session';
-import { clearLocalWallet } from '../state/walletStore';
+import { clearLocalWallet, isBiometricUnlockEnabled } from '../state/walletStore';
 
 export type RootStackParamList = {
   Splash: undefined;
@@ -29,6 +30,7 @@ export type RootStackParamList = {
   RecoveryBackup: { mnemonic: string };
   VerifyRecovery: { mnemonic: string };
   Biometrics: undefined;
+  BiometricUnlock: undefined;
   ProfileSetup: undefined;
   Home: undefined;
 };
@@ -45,6 +47,13 @@ function SplashRoute({ navigation }: NativeStackScreenProps<RootStackParamList, 
     (async () => {
       try {
         await startKivoSession();
+        const biometricLocked = await isBiometricUnlockEnabled();
+        if (biometricLocked) {
+          if (!mounted) return;
+          setQuick(true);
+          setTarget('BiometricUnlock');
+          return;
+        }
         const wallet = await loadWalletSession();
         if (!mounted) return;
         setQuick(Boolean(wallet));
