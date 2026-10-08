@@ -3,22 +3,23 @@ import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, StyleSheet, T
 import { WebView } from 'react-native-webview';
 import type { ShouldStartLoadRequest } from 'react-native-webview/lib/WebViewTypes';
 import { MAINNET_CHAIN_IDS } from '@kivo/trading/core/chainData';
+import { kivoTheme } from '../theme/kivoTheme';
 import { dexScreenerEmbedUrl, resolveDexScreenerPair, type ResolvedPair } from '@kivo/trading/core/dexScreener';
 import { checkSolanaTokenSecurity, checkTokenSecurity, type TokenSecuritySummary } from '@kivo/trading/core/goplusTokenSecurity';
 import type { KivoToken } from '@kivo/trading/kivo/tokens';
 
-const CHART_BG = '#0B0B0D';
 const COLORS = {
-  background: '#1B1B1E',
-  panel: '#242428',
-  pill: '#2B2B2F',
-  border: '#3A3A3F',
-  text: '#F4F4F5',
-  secondary: '#B8B8BE',
-  muted: '#85858C',
-  danger: '#FF4F46',
-  accent: '#D8D8DD',
+  background: kivoTheme.colors.background,
+  panel: kivoTheme.colors.surface,
+  pill: kivoTheme.colors.surfaceRaised,
+  border: kivoTheme.colors.border,
+  text: kivoTheme.colors.text,
+  secondary: kivoTheme.colors.creamMuted,
+  muted: kivoTheme.colors.textMuted,
+  danger: kivoTheme.colors.danger,
+  accent: kivoTheme.colors.accent,
 };
+const CHART_BG = kivoTheme.colors.backgroundDeep;
 
 function compact(value: number) {
   if (value >= 1_000_000) return (value / 1_000_000).toFixed(2) + 'M';
@@ -92,7 +93,7 @@ export function TokenChartPanel({ token }: { token: KivoToken }) {
 
       <View style={styles.chartArea}>
         {resolving ? (
-          <ActivityIndicator color="#77777D" style={styles.centered} />
+          <ActivityIndicator color={kivoTheme.colors.textMuted} style={styles.centered} />
         ) : !embedUrl ? (
           <Text style={styles.errorText}>DexScreener hasn't indexed a pair for this token on this network yet.</Text>
         ) : (
@@ -174,7 +175,7 @@ const styles = StyleSheet.create({
   webview: { flex: 1, backgroundColor: CHART_BG },
   webviewContainer: { flex: 1, backgroundColor: CHART_BG },
   centered: { alignSelf: 'center' },
-  errorText: { color: '#7A7A80', fontSize: 12, textAlign: 'center', marginHorizontal: 16 },
+  errorText: { color: kivoTheme.colors.textMuted, fontSize: 12, textAlign: 'center', marginHorizontal: 16 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: 24 },
   holdersCard: { backgroundColor: COLORS.panel, borderColor: COLORS.border, borderWidth: 1, borderRadius: 16, maxHeight: '75%', overflow: 'hidden' },
   holdersHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: COLORS.border },
