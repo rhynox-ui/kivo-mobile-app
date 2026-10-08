@@ -3,6 +3,7 @@ import { Alert, Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } 
 import { kivoTheme } from '../theme/kivoTheme';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { getTradeHistory } from '@kivo/trading/kivo/history';
+import { AppearanceHapticsScreen } from './AppearanceHapticsScreen';
 
 type SettingsItem = {
   label: string;
@@ -14,6 +15,7 @@ type SettingsItem = {
 
 export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecurity, onLogout }: { onBack:()=>void; onOpenWallet?:()=>void; onOpenProfile?:()=>void; onOpenSecurity?:()=>void; onLogout?:()=>void }) {
   const settings = useSettings();
+  const [showAppearance, setShowAppearance] = React.useState(false);
   const items: SettingsItem[] = [
     { label:'Profile and Account',icon:'♙',action:'profile' },
     { label:'Appearance and Haptics',icon:'◐',value:settings.haptics?'On':'Off',action:'haptics' },
@@ -35,7 +37,7 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecu
     switch(item.action){
       case 'wallet': onOpenWallet?.(); return;
       case 'profile': onOpenProfile?.(); return;
-      case 'haptics': updateSettings({haptics:!settings.haptics}); return;
+      case 'haptics': setShowAppearance(true); return;
       case 'notifications':
         updateSettings({notifications:!settings.notifications});
         Linking.openSettings().catch(()=>{});
@@ -66,6 +68,8 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecu
         ]); return;
     }
   };
+
+  if (showAppearance) return <AppearanceHapticsScreen onBack={() => setShowAppearance(false)} />;
 
   return <View style={styles.root}><ScrollView contentContainerStyle={styles.content}>
     <View style={styles.header}><Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.title}>Settings</Text></View>
