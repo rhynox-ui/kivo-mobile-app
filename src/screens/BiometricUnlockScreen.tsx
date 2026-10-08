@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {ActivityIndicator, Image, InteractionManager, Pressable, StyleSheet, Text, View} from 'react-native';
+import {ActivityIndicator, Image, Pressable, StyleSheet, Text, View} from 'react-native';
 import {kivoTheme} from '../theme/kivoTheme';
 import {getBiometryLabel} from '../wallet/biometricAuth';
 import {unlockWalletWithBiometric} from '../state/walletStore';
@@ -26,7 +26,7 @@ export function BiometricUnlockScreen({onUnlocked}: {onUnlocked: () => void}) {
 
   React.useEffect(() => {
     let cancelled = false;
-    const task = InteractionManager.runAfterInteractions(async () => {
+    const task = setTimeout(async () => {
       // Match Mango's flow: let the lock screen finish mounting before
       // opening the native Keychain/biometric prompt. Do not race the
       // prompt with getSupportedBiometryType(), which can make Android
@@ -40,7 +40,7 @@ export function BiometricUnlockScreen({onUnlocked}: {onUnlocked: () => void}) {
     });
     return () => {
       cancelled = true;
-      task.cancel();
+      clearTimeout(task);
     };
   }, []);
 
