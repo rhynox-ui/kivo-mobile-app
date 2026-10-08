@@ -7,6 +7,7 @@ import {unlockWalletWithBiometric} from '../state/walletStore';
 export function BiometricUnlockScreen({onUnlocked}: {onUnlocked: () => void}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [label, setLabel] = useState('biometric');
 
   const unlock = async () => {
     setBusy(true);
@@ -21,14 +22,14 @@ export function BiometricUnlockScreen({onUnlocked}: {onUnlocked: () => void}) {
     }
   };
 
-  React.useEffect(() => { unlock(); }, []);
+  React.useEffect(() => { getBiometryLabel().then(setLabel); unlock(); }, []);
 
   return (
     <View style={styles.container}>
       <View style={styles.hero}>
         <View style={styles.icon}><Text style={styles.mark}>⌁</Text></View>
         <Text style={styles.title}>Unlock Kivo</Text>
-        <Text style={styles.body}>Use your {getBiometryLabel()} or device passcode to unlock your wallet.</Text>
+        <Text style={styles.body}>Use your {label} or device passcode to unlock your wallet.</Text>
         {!!error && <Text style={styles.error}>{error}</Text>}
       </View>
       <Pressable disabled={busy} onPress={unlock} style={[styles.primary, busy && styles.disabled]}>
