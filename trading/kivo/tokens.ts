@@ -49,7 +49,7 @@ export function isEvmTradeChain(chain: TradeChain): chain is ChainKey {
 export function tradeSupportFor(token: Pick<KivoToken, 'chainKey' | 'tokenAddress'>, wallet: {kind: WalletKind} | null): TradeSupport {
   if (token.chainKey === 'near') return {ok: false, reason: 'NEAR tokens can be researched in Kivo, but NEAR trading is not enabled yet.'};
   if (token.chainKey === 'solana') {
-    return {ok: false, reason: 'Solana trading is not enabled in the mobile signer yet.'};
+    if (wallet?.kind === 'evm-watch') return {ok: false, reason: 'This wallet is connected read-only. Create or import a wallet on this device to sign trades.'};
     return {ok: true, chainKey: 'solana'};
   }
   if (!isEvmTradeChain(token.chainKey)) return {ok: false, reason: `${CHAIN_LABEL[token.chainKey] ?? token.chainKey} is not available for trading yet.`};
