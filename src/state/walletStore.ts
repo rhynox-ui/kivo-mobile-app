@@ -8,6 +8,7 @@ import type { EvmCall, KivoEvmSigner } from '@kivo/trading/kivo/execute';
 import type { Keypair } from '@solana/web3.js';
 import { deriveSolanaKeypair } from '../wallet/solanaKeys';
 import { deriveNearAccount } from '@kivo/trading/wallet/keys';
+import { clearBiometricUnlock, getBiometricPassword, isBiometricUnlockEnabled } from '../wallet/biometricAuth';
 
 const SERVICE = 'com.kivo.chat.wallet';
 let cachedStorageOptions: Keychain.SetOptions | null = null;
@@ -81,7 +82,9 @@ export async function loadWalletSession(){
   if (session) return getWalletSession();
   if (loadingWallet) return loadingWallet;
   loadingWallet = (async () => {
-    const credentials=await Keychain.getGenericPassword({service:SERVICE});
+    const biometricEnabled=await isBiometricUnlockEnabled();
+    const biometricSecret=biometricEnabled ? await getBiometricPassword() : null;
+    const credentials=biometricEnabled ? (biometricSecret ? {password:biometricSecret} : null) : await Keychain.getGenericPassword({service:SERVICE});
     if(!credentials) return null;
     const account=mnemonicToAccount(credentials.password);
     // Derive Solana once per process. Mango Pro also derives account 0 only;
@@ -102,13 +105,14 @@ export function subscribeToWallet(listener:(value:WalletSession|null)=>void){
 export async function enableBiometricUnlock(){
   const credentials=await Keychain.getGenericPassword({service:SERVICE});
   if(!credentials) throw new Error('No local wallet is available on this device.');
-  const supported=await Keychain.getSupportedBiometryType();
-  if(!supported) throw new Error('This device does not report a supported biometric method.');
-  await Keychain.setGenericPassword('kivo',credentials.password,{...(await walletStorageOptions()),accessControl:Keychain.ACCESS_CONTROL.BIOMETRY_CURRENT_SET,authenticationPrompt:'Authenticate to protect your Kivo wallet'});
-  return supported;
+  const enabled=await (await import('../wallet/biometricAuth')).enableBiometricUnlock(credentials.password);
+  if(!enabled) throw new Error('Unable to enable biometric wallet unlock.');
+  await Keychain.resetGenericPassword({service:SERVICE});
+  return await (await import('../wallet/biometricAuth')).getBiometryLabel();
 }
 
 export async function clearLocalWallet(){
+  await clearBiometricUnlock();
   await Keychain.resetGenericPassword({service:SERVICE});
   const remaining=await Keychain.getGenericPassword({service:SERVICE});
   if (remaining) throw new Error('Kivo could not verify secure wallet deletion.');
@@ -135,10 +139,18 @@ export function walletKind(value: WalletSession | null): 'evm-local' | 'evm-watc
  * or stored anywhere else. Every transaction it signs has already passed
  * the shared intent firewall in /trading/kivo/execute.ts.
  */
+
+async function getSigningCredentials(title: string): Promise<{password: string} | null> {
+  if (await isBiometricUnlockEnabled()) {
+    const password = await getBiometricPassword();
+    return password ? {password} : null;
+  }
+  return await Keychain.getGenericPassword({ service: SERVICE, authenticationPrompt: { title } });
+}
 export async function localEvmSigner(): Promise<KivoEvmSigner> {
   const current = getWalletSession();
   if (!current || current.source !== 'local') throw new Error('This wallet is watch-only on this device. Create or import a wallet to sign trades.');
-  const credentials = await Keychain.getGenericPassword({ service: SERVICE, authenticationPrompt: { title: 'Confirm trade with Kivo' } });
+  const credentials = await getSigningCredentials('Confirm trade with Kivo');
   if (!credentials) throw new Error('The device wallet is locked or unavailable.');
   const account = mnemonicToAccount(credentials.password);
   if (account.address.toLowerCase() !== current.address.toLowerCase()) throw new Error('The unlocked wallet does not match the active session.');
@@ -167,7 +179,7 @@ export async function localEvmSigner(): Promise<KivoEvmSigner> {
 export async function withDeviceAccount<T>(title: string, action: (account: HDAccount) => Promise<T>): Promise<T> {
   const current = getWalletSession();
   if (!current || current.source !== 'local') throw new Error('Create or import a Kivo wallet on this device to trade.');
-  const credentials = await Keychain.getGenericPassword({ service: SERVICE, authenticationPrompt: { title } });
+  const credentials = await getSigningCredentials(title);
   if (!credentials) throw new Error('The device wallet is locked or unavailable.');
   const account = mnemonicToAccount(credentials.password);
   if (account.address.toLowerCase() !== current.address.toLowerCase()) throw new Error('The unlocked wallet does not match the active session.');
@@ -204,7 +216,7 @@ export async function withDeviceAccounts<T>(title: string, action: (accounts: { 
 export async function signMessageWithLocalWallet(message: string): Promise<string> {
   const current = getWalletSession();
   if (!current || current.source !== 'local') throw new Error('This wallet is watch-only on this device, so it cannot sign in to Kivo social.');
-  const credentials = await Keychain.getGenericPassword({ service: SERVICE, authenticationPrompt: { title: 'Sign in to Kivo' } });
+  const credentials = await getSigningCredentials('Sign in to Kivo');
   if (!credentials) throw new Error('The device wallet is locked or unavailable.');
   const account = mnemonicToAccount(credentials.password);
   if (account.address.toLowerCase() !== current.address.toLowerCase()) throw new Error('The unlocked wallet does not match the active session.');
