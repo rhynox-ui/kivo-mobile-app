@@ -11,6 +11,8 @@ react {
 }
 
 def enableProguardInReleaseBuilds = false
+def appVersionCode = project.hasProperty("VERSION_CODE") ? project.property("VERSION_CODE").toString().toInteger() : 1
+def appVersionName = project.hasProperty("VERSION_NAME") ? project.property("VERSION_NAME").toString() : "0.1.0"
 
 android {
     ndkVersion rootProject.ext.ndkVersion
@@ -22,8 +24,8 @@ android {
         applicationId "com.kivo.chat"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode (findProperty("VERSION_CODE") ?: "1").toInteger()
-        versionName (findProperty("VERSION_NAME") ?: "0.1.0")
+        versionCode appVersionCode
+        versionName appVersionName
     }
 
     signingConfigs {
@@ -47,8 +49,6 @@ android {
     buildTypes {
         debug { signingConfig signingConfigs.debug }
         release {
-            // Production signing is supplied by the release pipeline/Play Console.
-            // CI must never ship an unsigned APK.
             if (System.getenv("ANDROID_KEYSTORE_FILE")) {
                 signingConfig signingConfigs.release
             }
