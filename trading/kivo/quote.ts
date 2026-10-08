@@ -17,6 +17,8 @@ export type KivoTradeRequest = {
   /** Human amount the user typed in the selected pay asset on buy, or token amount on sell. */
   amount: string;
   userAddress: string;
+  /** Buy: destination wallet address when the destination chain uses a different wallet address (e.g. Solana). */
+  recipientAddress?: string;
   /** Buy: legacy chain selector; kept for compatibility when payAsset is omitted. */
   payChain: ChainKey;
   /** Buy: exact verified asset the user is spending. */
@@ -120,7 +122,7 @@ export async function requestKivoQuote(request: KivoTradeRequest): Promise<KivoQ
   const originAmountUsd = request.side === 'buy' ? amountNumber : amountNumber != null && request.token.priceUsd != null ? amountNumber * request.token.priceUsd : null;
   const quote = await getRelayQuote({
     fromChainKey: input.chainKey, toChainKey: output.chainKey, originCurrency: input.address, destinationCurrency: output.address,
-    amountBaseUnits, userAddress: request.userAddress, originAmountUsd,
+    amountBaseUnits, userAddress: request.userAddress, recipientAddress: request.recipientAddress, originAmountUsd,
     ...(request.slippageBps ? {slippageTolerance: String(request.slippageBps)} : {}),
     ...(request.execution === 'gasless' ? {originGasOverhead: '80000'} : {}),
   });
