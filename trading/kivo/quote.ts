@@ -84,7 +84,7 @@ function num(value: unknown): number | null { const n = Number(value); return Nu
 function unsupportedReasonFor(quote: RelayQuote): string | null {
   for (const step of quote.steps ?? []) {
     if (step.kind !== 'transaction') return `This route needs a "${step.kind}" step that Kivo does not sign yet. Try another amount or chain.`;
-    for (const item of step.items ?? []) if (item.data?.instructions) return 'This route includes a Solana transaction. Kivo web currently signs EVM transactions only.';
+    for (const item of step.items ?? []) if (item.data?.instructions) continue; // Mobile signs Relay Solana instruction bundles with the device key.
   }
   if (!(quote.steps ?? []).some(step => (step.items ?? []).length > 0)) return 'The route returned no transactions to sign.';
   return null;
