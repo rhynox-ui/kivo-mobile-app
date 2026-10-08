@@ -15,7 +15,8 @@ import {resolveDexScreenerPair} from '../core/dexScreener';
 import {fetchWalletPrices} from '../core/walletPrices';
 import {fetchCashBalances, readNativeBalance, readTokenBalance} from './balances';
 import type {TradeRecord} from './history';
-import {EVM_TRADE_CHAINS} from './tokens';\nimport {fetchWalletAssets} from './walletAssets';
+import {EVM_TRADE_CHAINS} from './tokens';
+import {fetchWalletAssets} from './walletAssets';
 
 export type Holding = {
   key: string;
@@ -85,7 +86,16 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
     cashUsd += row.balance.amount;
     holdings.push({key: `${row.chainKey}:usdc`, kind: 'cash', chainKey: row.chainKey, address: row.balance.tokenAddress, symbol: 'USDC', name: `USDC · ${CHAIN_LABEL[row.chainKey]}`, amount: row.balance.amount, priceUsd: 1, valueUsd: row.balance.amount, imageUrl: null});
   }
-  if (indexedAssets.status === 'fulfilled' && indexedAssets.value) {\n    if (!indexedAssets.value.complete) complete = false;\n    for (const asset of indexedAssets.value.holdings) {\n      if (asset.isNative || asset.chainKey === 'near' || asset.symbol === 'USDC' || asset.symbol === 'USDG' || asset.amount <= 0) continue;\n      const key = asset.chainKey + ':' + asset.address;\n      if (holdings.some(h => h.key.toLowerCase() === key.toLowerCase())) continue;\n      holdings.push({key,kind:'token',chainKey:asset.chainKey,address:asset.address,symbol:asset.symbol,name:asset.name,amount:asset.amount,priceUsd:asset.priceUsd,valueUsd:asset.valueUsd,imageUrl:asset.imageUrl});\n    }\n  }\n  for (const outcome of tokens) {
+  if (indexedAssets.status === 'fulfilled' && indexedAssets.value) {
+    if (!indexedAssets.value.complete) complete = false;
+    for (const asset of indexedAssets.value.holdings) {
+      if (asset.isNative || asset.chainKey === 'near' || asset.symbol === 'USDC' || asset.symbol === 'USDG' || asset.amount <= 0) continue;
+      const key = asset.chainKey + ':' + asset.address;
+      if (holdings.some(h => h.key.toLowerCase() === key.toLowerCase())) continue;
+      holdings.push({key,kind:'token',chainKey:asset.chainKey,address:asset.address,symbol:asset.symbol,name:asset.name,amount:asset.amount,priceUsd:asset.priceUsd,valueUsd:asset.valueUsd,imageUrl:asset.imageUrl});
+    }
+  }
+  for (const outcome of tokens) {
     if (outcome.status !== 'fulfilled') { complete = false; continue; }
     const {token, balance, priceUsd} = outcome.value;
     holdings.push({key: `${token.chainKey}:${token.address.toLowerCase()}`, kind: 'token', chainKey: token.chainKey, address: token.address, symbol: token.symbol, name: token.name, amount: balance.amount, priceUsd, valueUsd: priceUsd == null ? null : balance.amount * priceUsd, imageUrl: token.imageUrl});
