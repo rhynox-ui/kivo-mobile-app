@@ -135,7 +135,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
 
   const preflight = useMemo(() => {
     if (!plan || !address) return null;
-    try { return { ok: true as const, warnings: plan.legs.flatMap(leg => preflightKivoQuote(leg.quote, address).warnings) }; }
+    try { return { ok: true as const, warnings: plan.legs.flatMap(leg => preflightKivoQuote(leg.quote, address, {allowSolana: true}).warnings) }; }
     catch (error) { return { ok: false as const, error: error instanceof Error ? error.message : 'Safety check failed.' }; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan, address, reviewOpen]);
