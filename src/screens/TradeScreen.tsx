@@ -64,9 +64,13 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   useEffect(() => { setSide(initialSide); }, [initialSide]);
 
   const support = selectedToken ? tradeSupportFor(selectedToken, wallet ? { kind: walletKind(wallet)! } : null) : null;
-  const token = support?.ok && selectedToken && selectedToken.chainKey !== 'near' ? { ...selectedToken, chainKey: support.chainKey } : null;
+  const token = support?.ok && selectedToken && selectedToken.chainKey !== 'near'
+    ? { ...selectedToken, chainKey: support.chainKey as ChainKey }
+    : null;
   const address = wallet?.address ?? null;
-  const nearToken = selectedToken?.chainKey === 'near' && wallet?.source === 'local' && wallet?.nearAddress ? selectedToken : null;
+  const nearToken = selectedToken?.chainKey === 'near' && wallet?.source === 'local' && wallet?.nearAddress
+    ? (selectedToken as KivoToken & { chainKey: 'near' })
+    : null;
 
   // Reset the ticket whenever the token, side or wallet changes.
   useEffect(() => {
@@ -236,7 +240,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const feePct = view && view.fees.appUsd != null && view.pay.usd ? (view.fees.appUsd / view.pay.usd) * 100 : null;
   const cashTotal = cash ? totalCashUsd(cash).total : null;
   const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && walletKind(wallet) === 'evm-local' && gasless?.available === true;
-  const tradeChain = token?.chainKey ?? selectedToken?.chainKey ?? null;
+  const tradeChain: ChainKey | null = token?.chainKey ?? (selectedToken?.chainKey !== 'near' ? selectedToken?.chainKey ?? null : null);
   const receiveSymbol = side === 'buy' ? token?.symbol ?? '' : token && TOKEN_ADDRESSES.USDC?.[token.chainKey] ? 'USDC' : token ? nativeSymbol(token.chainKey) : '';
   const hint = !wallet ? 'Create or import a Kivo wallet on this phone to trade.'
     : gasless && !gasless.available ? gasless.reason ?? 'Gasless trading is not available right now.'
