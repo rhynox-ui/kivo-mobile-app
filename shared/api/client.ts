@@ -8,17 +8,18 @@ export class ApiError extends Error {
   constructor(status: number, message: string) { super(message); this.status = status; }
 }
 
-export type KivoApiOptions = {baseUrl: string; storage: KeyValueStorage; client: 'web' | 'mobile'};
+export type KivoApiOptions = {baseUrl: string; storage: KeyValueStorage; sessionStorage?: KeyValueStorage; client: 'web' | 'mobile'};
 const SESSION_KEY = 'kivo:api-session:v1';
 
 export class KivoApi {
   private baseUrl: string;
   private storage: KeyValueStorage;
+  private sessionStorage: KeyValueStorage;
   private client: 'web' | 'mobile';
   private session: {token: string; expiresAt: number; address: string} | null = null;
   private listeners = new Set<() => void>();
 
-  constructor(options: KivoApiOptions) { this.baseUrl = options.baseUrl.replace(/\/$/, ''); this.storage = options.storage; this.client = options.client; }
+  constructor(options: KivoApiOptions) { this.baseUrl = options.baseUrl.replace(/\/$/, ''); this.storage = options.storage; this.sessionStorage = options.sessionStorage ?? options.storage; this.client = options.client; }
   onSessionChange(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   private emit() { this.listeners.forEach(listener => listener()); }
 
@@ -26,7 +27,7 @@ export class KivoApi {
     this.session = null;
     if (!address) { this.emit(); return false; }
     try {
-      const raw = await this.storage.getItem(SESSION_KEY);
+      const raw = await this.sessionStorage.getItem(SESSION_KEY);
       const saved = raw ? JSON.parse(raw) as {token: string; expiresAt: number; address: string} : null;
       if (saved && saved.address === address.toLowerCase() && saved.expiresAt > Date.now() + 60_000 && /^kv_[0-9a-f]{64}$/.test(saved.token)) this.session = saved;
     } catch {}
@@ -41,7 +42,7 @@ export class KivoApi {
     const signature = await sign(challenge.message);
     const session = await this.request<AuthSession>('POST', '/api/auth/verify', {address, nonce: challenge.nonce, signature}, false);
     this.session = {token: session.token, expiresAt: session.expiresAt, address: address.toLowerCase()};
-    await this.storage.setItem(SESSION_KEY, JSON.stringify(this.session));
+    await this.sessionStorage.setItem(SESSION_KEY, JSON.stringify(this.session));
     this.emit();
     return session;
   }
@@ -49,7 +50,7 @@ export class KivoApi {
   async signOut() {
     if (this.session) await this.request('POST', '/api/auth/signout', {}).catch(() => {});
     this.session = null;
-    await this.storage.removeItem?.(SESSION_KEY);
+    await this.sessionStorage.removeItem?.(SESSION_KEY);
     this.emit();
   }
 
