@@ -11,7 +11,7 @@ import type {LocalAccount} from 'viem/accounts';
 import {TOKEN_ADDRESSES, type ChainKey} from '../core/chainData';
 import {getViemChain} from '../core/chainRegistry';
 import {sendEvmCallsViaRelayGasless} from '../core/relayGaslessEvm';
-import {usdcDecimals} from './balances';
+import {cashAssetAddress,cashAssetSymbol,usdcDecimals} from './balances';
 
 const ERC20_TRANSFER_ABI = [{type: 'function', name: 'transfer', inputs: [{name: 'to', type: 'address'}, {name: 'amount', type: 'uint256'}], outputs: [{type: 'bool'}], stateMutability: 'nonpayable'}] as const;
 
