@@ -1,29 +1,96 @@
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { kivoTheme } from '../theme/kivoTheme';
-import { getWalletSession, loadWalletSession, subscribeToWallet, withDeviceAccount, type WalletSession } from '../state/walletStore';
+import { getWalletSession, loadWalletSession, subscribeToWallet, withDeviceAccounts, type WalletSession } from '../state/walletStore';
 import { useSettings } from '../state/settingsStore';
 import { addNotification } from '../state/notificationStore';
-import { CHAIN_LABEL, MAINNET_CHAIN_IDS, type ChainKey } from '@kivo/trading/core/chainData';
+import { CHAIN_LABEL, type ChainKey } from '@kivo/trading/core/chainData';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, type CashBalanceRow } from '@kivo/trading/kivo/balances';
-import { isValidEvmRecipient, withdrawUsdcGasless } from '@kivo/trading/kivo/cash';
-import { explorerTxUrl } from '@kivo/trading/kivo/execute';
+import { isValidRecipientAddress, withdrawUsdc } from '@kivo/trading/kivo/cash';
 import { fetchGaslessStatus, type GaslessStatus } from '@kivo/trading/kivo/gasless';
 import { formatAmount, formatUsd, shortAddress, USDC_CHAINS } from '@kivo/trading/kivo/tokens';
 
 type Sheet = null | 'deposit' | 'withdraw';
+type DepositNetwork = ChainKey | 'near';
+
+const DEPOSIT_CHAINS: ChainKey[] = [
+  'ethereum', 'base', 'avalanche', 'arbitrum', 'unichain',
+  'solana', 'bnb', 'hyperevm', 'ink', 'abstract', 'xlayer', 'arc',
+];
+
+const NETWORK_GLYPH: Partial<Record<ChainKey | 'near', string>> = {
+  ethereum: '◆',
+  base: '■',
+  avalanche: '▲',
+  arbitrum: '◎',
+  unichain: '✦',
+  solana: '≋',
+  bnb: '⬡',
+  hyperevm: '●',
+  ink: '◉',
+  abstract: '✣',
+  xlayer: '▦',
+  arc: '◒',
+  near: 'N',
+};
+
+function networkLabel(network: DepositNetwork): string {
+  return network === 'near' ? 'NEAR' : CHAIN_LABEL[network];
+}
+
+function networkAddress(wallet: WalletSession, network: DepositNetwork): string {
+  if (network === 'solana') return wallet.solanaAddress ?? '';
+  if (network === 'near') return wallet.nearAddress ?? '';
+  return wallet.address;
+}
+
+function NetworkBadge({ network }: { network: DepositNetwork }) {
+  return (
+    <View style={styles.networkBadge}>
+      <Text style={styles.networkGlyph}>{NETWORK_GLYPH[network] ?? '•'}</Text>
+    </View>
+  );
+}
 
 /**
- * Kivo mobile cash, the Mango Pro way: the wallet lives on this phone, cash
- * is USDC, and moving it out is gasless (Relay submits, Kivo pays gas), so
- * nobody ever needs ETH/BNB just to withdraw.
+ * Kivo mobile cash, matching Mango Pro's wallet flow:
+ * one wallet, real USDC balances, network-specific deposit addresses,
+ * and an explicit withdrawal review before anything is broadcast.
  */
-export function WalletSummaryScreen({ onBack, onTrade, initialAction }: { onBack?: () => void; onTrade?: () => void; initialAction?: 'deposit' | 'withdraw' }) {
+export function WalletSummaryScreen({
+  onBack,
+  onTrade,
+  initialAction,
+}: {
+  onBack?: () => void;
+  onTrade?: () => void;
+  initialAction?: 'deposit' | 'withdraw';
+}) {
   const [wallet, setWallet] = useState<WalletSession | null>(getWalletSession());
   const [rows, setRows] = useState<CashBalanceRow[] | null>(null);
   const [sheet, setSheet] = useState<Sheet>(initialAction ?? null);
   const [gasless, setGasless] = useState<GaslessStatus | null>(null);
   const settings = useSettings();
+
+  const load = () => {
+    if (!wallet) return;
+    setRows(null);
+    fetchCashBalances(wallet.address, USDC_CHAINS.includes('solana') ? USDC_CHAINS : [...USDC_CHAINS, 'solana']).then(setRows);
+  };
 
   useEffect(() => {
     const unsub = subscribeToWallet(setWallet);
@@ -31,54 +98,102 @@ export function WalletSummaryScreen({ onBack, onTrade, initialAction }: { onBack
     fetchGaslessStatus().then(setGasless);
     return unsub;
   }, []);
-  const load = () => {
+
+  useEffect(() => {
     if (!wallet) return;
     setRows(null);
-    fetchCashBalances(wallet.address).then(setRows);
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(load, [wallet?.address]);
+    fetchCashBalances(wallet.address, [...USDC_CHAINS, 'solana']).then(setRows);
+  }, [wallet?.address]);
 
   const total = rows ? totalCashUsd(rows) : null;
-  const funded = rows?.filter(r => r.status === 'error' || r.balance.amount > 0) ?? [];
+  const funded = rows?.filter(r => r.status === 'ok' && r.balance.amount > 0) ?? [];
   const mask = (value: string) => (settings.hideBalances ? '••••' : value);
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-      <View style={styles.header}>{onBack && <Pressable onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable>}<Text style={styles.eyebrow}>KIVO WALLET</Text></View>
-      {!wallet ? <View style={styles.card}><Text style={styles.cardTitle}>No wallet on this phone</Text><Text style={styles.note}>Create or import a Kivo wallet to hold USDC and trade.</Text></View> : <>
-        <Text style={styles.balance}>{total == null ? '…' : mask(formatUsd(total.total))}</Text>
-        <Text style={styles.sub}>{total == null ? 'Reading USDC on supported networks…' : total.complete ? 'Total cash · USDC across supported networks' : 'Some networks did not respond — total may be incomplete'}</Text>
-        <View style={styles.actions}>
-          <Action glyph="↓" label="Deposit" onPress={() => setSheet('deposit')} />
-          <Action glyph="↑" label="Withdraw" onPress={() => setSheet('withdraw')} />
-          {onTrade && <Action glyph="⇄" label="Trade" onPress={onTrade} />}
-          <Action glyph="⟳" label="Refresh" onPress={load} />
-        </View>
-        <View style={[styles.gasBanner, gasless && !gasless.available && styles.gasBannerOff]}>
-          <Text style={styles.gasTitle}>{gasless == null ? 'Checking gasless trading…' : gasless.available ? '⛽  Gasless is on' : '⛽  Gasless is off'}</Text>
-          <Text style={styles.note}>{gasless?.available === false ? gasless.reason : 'Trades and withdrawals need only USDC. Kivo pays the network gas.'}</Text>
-        </View>
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Cash by network</Text>
-          {rows == null ? <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 12 }} />
-            : funded.length === 0 ? <Text style={styles.note}>No USDC yet. Tap Deposit and send USDC on any supported network.</Text>
-            : funded.map(row => (
-              <View key={row.chainKey} style={styles.row}>
-                <Text style={styles.rowName}>USDC · {CHAIN_LABEL[row.chainKey]}</Text>
-                <Text style={styles.rowValue}>{row.status === 'ok' ? mask(formatAmount(row.balance.amount, 2)) : 'Unavailable'}</Text>
-              </View>
-            ))}
-        </View>
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Device wallet</Text>
-          <Text style={styles.address} selectable>{shortAddress(wallet.address, 10, 8)}</Text>
-          <Text style={styles.note}>Your keys stay in this phone’s secure storage. Kivo never displays or uploads your recovery phrase.</Text>
-        </View>
-      </>}
+      <View style={styles.header}>
+        {onBack && <Pressable onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable>}
+        <Text style={styles.eyebrow}>KIVO WALLET</Text>
+      </View>
 
-      {wallet && <DepositSheet visible={sheet === 'deposit'} address={wallet.address} onClose={() => setSheet(null)} />}
-      {wallet && <WithdrawSheet visible={sheet === 'withdraw'} rows={rows} gasless={gasless} onClose={() => setSheet(null)} onDone={() => { setSheet(null); load(); }} />}
+      {!wallet ? (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>No wallet on this phone</Text>
+          <Text style={styles.note}>Create or import a Kivo wallet to hold USDC and trade.</Text>
+        </View>
+      ) : (
+        <>
+          <Text style={styles.balance}>{total == null ? '…' : mask(formatUsd(total.total))}</Text>
+          <Text style={styles.sub}>
+            {total == null
+              ? 'Reading USDC on supported networks…'
+              : total.complete
+                ? 'Total cash · USDC across supported networks'
+                : 'Some networks did not respond — total may be incomplete'}
+          </Text>
+
+          <View style={styles.actions}>
+            <Action glyph="↓" label="Deposit" onPress={() => setSheet('deposit')} />
+            <Action glyph="↑" label="Withdraw" onPress={() => setSheet('withdraw')} />
+            {onTrade && <Action glyph="⇄" label="Trade" onPress={onTrade} />}
+            <Action glyph="⟳" label="Refresh" onPress={load} />
+          </View>
+
+          <View style={[styles.gasBanner, gasless && !gasless.available && styles.gasBannerOff]}>
+            <Text style={styles.gasTitle}>
+              {gasless == null ? 'Checking gasless trading…' : gasless.available ? '⛽  Gasless is on' : '⛽  Gasless is off'}
+            </Text>
+            <Text style={styles.note}>
+              {gasless?.available === false
+                ? gasless.reason
+                : 'Trades and withdrawals need only USDC. Kivo pays the network gas.'}
+            </Text>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Cash by network</Text>
+            {rows == null ? (
+              <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 12 }} />
+            ) : funded.length === 0 ? (
+              <Text style={styles.note}>No USDC yet. Tap Deposit and send USDC on any supported network.</Text>
+            ) : (
+              funded.map(row => (
+                <View key={row.chainKey} style={styles.row}>
+                  <View style={styles.rowLeft}>
+                    <NetworkBadge network={row.chainKey} />
+                    <Text style={styles.rowName}>USDC · {CHAIN_LABEL[row.chainKey]}</Text>
+                  </View>
+                  <Text style={styles.rowValue}>{row.status === 'ok' ? mask(formatAmount(row.balance.amount, 2)) : 'Unavailable'}</Text>
+                </View>
+              ))
+            )}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Device wallet</Text>
+            <Text style={styles.address} selectable>{shortAddress(wallet.address, 10, 8)}</Text>
+            <Text style={styles.note}>Your keys stay in this phone’s secure storage. Kivo never displays or uploads your recovery phrase.</Text>
+          </View>
+        </>
+      )}
+
+      {wallet && (
+        <DepositSheet
+          visible={sheet === 'deposit'}
+          wallet={wallet}
+          onClose={() => setSheet(null)}
+        />
+      )}
+      {wallet && (
+        <WithdrawSheet
+          visible={sheet === 'withdraw'}
+          rows={rows}
+          gasless={gasless}
+          wallet={wallet}
+          onClose={() => setSheet(null)}
+          onDone={() => { setSheet(null); load(); }}
+        />
+      )}
     </ScrollView>
   );
 }
@@ -92,46 +207,87 @@ function Action({ glyph, label, onPress }: { glyph: string; label: string; onPre
   );
 }
 
-function DepositSheet({ visible, address, onClose }: { visible: boolean; address: string; onClose: () => void }) {
-  const [network, setNetwork] = useState<ChainKey | null>(null);
-  const selected = network ?? USDC_CHAINS[0] ?? null;
-  const share = async () => {
-    try {
-      await Share.share({
-        message: selected
-          ? `Kivo USDC deposit · ${CHAIN_LABEL[selected]}\n\n${address}\n\nSend USDC only on ${CHAIN_LABEL[selected]}.`
-          : address,
-      });
-    } catch { /* dismissed */ }
-  };
+function DepositSheet({
+  visible,
+  wallet,
+  onClose,
+}: {
+  visible: boolean;
+  wallet: WalletSession;
+  onClose: () => void;
+}) {
+  const [network, setNetwork] = useState<DepositNetwork | null>(null);
+  const selected = network ?? DEPOSIT_CHAINS[0] ?? null;
+  const address = selected ? networkAddress(wallet, selected) : '';
 
   useEffect(() => {
-    if (visible) setNetwork(current => current ?? USDC_CHAINS[0] ?? null);
+    if (visible) setNetwork(current => current ?? DEPOSIT_CHAINS[0] ?? null);
   }, [visible]);
+
+  const share = async () => {
+    if (!selected || !address) return;
+    try {
+      await Share.share({
+        message: `Kivo deposit · ${networkLabel(selected)}\\n\\n${address}\\n\\nSend USDC only on ${networkLabel(selected)}. Do not send another asset.`,
+      });
+    } catch {}
+  };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={() => {}}>
-          <Text style={styles.sheetTitle}>Deposit USDC</Text>
-          <Text style={styles.note}>Choose the network you are sending from. Your Kivo deposit address is the same EVM address across the supported networks.</Text>
-
-          <Text style={styles.label}>Send USDC on</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-            {USDC_CHAINS.map(chain => (
-              <Pressable key={chain} onPress={() => setNetwork(chain)} style={[styles.chipButton, selected === chain && styles.chipActive]}>
-                <Text style={[styles.chipButtonText, selected === chain && styles.chipActiveText]}>{CHAIN_LABEL[chain]}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-
-          <View style={styles.addressBox}>
-            <Text style={styles.addressLabel}>{selected ? `USDC deposit address · ${CHAIN_LABEL[selected]}` : 'USDC deposit address'}</Text>
-            <Text style={styles.addressFull} selectable>{address}</Text>
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Deposit USDC</Text>
+            <Pressable onPress={onClose}><Text style={styles.ghostText}>Close</Text></Pressable>
           </View>
 
-          <Text style={styles.warn}>Only send USDC on the selected network. Do not send another token. Deposits sent on an unsupported network may not appear in your Kivo cash balance.</Text>
-          <Pressable onPress={share} disabled={!selected} style={[styles.primary, !selected && styles.disabled]}><Text style={styles.primaryText}>Share deposit details</Text></Pressable>
+          <Text style={styles.note}>Choose a network to deposit from. EVM networks use your same Kivo address; Solana and NEAR use their own wallet addresses.</Text>
+
+          <ScrollView style={styles.networkList} nestedScrollEnabled showsVerticalScrollIndicator>
+            {DEPOSIT_CHAINS.map(chain => (
+              <Pressable key={chain} onPress={() => setNetwork(chain)} style={[styles.networkRow, selected === chain && styles.networkRowActive]}>
+                <View style={styles.rowLeft}>
+                  <NetworkBadge network={chain} />
+                  <Text style={styles.networkRowText}>{CHAIN_LABEL[chain]}</Text>
+                </View>
+                <Text style={styles.chevron}>›</Text>
+              </Pressable>
+            ))}
+            <Text style={styles.sectionLabel}>NEAR</Text>
+            <Pressable
+              disabled={!wallet.nearAddress}
+              onPress={() => setNetwork('near')}
+              style={[styles.networkRow, selected === 'near' && styles.networkRowActive, !wallet.nearAddress && styles.disabledRow]}>
+              <View style={styles.rowLeft}>
+                <NetworkBadge network="near" />
+                <Text style={styles.networkRowText}>NEAR</Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+          </ScrollView>
+
+          {selected && (
+            <View style={styles.addressPanel}>
+              <View style={styles.addressPanelHeader}>
+                <Text style={styles.label}>Your {networkLabel(selected)} address</Text>
+                <NetworkBadge network={selected} />
+              </View>
+              <Text style={styles.addressFull} selectable>{address || 'Address unavailable'}</Text>
+              <Text style={styles.note}>
+                {selected === 'solana'
+                  ? 'Solana uses a separate address from your EVM wallet.'
+                  : selected === 'near'
+                    ? 'This is your NEAR account derived from the same recovery phrase.'
+                    : `The same EVM address works on the other supported EVM networks.`}
+              </Text>
+              <Text style={styles.warn}>Only send USDC on the selected network. Other assets or unsupported networks may not appear in your Kivo cash balance.</Text>
+            </View>
+          )}
+
+          <Pressable onPress={share} disabled={!address} style={[styles.primary, !address && styles.disabled]}>
+            <Text style={styles.primaryText}>Share address</Text>
+          </Pressable>
           <Pressable onPress={onClose} style={styles.ghost}><Text style={styles.ghostText}>Done</Text></Pressable>
         </Pressable>
       </Pressable>
@@ -139,33 +295,82 @@ function DepositSheet({ visible, address, onClose }: { visible: boolean; address
   );
 }
 
-function WithdrawSheet({ visible, rows, gasless, onClose, onDone }: { visible: boolean; rows: CashBalanceRow[] | null; gasless: GaslessStatus | null; onClose: () => void; onDone: () => void }) {
-  const usable = (rows ?? []).filter((r): r is CashBalanceRow & { status: 'ok' } => r.status === 'ok' && r.balance.amount > 0);
+function WithdrawSheet({
+  visible,
+  rows,
+  gasless,
+  wallet,
+  onClose,
+  onDone,
+}: {
+  visible: boolean;
+  rows: CashBalanceRow[] | null;
+  gasless: GaslessStatus | null;
+  wallet: WalletSession;
+  onClose: () => void;
+  onDone: () => void;
+}) {
   const [chain, setChain] = useState<ChainKey | null>(null);
   const [to, setTo] = useState('');
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
+  const [review, setReview] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string; hash?: string; chainId?: number } | null>(null);
 
-  useEffect(() => { if (visible) { setResult(null); setChain(current => current ?? usable[0]?.chainKey ?? null); } }, [visible, usable.length]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const row = usable.find(r => r.chainKey === chain);
-  const available = row?.balance.amount ?? 0;
+  const chains = useMemo(() => rows?.map(r => r.chainKey) ?? DEPOSIT_CHAINS, [rows]);
+  const row = rows?.find(r => r.chainKey === chain);
+  const available = row?.status === 'ok' ? row.balance.amount : 0;
   const parsed = Number(amount);
-  const problem = !to ? null : !isValidEvmRecipient(to) ? 'Enter a valid 0x… address.'
-    : !amount ? null : !(parsed > 0) ? 'Enter an amount greater than zero.'
-    : parsed > available + 1e-9 ? `More than your ${formatAmount(available, 2)} USDC on ${chain ? CHAIN_LABEL[chain] : ''}.` : null;
-  const canSend = Boolean(gasless?.available && chain && to && amount && !problem && !busy);
+  const addressValid = chain ? isValidRecipientAddress(chain, to.trim()) : false;
+  const amountValid = Number.isFinite(parsed) && parsed > 0 && parsed <= available + 1e-9;
+  const sponsorshipNeeded = chain !== 'solana';
+  const sponsorshipReady = !sponsorshipNeeded || gasless?.available === true;
+  const canReview = Boolean(chain && addressValid && amountValid && sponsorshipReady && !busy);
+
+  useEffect(() => {
+    if (!visible) return;
+    setResult(null);
+    setReview(false);
+    setTo('');
+    setAmount('');
+    setChain(current => current ?? rows?.find(r => r.status === 'ok' && r.balance.amount > 0)?.chainKey ?? rows?.[0]?.chainKey ?? DEPOSIT_CHAINS[0]);
+  }, [visible, rows?.length]);
+
+  const problem = !chain
+    ? 'Choose a network.'
+    : !to
+      ? 'Enter the recipient address.'
+      : !addressValid
+        ? chain === 'solana' ? 'Enter a valid Solana address.' : 'Enter a valid 0x… address.'
+        : !amount
+          ? 'Enter an amount to withdraw.'
+          : !Number.isFinite(parsed) || parsed <= 0
+            ? 'Enter an amount greater than zero.'
+            : parsed > available + 1e-9
+              ? `More than the ${formatAmount(available, 2)} USDC available on ${CHAIN_LABEL[chain]}.`
+              : sponsorshipNeeded && gasless?.available === false
+                ? gasless.reason ?? 'Gasless EVM withdrawals are not configured yet.'
+                : null;
 
   const executeSend = async () => {
-    if (!chain || !canSend) return;
-    setBusy(true); setResult(null);
+    if (!chain || !canReview) return;
+    setBusy(true);
+    setResult(null);
     try {
-      const outcome = await withDeviceAccount(`Send ${amount} USDC`, account => withdrawUsdcGasless({ account, chainKey: chain, to, amount }));
+      const outcome = await withDeviceAccounts(`Send ${amount} USDC`, async accounts =>
+        withdrawUsdc(chain, accounts.evm, accounts.solana, to.trim(), amount),
+      );
       clearCashBalanceCache();
-      setResult({ ok: true, message: `Sent ${amount} USDC on ${CHAIN_LABEL[chain]}.`, hash: outcome.hash, chainId: MAINNET_CHAIN_IDS[chain] });
-      addNotification('Withdrawal sent', `${amount} USDC to ${shortAddress(to)}`);
-      setAmount(''); setTo('');
+      setResult({
+        ok: true,
+        message: `Sent ${amount} USDC on ${CHAIN_LABEL[chain]}.`,
+        hash: outcome.hash,
+      });
+      addNotification('Withdrawal sent', `${amount} USDC to ${shortAddress(to.trim())}`);
+      setAmount('');
+      setTo('');
+      setReview(false);
+      onDone();
     } catch (error) {
       setResult({ ok: false, message: error instanceof Error ? error.message : 'Withdrawal failed. Nothing was sent.' });
     } finally {
@@ -173,57 +378,128 @@ function WithdrawSheet({ visible, rows, gasless, onClose, onDone }: { visible: b
     }
   };
 
-  const send = () => {
-    if (!chain || !canSend) return;
+  const confirmSend = () => {
+    if (!canReview || !chain) return;
     Alert.alert(
       'Confirm withdrawal',
-      `Send ${amount} USDC on ${CHAIN_LABEL[chain]} to ${shortAddress(to)}?\n\nKivo pays the network gas. This transfer cannot be reversed.`,
+      `Send ${amount} USDC on ${CHAIN_LABEL[chain]} to ${shortAddress(to.trim())}?\\n\\nThis transfer cannot be reversed.`,
       [
-        {text: 'Cancel', style: 'cancel'},
-        {text: 'Confirm', style: 'destructive', onPress: () => { void executeSend(); }},
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Confirm', style: 'destructive', onPress: () => { void executeSend(); } },
       ],
     );
   };
-  const explorer = result?.hash && result.chainId ? explorerTxUrl(result.chainId, result.hash) : null;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={() => { if (!busy) onClose(); }}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable style={styles.backdrop} onPress={() => { if (!busy) onClose(); }}>
           <Pressable style={styles.sheet} onPress={() => {}}>
-            <Text style={styles.sheetTitle}>Withdraw USDC</Text>
-            {gasless?.available === false && <Text style={styles.warn}>{gasless.reason}</Text>}
-            {rows == null ? <ActivityIndicator color={kivoTheme.colors.accent} />
-              : usable.length === 0 ? <Text style={styles.note}>You have no USDC to withdraw yet.</Text>
-              : <>
-                <Text style={styles.label}>From network</Text>
-                <View style={styles.chips}>
-                  {usable.map(r => (
-                    <Pressable key={r.chainKey} onPress={() => setChain(r.chainKey)} style={[styles.chipButton, chain === r.chainKey && styles.chipActive]}>
-                      <Text style={[styles.chipButtonText, chain === r.chainKey && styles.chipActiveText]}>{CHAIN_LABEL[r.chainKey]} · {formatAmount(r.balance.amount, 2)}</Text>
+            {!review ? (
+              <>
+                <View style={styles.sheetHeader}>
+                  <Text style={styles.sheetTitle}>Withdraw USDC</Text>
+                  <Pressable onPress={onClose} disabled={busy}><Text style={styles.ghostText}>Close</Text></Pressable>
+                </View>
+
+                <Text style={styles.note}>Choose a network to withdraw from. Your balance is shown for every supported USDC network.</Text>
+
+                <ScrollView style={styles.networkList} nestedScrollEnabled showsVerticalScrollIndicator>
+                  {chains.map(chainKey => {
+                    const balanceRow = rows?.find(r => r.chainKey === chainKey);
+                    const balance = balanceRow?.status === 'ok' ? balanceRow.balance.amount : 0;
+                    return (
+                      <Pressable key={chainKey} onPress={() => { setChain(chainKey); setTo(''); setAmount(''); setResult(null); }} style={[styles.networkRow, chain === chainKey && styles.networkRowActive]}>
+                        <View style={styles.rowLeft}>
+                          <NetworkBadge network={chainKey} />
+                          <Text style={styles.networkRowText}>{CHAIN_LABEL[chainKey]}</Text>
+                        </View>
+                        <Text style={styles.networkRowBalance}>${formatUsd(balance)}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+
+                {chain && (
+                  <>
+                    <Text style={styles.label}>Recipient address</Text>
+                    <TextInput
+                      value={to}
+                      onChangeText={setTo}
+                      placeholder={chain === 'solana' ? 'Solana address' : '0x…'}
+                      placeholderTextColor={kivoTheme.colors.textMuted}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      style={styles.input}
+                    />
+
+                    <Text style={styles.label}>Amount (USDC)</Text>
+                    <View style={styles.amountRow}>
+                      <TextInput
+                        value={amount}
+                        onChangeText={v => setAmount(v.replace(',', '.'))}
+                        keyboardType="decimal-pad"
+                        placeholder="0.00"
+                        placeholderTextColor={kivoTheme.colors.textMuted}
+                        style={[styles.input, styles.flexInput]}
+                      />
+                      <Pressable onPress={() => setAmount(String(Math.floor(available * 1e6) / 1e6))} style={styles.max}>
+                        <Text style={styles.maxText}>MAX</Text>
+                      </Pressable>
+                    </View>
+
+                    <Text style={styles.available}>Available on {CHAIN_LABEL[chain]}: ${formatUsd(available)}</Text>
+                    {problem && <Text style={styles.warn}>{problem}</Text>}
+                    {chain === 'solana'
+                      ? <Text style={styles.note}>Solana withdrawals use Kivo’s existing fee-sponsor path when your wallet does not have enough SOL for network fees.</Text>
+                      : <Text style={styles.note}>EVM withdrawals require Kivo Relay sponsorship. Kivo never silently switches to a user-paid gas transfer.</Text>}
+                    {result && <Text style={result.ok ? styles.ok : styles.warn}>{result.message}</Text>}
+
+                    <Pressable disabled={!canReview} onPress={() => setReview(true)} style={[styles.primary, !canReview && styles.disabled]}>
+                      <Text style={styles.primaryText}>Review withdrawal</Text>
                     </Pressable>
-                  ))}
+                  </>
+                )}
+
+                <Pressable onPress={onClose} disabled={busy} style={styles.ghost}><Text style={styles.ghostText}>Cancel</Text></Pressable>
+              </>
+            ) : (
+              <>
+                <View style={styles.sheetHeader}>
+                  <Pressable onPress={() => setReview(false)} disabled={busy}><Text style={styles.ghostText}>‹ Back</Text></Pressable>
+                  <Text style={styles.sheetTitle}>Review withdrawal</Text>
+                  <View style={{ width: 40 }} />
                 </View>
-                <Text style={styles.label}>To address</Text>
-                <TextInput value={to} onChangeText={setTo} placeholder="0x…" placeholderTextColor={kivoTheme.colors.textMuted} autoCapitalize="none" autoCorrect={false} style={styles.input} />
-                <Text style={styles.label}>Amount (USDC)</Text>
-                <View style={styles.amountRow}>
-                  <TextInput value={amount} onChangeText={v => setAmount(v.replace(',', '.'))} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={kivoTheme.colors.textMuted} style={[styles.input, styles.flex]} />
-                  <Pressable onPress={() => setAmount(String(Math.floor(available * 1e6) / 1e6))} style={styles.max}><Text style={styles.maxText}>MAX</Text></Pressable>
+
+                <ReviewRow label="Network" value={chain ? CHAIN_LABEL[chain] : '—'} />
+                <ReviewRow label="Asset" value="USDC" />
+                <ReviewRow label="Amount" value={`${amount} USDC`} />
+                <View style={styles.reviewAddressBlock}>
+                  <Text style={styles.reviewLabel}>To</Text>
+                  <Text style={styles.reviewAddress} selectable>{to.trim()}</Text>
                 </View>
-                {problem && <Text style={styles.warn}>{problem}</Text>}
-                <Text style={styles.note}>Network gas: paid by Kivo. Double-check the address — transfers can’t be reversed.</Text>
-                {result && <Text style={result.ok ? styles.ok : styles.warn}>{result.message}</Text>}
-                {explorer && <Pressable onPress={() => Linking.openURL(explorer)}><Text style={styles.link}>View transaction</Text></Pressable>}
-                <Pressable disabled={!canSend} onPress={send} style={[styles.primary, !canSend && styles.disabled]}>
-                  <Text style={styles.primaryText}>{busy ? 'Sending…' : 'Send USDC'}</Text>
+
+                <Text style={styles.warn}>Sends are final. Double-check the network and address above. A wrong network or address can permanently lose funds.</Text>
+
+                <Pressable disabled={busy} onPress={confirmSend} style={[styles.primary, busy && styles.disabled]}>
+                  {busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep} /> : <Text style={styles.primaryText}>Confirm withdrawal</Text>}
                 </Pressable>
-              </>}
-            {!busy && <Pressable onPress={result?.ok ? onDone : onClose} style={styles.ghost}><Text style={styles.ghostText}>{result?.ok ? 'Done' : 'Cancel'}</Text></Pressable>}
+                <Pressable onPress={() => setReview(false)} disabled={busy} style={styles.ghost}><Text style={styles.ghostText}>Edit</Text></Pressable>
+              </>
+            )}
           </Pressable>
         </Pressable>
       </KeyboardAvoidingView>
     </Modal>
+  );
+}
+
+function ReviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.reviewRow}>
+      <Text style={styles.reviewLabel}>{label}</Text>
+      <Text style={styles.reviewValue}>{value}</Text>
+    </View>
   );
 }
 
@@ -249,29 +525,42 @@ const styles = StyleSheet.create({
   cardTitle: { color: c.text, fontWeight: '800', fontSize: 15 },
   address: { color: c.cream, fontSize: 14, fontWeight: '800', marginTop: 10 },
   note: { color: c.textMuted, fontSize: 12, lineHeight: 18, marginTop: 7 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: c.border },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: c.border },
+  rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
   rowName: { color: c.text, fontWeight: '700', fontSize: 13 },
   rowValue: { color: c.text, fontWeight: '800', fontSize: 13 },
+  networkBadge: { width: 32, height: 32, borderRadius: 16, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' },
+  networkGlyph: { color: c.cream, fontSize: 13, fontWeight: '900' },
   backdrop: { flex: 1, backgroundColor: 'rgba(1,15,13,0.7)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: c.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 34, borderWidth: 1, borderColor: c.border, gap: 6 },
+  sheet: { backgroundColor: c.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 34, borderWidth: 1, borderColor: c.border, maxHeight: '92%' },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   sheetTitle: { color: c.text, fontSize: 20, fontWeight: '800' },
-  addressLabel: { color: c.textMuted, fontSize: 11, fontWeight: '800', marginBottom: 6 },
-  addressBox: { marginTop: 10, padding: 14, borderRadius: 14, backgroundColor: c.backgroundDeep },
-  addressFull: { color: c.cream, fontWeight: '800', fontSize: 13.5, lineHeight: 20 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
-  chip: { color: c.text, fontSize: 11.5, fontWeight: '700', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: c.surface, overflow: 'hidden' },
-  chipButton: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
-  chipButtonText: { color: c.text, fontWeight: '700', fontSize: 12 },
-  chipActive: { backgroundColor: c.cream, borderColor: c.cream },
-  chipActiveText: { color: c.backgroundDeep },
+  networkList: { maxHeight: 360, marginBottom: 8 },
+  networkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 7 },
+  networkRowActive: { borderColor: c.accent, backgroundColor: c.surfaceRaised },
+  disabledRow: { opacity: 0.45 },
+  networkRowText: { color: c.text, fontSize: 14, fontWeight: '700' },
+  networkRowBalance: { color: c.textMuted, fontSize: 13, fontWeight: '700' },
+  chevron: { color: c.textMuted, fontSize: 24, lineHeight: 24 },
+  sectionLabel: { color: c.textMuted, fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginTop: 8, marginBottom: 7, textTransform: 'uppercase' },
+  addressPanel: { backgroundColor: c.backgroundDeep, borderRadius: 16, borderWidth: 1, borderColor: c.border, padding: 14, marginTop: 8 },
+  addressPanelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  addressLabel: { color: c.textMuted, fontSize: 11, fontWeight: '800' },
+  addressFull: { color: c.cream, fontSize: 13, fontWeight: '800', lineHeight: 20, marginTop: 7 },
   label: { color: c.textMuted, fontSize: 11, fontWeight: '900', letterSpacing: 1, marginTop: 12, textTransform: 'uppercase' },
-  input: { height: 48, borderRadius: 14, paddingHorizontal: 14, backgroundColor: c.surface, color: c.text, fontSize: 15, borderWidth: 1, borderColor: c.border },
+  input: { height: 48, borderRadius: 14, paddingHorizontal: 14, backgroundColor: c.surface, color: c.text, fontSize: 15, borderWidth: 1, borderColor: c.border, marginTop: 7 },
   amountRow: { flexDirection: 'row', gap: 8 },
-  max: { height: 48, paddingHorizontal: 16, borderRadius: 14, backgroundColor: c.surfaceRaised, justifyContent: 'center' },
+  flexInput: { flex: 1 },
+  max: { height: 48, paddingHorizontal: 16, borderRadius: 14, backgroundColor: c.surfaceRaised, justifyContent: 'center', alignSelf: 'flex-end', marginTop: 7 },
   maxText: { color: c.cream, fontWeight: '900' },
-  warn: { color: c.danger, fontSize: 12, lineHeight: 18, marginTop: 6 },
+  available: { color: c.textMuted, fontSize: 11, marginTop: 7 },
+  warn: { color: c.danger, fontSize: 12, lineHeight: 18, marginTop: 8 },
   ok: { color: c.success, fontSize: 12.5, lineHeight: 18, marginTop: 8, fontWeight: '700' },
-  link: { color: c.accent, fontWeight: '800', marginTop: 6 },
+  reviewRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.border },
+  reviewLabel: { color: c.textMuted, fontSize: 13, fontWeight: '600' },
+  reviewValue: { color: c.text, fontSize: 14, fontWeight: '800', maxWidth: '65%', textAlign: 'right' },
+  reviewAddressBlock: { marginTop: 14 },
+  reviewAddress: { color: c.text, fontSize: 13, fontWeight: '600', marginTop: 7, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 12 },
   primary: { marginTop: 14, height: 52, borderRadius: 26, backgroundColor: '#2FD67B', alignItems: 'center', justifyContent: 'center' },
   primaryText: { color: c.backgroundDeep, fontWeight: '900', fontSize: 15 },
   ghost: { height: 44, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
