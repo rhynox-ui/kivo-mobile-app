@@ -29,6 +29,9 @@ export type Holding = {
   priceUsd: number | null;
   valueUsd: number | null;
   imageUrl: string | null;
+  entryPriceUsd?: number | null;
+  pnlUsd?: number | null;
+  pnlPct?: number | null;
 };
 
 export type Portfolio = {
@@ -102,6 +105,26 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
   }
 
   const totalUsd = holdings.reduce((sum, h) => sum + (h.valueUsd ?? 0), 0);
+  for (const holding of holdings) {
+    if (holding.kind !== 'token') continue;
+    let boughtAmount = 0;
+    let boughtCost = 0;
+    for (const trade of history) {
+      if (trade.status !== 'success' || trade.token.chainKey !== holding.chainKey || trade.token.address.toLowerCase() !== holding.address.toLowerCase()) continue;
+      const received = Number(trade.receive.amount ?? 0);
+      const paid = Number(trade.pay.amount ?? 0);
+      if (trade.side === 'buy' && received > 0 && paid > 0) { boughtAmount += received; boughtCost += paid; }
+    }
+    if (boughtAmount > 0 && boughtCost > 0) {
+      const entry = boughtCost / boughtAmount;
+      holding.entryPriceUsd = entry;
+      if (holding.valueUsd != null) {
+        const cost = holding.amount * entry;
+        holding.pnlUsd = holding.valueUsd - cost;
+        holding.pnlPct = cost > 0 ? (holding.pnlUsd / cost) * 100 : null;
+      }
+    }
+  }
   holdings.sort((a, b) => (b.valueUsd ?? -1) - (a.valueUsd ?? -1));
   return {holdings, totalUsd, cashUsd, complete, fetchedAt: Date.now()};
 }
