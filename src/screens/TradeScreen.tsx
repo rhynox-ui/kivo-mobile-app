@@ -8,7 +8,7 @@ import { explorerTxUrl, KivoExecutionError, preflightKivoQuote, relayRequestUrl,
 import { executeKivoQuoteGasless, preflightGaslessQuote } from '@kivo/trading/kivo/gasless';
 import { executeRelayQuote } from '@kivo/trading/core/executeRelayQuote';
 import bs58 from 'bs58';
-import { recordTrade } from '@kivo/trading/kivo/history';
+import { recordTrade } from '@kivo/trading/kivo/history';\nimport { markOwnAction } from '../wallet/depositWatcher';
 import { describeQuoteError, isQuoteExpired, parseAmountInput, requestKivoQuote } from '@kivo/trading/kivo/quote';
 import { chainLabel, formatAmount, formatUsd, nativeSymbol, shortAddress, tradeSupportFor, type KivoToken, type TradeSide } from '@kivo/trading/kivo/tokens';
 import { getWalletSession, subscribeToWallet, walletKind, withDeviceAccounts, type WalletSession } from '../state/walletStore';
@@ -213,7 +213,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       const message = outcome.status === 'success' ? `${side === 'buy' ? 'Bought' : 'Sold'} ${token.symbol}.`
         : outcome.status === 'refunded' ? 'The route could not be filled and was refunded.' : 'Submitted — the route is still settling.';
       setResult({ tone, message, hashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId });
-      recordTrade({ side, token: tokenInfo, pay: { amount: view.pay.amount, symbol: view.pay.symbol, chainKey: view.pay.chainKey }, receive: { amount: view.receive.amount, symbol: view.receive.symbol, chainKey: view.receive.chainKey }, txHashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId, status: outcome.status });
+      await markOwnAction(address);\n      recordTrade({ side, token: tokenInfo, pay: { amount: view.pay.amount, symbol: view.pay.symbol, chainKey: view.pay.chainKey }, receive: { amount: view.receive.amount, symbol: view.receive.symbol, chainKey: view.receive.chainKey }, txHashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId, status: outcome.status });
       addNotification(outcome.status === 'success' ? 'Trade complete' : 'Trade submitted', `${side === 'buy' ? 'Buy' : 'Sell'} ${token.symbol}: ${view.pay.amount} ${view.pay.symbol}`);
     } catch (error) {
       const hashes = error instanceof KivoExecutionError ? error.txHashes : [];

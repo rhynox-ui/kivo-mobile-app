@@ -26,7 +26,7 @@ import { nearView } from '@kivo/trading/core/nearRpc';
 
 import { getWalletSession, loadWalletSession, subscribeToWallet, withDeviceAccounts, type WalletSession } from '../state/walletStore';
 import { useSettings } from '../state/settingsStore';
-import { addNotification } from '../state/notificationStore';
+import { addNotification } from '../state/notificationStore';\nimport { markOwnAction } from '../wallet/depositWatcher';
 import { CHAIN_LABEL, type ChainKey } from '@kivo/trading/core/chainData';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, type CashBalanceRow } from '@kivo/trading/kivo/balances';
 import { isValidRecipientAddress, withdrawUsdc } from '@kivo/trading/kivo/cash';
