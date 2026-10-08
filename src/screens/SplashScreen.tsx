@@ -26,8 +26,8 @@ export function SplashScreen({ onDone, quick }: { onDone?: () => void; quick?: b
 
   useEffect(() => {
     const t = quick
-      ? { markDelay: 40, markDur: 220, wordDelay: 160, wordDur: 220, barDelay: 320, barDur: 120, tagDelay: 380, tagDur: 120, fadeDelay: 640, fadeDur: 220 }
-      : { markDelay: 250, markDur: 550, wordDelay: 750, wordDur: 520, barDelay: 1450, barDur: 350, tagDelay: 1850, tagDur: 420, fadeDelay: 3100, fadeDur: 500 };
+      ? { markDelay: 20, markDur: 140, wordDelay: 90, wordDur: 140, barDelay: 190, barDur: 80, tagDelay: 230, tagDur: 80, fadeDelay: 330, fadeDur: 140 }
+      : { markDelay: 80, markDur: 260, wordDelay: 260, wordDur: 240, barDelay: 540, barDur: 120, tagDelay: 620, tagDur: 140, fadeDelay: 900, fadeDur: 180 };
     const sequence = Animated.parallel([
       Animated.sequence([Animated.delay(t.markDelay), Animated.parallel([
         Animated.timing(markOpacity, { toValue: 1, duration: t.markDur, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
