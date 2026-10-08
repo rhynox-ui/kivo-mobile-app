@@ -85,7 +85,7 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
     if (portfolioCache && portfolioCache.key === key && Date.now() - portfolioCache.fetchedAt < PORTFOLIO_CACHE_TTL_MS) return portfolioCache.data;
     if (portfolioInFlight?.key === key) return portfolioInFlight.promise;
   }
-  const promise = fetchPortfolioUncached(owner, history, addresses);
+  const promise = fetchPortfolioUncached(owner, history, addresses, {forceFresh});
   portfolioInFlight = {key, promise};
   promise.then(
     data => {
