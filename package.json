@@ -38,7 +38,8 @@
     "@near-js/crypto": "2.5.1",
     "@near-js/transactions": "2.5.1",
     "@noble/curves": "^1.9.1",
-    "@noble/hashes": "^1.8.0"
+    "@noble/hashes": "^1.8.0",
+    "react-native-svg": "^15.15.5"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
