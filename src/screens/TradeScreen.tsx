@@ -8,7 +8,8 @@ import { explorerTxUrl, KivoExecutionError, preflightKivoQuote, relayRequestUrl,
 import { executeKivoQuoteGasless, preflightGaslessQuote } from '@kivo/trading/kivo/gasless';
 import { executeRelayQuote } from '@kivo/trading/core/executeRelayQuote';
 import bs58 from 'bs58';
-import { recordTrade } from '@kivo/trading/kivo/history';\nimport { markOwnAction } from '../wallet/depositWatcher';
+import { recordTrade } from '@kivo/trading/kivo/history';
+import { markOwnAction } from '../wallet/depositWatcher';
 import { describeQuoteError, isQuoteExpired, parseAmountInput, requestKivoQuote } from '@kivo/trading/kivo/quote';
 import { chainLabel, formatAmount, formatUsd, nativeSymbol, shortAddress, tradeSupportFor, type KivoToken, type TradeSide } from '@kivo/trading/kivo/tokens';
 import { getWalletSession, subscribeToWallet, walletKind, withDeviceAccounts, type WalletSession } from '../state/walletStore';
@@ -54,7 +55,8 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftSlippage, setDraftSlippage] = useState<number | null>(null);
   const [customSlippage, setCustomSlippage] = useState('');
-  const [showDetails, setShowDetails] = useState(false);\n  const extremePriceImpact = plan?.legs.some(leg => leg.quote.view.priceImpactPct != null && Math.abs(leg.quote.view.priceImpactPct) > 50) ?? false;
+  const [showDetails, setShowDetails] = useState(false);
+  const extremePriceImpact = plan?.legs.some(leg => leg.quote.view.priceImpactPct != null && Math.abs(leg.quote.view.priceImpactPct) > 50) ?? false;
   const quoteSeq = useRef(0);
   const amountRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const settings = useSettings();
@@ -161,7 +163,8 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   };
 
   const execute = async () => {
-    if (!plan || !token || running) return;\n    if (extremePriceImpact) { setResult({tone:'error',message:'Trade blocked: route price impact is above 50%.',hashes:[],chainIds:[],requestId:null}); return; }
+    if (!plan || !token || running) return;
+    if (extremePriceImpact) { setResult({tone:'error',message:'Trade blocked: route price impact is above 50%.',hashes:[],chainIds:[],requestId:null}); return; }
     setRunning(true); setResult(null); setUpdate(null);
     const view = plan.view;
     const tokenInfo = { chainKey: token.chainKey, address: token.tokenAddress, symbol: token.symbol, name: token.name, imageUrl: token.imageUrl };
@@ -213,7 +216,8 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       const message = outcome.status === 'success' ? `${side === 'buy' ? 'Bought' : 'Sold'} ${token.symbol}.`
         : outcome.status === 'refunded' ? 'The route could not be filled and was refunded.' : 'Submitted — the route is still settling.';
       setResult({ tone, message, hashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId });
-      await markOwnAction(address);\n      recordTrade({ side, token: tokenInfo, pay: { amount: view.pay.amount, symbol: view.pay.symbol, chainKey: view.pay.chainKey }, receive: { amount: view.receive.amount, symbol: view.receive.symbol, chainKey: view.receive.chainKey }, txHashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId, status: outcome.status });
+      await markOwnAction(address!);
+      recordTrade({ side, token: tokenInfo, pay: { amount: view.pay.amount, symbol: view.pay.symbol, chainKey: view.pay.chainKey }, receive: { amount: view.receive.amount, symbol: view.receive.symbol, chainKey: view.receive.chainKey }, txHashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId, status: outcome.status });
       addNotification(outcome.status === 'success' ? 'Trade complete' : 'Trade submitted', `${side === 'buy' ? 'Buy' : 'Sell'} ${token.symbol}: ${view.pay.amount} ${view.pay.symbol}`);
     } catch (error) {
       const hashes = error instanceof KivoExecutionError ? error.txHashes : [];
@@ -240,7 +244,8 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && !extremePriceImpact && walletKind(wallet) === 'evm-local';
   const tradeChain: ChainKey | null = token?.chainKey ?? (selectedToken?.chainKey !== 'near' ? selectedToken?.chainKey ?? null : null);
   const receiveSymbol = side === 'buy' ? token?.symbol ?? '' : token && TOKEN_ADDRESSES.USDC?.[token.chainKey] ? 'USDC' : token ? nativeSymbol(token.chainKey) : '';
-  const hint = extremePriceImpact ? 'Trade blocked — route price impact is above 50%.'\n    : !wallet ? 'Create or import a Kivo wallet on this phone to trade.'
+  const hint = extremePriceImpact ? 'Trade blocked — route price impact is above 50%.'
+    : !wallet ? 'Create or import a Kivo wallet on this phone to trade.'
     : amountProblem ?? (parsed == null ? `Enter an amount to ${side} ${token?.symbol ?? ''}`
       : quoteState === 'loading' ? 'Finding the best route…'
       : quoteState === 'error' ? quoteError
