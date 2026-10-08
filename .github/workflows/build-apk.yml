@@ -6,6 +6,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: kivo-mobile-android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-apk:
     runs-on: ubuntu-latest
@@ -28,6 +32,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
 
       - name: Build release APK
         working-directory: android
