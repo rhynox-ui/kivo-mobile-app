@@ -10,7 +10,10 @@ import {EVM_TRADE_CHAINS, USDC_CHAINS, nativeSymbol} from './tokens';
 
 const EVM_CASH_CHAINS = EVM_TRADE_CHAINS;
 
-const READ_TIMEOUT_MS = 12_000;
+const READ_TIMEOUT_MS = 8_000;
+const CASH_CACHE_TTL_MS = 30_000;
+let cashCache: {owner: string; rows: CashBalanceRow[]; at: number} | null = null;
+let cashInFlight: {owner: string; promise: Promise<CashBalanceRow[]>} | null = null;
 
 function withTimeout<T>(promise: Promise<T>, ms = READ_TIMEOUT_MS): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -35,7 +38,7 @@ export function isNativeTokenAddress(address: string): boolean {
 }
 
 /** ERC-20 (or native) balance of `owner` on `chainKey`. Decimals come from the contract itself, never assumed. */
-export async function readTokenBalance(chainKey: ChainKey, tokenAddress: string, owner: string, symbolHint?: string): Promise<TokenBalance> {
+export async function readTokenBalance(chainKey: ChainKey, tokenAddress: string, owner: string, symbolHint?: string, decimalsHint?: number): Promise<TokenBalance> {
   const client = publicClientForChainId(MAINNET_CHAIN_IDS[chainKey]);
   const account = getAddress(owner) as Address;
   if (isNativeTokenAddress(tokenAddress)) {
@@ -43,12 +46,11 @@ export async function readTokenBalance(chainKey: ChainKey, tokenAddress: string,
     return {chainKey, tokenAddress, symbol: nativeSymbol(chainKey), raw, decimals: 18, amount: Number(formatUnits(raw, 18))};
   }
   const token = getAddress(tokenAddress) as Address;
-  const [raw, decimals, symbol] = await withTimeout(Promise.all([
+  const [raw, symbol] = await withTimeout(Promise.all([
     client.readContract({address: token, abi: erc20Abi, functionName: 'balanceOf', args: [account]}),
-    client.readContract({address: token, abi: erc20Abi, functionName: 'decimals'}),
     symbolHint ? Promise.resolve(symbolHint) : client.readContract({address: token, abi: erc20Abi, functionName: 'symbol'}).catch(() => '?'),
   ]));
-  const d = Number(decimals);
+  const d = decimalsHint ?? 18;
   // ERC-20 decimals is a uint8, and real tokens use 0–36. A contract that
   // reports anything else is broken or hostile; formatting with it could
   // stall the app building a multi-million-digit string.
@@ -64,18 +66,36 @@ export async function readNativeBalance(chainKey: ChainKey, owner: string): Prom
 export async function readUsdcBalance(chainKey: ChainKey, owner: string): Promise<TokenBalance> {
   const address = TOKEN_ADDRESSES.USDC?.[chainKey];
   if (!address) throw new Error(`No verified USDC contract on ${chainKey}.`);
-  return readTokenBalance(chainKey, address, owner, 'USDC');
+  // Mango Pro keeps verified token decimals in chainData. Do the same here:
+  // a USDC balance screen should not make a second RPC call per chain just to
+  // read a static contract property.
+  const decimals = assetDecimalsForChain(chainKey, 'USDC') ?? 6;
+  return readTokenBalance(chainKey, address, owner, 'USDC', decimals);
 }
 
 /** USDC across every chain Kivo can pay from. Each chain fails independently. */
 export async function fetchCashBalances(owner: string, chains: ChainKey[] = USDC_CHAINS): Promise<CashBalanceRow[]> {
-  const settled = await Promise.allSettled(chains.map(chainKey => readUsdcBalance(chainKey, owner)));
-  return settled.map((outcome, index): CashBalanceRow => {
-    const chainKey = chains[index];
-    return outcome.status === 'fulfilled'
-      ? {chainKey, status: 'ok', balance: outcome.value}
-      : {chainKey, status: 'error', error: outcome.reason instanceof Error ? outcome.reason.message : 'Balance unavailable.'};
-  });
+  const key = owner.toLowerCase();
+  if (cashCache && cashCache.owner === key && Date.now() - cashCache.at < CASH_CACHE_TTL_MS) return cashCache.rows;
+  if (cashInFlight?.owner === key) return cashInFlight.promise;
+  const promise = (async () => {
+    const settled = await Promise.allSettled(chains.map(chainKey => readUsdcBalance(chainKey, owner)));
+    const rows = settled.map((outcome, index): CashBalanceRow => {
+      const chainKey = chains[index];
+      return outcome.status === 'fulfilled'
+        ? {chainKey, status: 'ok', balance: outcome.value}
+        : {chainKey, status: 'error', error: outcome.reason instanceof Error ? outcome.reason.message : 'Balance unavailable.'};
+    });
+    cashCache = {owner: key, rows, at: Date.now()};
+    return rows;
+  })();
+  cashInFlight = {owner: key, promise};
+  try { return await promise; }
+  finally { if (cashInFlight?.promise === promise) cashInFlight = null; }
+}
+
+export function clearCashBalanceCache(): void {
+  cashCache = null;
 }
 
 export function totalCashUsd(rows: CashBalanceRow[]): {total: number; complete: boolean} {
