@@ -255,6 +255,7 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(1,15,13,0.7)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: c.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 34, borderWidth: 1, borderColor: c.border, gap: 6 },
   sheetTitle: { color: c.text, fontSize: 20, fontWeight: '800' },
+  addressLabel: { color: c.textMuted, fontSize: 11, fontWeight: '800', marginBottom: 6 },
   addressBox: { marginTop: 10, padding: 14, borderRadius: 14, backgroundColor: c.backgroundDeep },
   addressFull: { color: c.cream, fontWeight: '800', fontSize: 13.5, lineHeight: 20 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
