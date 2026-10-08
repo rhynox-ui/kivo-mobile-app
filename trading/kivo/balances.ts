@@ -72,14 +72,30 @@ export async function readUsdcBalance(chainKey: ChainKey, owner: string): Promis
   const decimals = assetDecimalsForChain(chainKey, 'USDC') ?? 6;
   return readTokenBalance(chainKey, address, owner, 'USDC', decimals);
 }
+export async function readSolanaUsdcBalance(owner: string): Promise<TokenBalance> {
+  const mintAddress = TOKEN_ADDRESSES.USDC?.solana;
+  if (!mintAddress) throw new Error('No verified USDC mint on Solana.');
+  const [{Connection, PublicKey}, splToken] = await Promise.all([
+    import('@solana/web3.js'),
+    import('@solana/spl-token'),
+  ]);
+  const connection = new Connection('https://solana-rpc.publicnode.com', 'confirmed');
+  const ownerKey = new PublicKey(owner);
+  const mint = new PublicKey(mintAddress);
+  const ata = await splToken.getAssociatedTokenAddress(mint, ownerKey);
+  const info = await connection.getTokenAccountBalance(ata).catch(() => null);
+  const amount = info ? Number(info.value.uiAmountString ?? info.value.uiAmount ?? 0) : 0;
+  const raw = BigInt(info?.value.amount ?? '0');
+  return {chainKey: 'solana', tokenAddress: mintAddress, symbol: 'USDC', raw, decimals: 6, amount};
+}
 
 /** USDC across every chain Kivo can pay from. Each chain fails independently. */
 export async function fetchCashBalances(owner: string, chains: ChainKey[] = USDC_CHAINS): Promise<CashBalanceRow[]> {
-  const key = `${owner.toLowerCase()}:${chains.join(',')}`;
+  const key = owner.toLowerCase() + ':' + chains.join(',');
   if (cashCache && cashCache.key === key && Date.now() - cashCache.at < CASH_CACHE_TTL_MS) return cashCache.rows;
   if (cashInFlight?.key === key) return cashInFlight.promise;
   const promise = (async () => {
-    const settled = await Promise.allSettled(chains.map(chainKey => readUsdcBalance(chainKey, owner)));
+    const settled = await Promise.allSettled(chains.map(chainKey => chainKey === 'solana' ? readSolanaUsdcBalance(owner) : readUsdcBalance(chainKey, owner)));
     const rows = settled.map((outcome, index): CashBalanceRow => {
       const chainKey = chains[index];
       return outcome.status === 'fulfilled'
