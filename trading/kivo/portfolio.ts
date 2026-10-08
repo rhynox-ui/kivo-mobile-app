@@ -106,8 +106,8 @@ async function fetchPortfolioUncached(owner: string, history: TradeRecord[], add
   // Arc's native coin IS USDC (same balance as the ERC-20 view) — counted once, as cash.
   const nativeChains = EVM_TRADE_CHAINS.filter(chain => chain !== 'arc');
   const [natives, cash, nearCash, tokens, indexedAssets] = await Promise.all([
-    Promise.allSettled(nativeChains.map(chain => readNativeBalance(chain, owner))),
-    fetchCashBalances(owner, undefined, addresses?.solanaAddress ?? owner),
+    Promise.allSettled(nativeChains.map(chain => readNativeBalance(chain, owner, {forceFresh}))),
+    fetchCashBalances(owner, undefined, addresses?.solanaAddress ?? owner, {forceFresh}),
     addresses?.nearAddress ? fetchNearTokenBalance(NEAR_USDC, addresses.nearAddress).catch(() => 0n) : Promise.resolve(0n),
     Promise.allSettled(tradedTokens(history).map(async token => {
       if (token.chainKey === 'near') return null;
@@ -130,7 +130,7 @@ async function fetchPortfolioUncached(owner: string, history: TradeRecord[], add
   });
   if (addresses?.solanaAddress) {
     try {
-      const sol = await readSolanaNativeBalance(addresses.solanaAddress);
+      const sol = await readSolanaNativeBalance(addresses.solanaAddress, {forceFresh});
       const priceUsd = prices.SOL ?? null;
       holdings.push({key: 'solana:native', kind: 'native', chainKey: 'solana', address: sol.tokenAddress, symbol: 'SOL', name: 'SOL · Solana', amount: sol.amount, priceUsd, valueUsd: priceUsd == null ? null : sol.amount * priceUsd, imageUrl: null});
     } catch {
