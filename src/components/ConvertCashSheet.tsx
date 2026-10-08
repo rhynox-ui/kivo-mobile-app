@@ -20,7 +20,7 @@ type CashChain = ChainKey | 'near';
 const balanceFor=(rows:CashBalanceRow[]|null,chain:CashChain,nearBalance=0)=>{if(chain==='near')return nearBalance;const r=rows?.find(x=>x.chainKey===chain);return r?.status==='ok'?r.balance.amount:0;};
 const chainLabel=(chain:CashChain)=>chain==='near'?NEAR_LABEL:CHAIN_LABEL[chain];
 const decimalsFor=(chain:CashChain)=>chain==='near'?NEAR_USDC_DECIMALS:(assetDecimalsForChain(chain,'USDC')??6);
-const glyph=(chain:CashChain)=>({ethereum:'◆',base:'■',avalanche:'▲',arbitrum:'◎',unichain:'✦',solana:'≋',bnb:'⬡',hyperevm:'●',ink:'◉',abstract:'✣',xlayer:'▦',arc:'◒',robinhood:'◈',stable:'◇',plasma:'▣',near:'N'} as Partial<Record<ChainKey,string>>)[chain]??'•';
+const glyph=(chain:CashChain)=>({ethereum:'◆',base:'■',avalanche:'▲',arbitrum:'◎',unichain:'✦',solana:'≋',bnb:'⬡',hyperevm:'●',ink:'◉',abstract:'✣',xlayer:'▦',arc:'◒',robinhood:'◈',stable:'◇',plasma:'▣',near:'N'} as Partial<Record<CashChain,string>>)[chain]??'•';
 
 export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;onClose:()=>void;onConverted:()=>void}){
  const [wallet,setWallet]=useState<WalletSession|null>(getWalletSession());
