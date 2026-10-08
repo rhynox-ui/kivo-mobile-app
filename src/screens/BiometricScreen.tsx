@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -9,6 +10,8 @@ import {
 } from 'react-native';
 import { kivoTheme } from '../theme/kivoTheme';
 import { enableBiometricUnlockWithPassword } from '../state/walletStore';
+
+const KIVO_MARK = require('../assets/kivo-logo.png');
 
 export function BiometricScreen({
   password,
@@ -40,7 +43,7 @@ export function BiometricScreen({
     <View style={styles.container}>
       <View style={styles.hero}>
         <View style={styles.icon}>
-          <Text style={styles.fingerprint}>⌁</Text>
+          <Image source={KIVO_MARK} resizeMode="contain" style={styles.logo} />
         </View>
         <Text style={styles.title}>Unlock Kivo faster</Text>
         <Text style={styles.body}>
@@ -91,9 +94,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  fingerprint: {
-    fontSize: 76,
-    color: kivoTheme.colors.accent,
+  logo: {
+    width: 82,
+    height: 82,
+    borderRadius: 22,
   },
   title: {
     color: kivoTheme.colors.text,
