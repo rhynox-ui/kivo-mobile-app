@@ -20,6 +20,7 @@ export async function createLocalWallet(mnemonic:string,password:string){await c
 export async function importLocalWallet(mnemonic:string,password:string){const normalized=mnemonic.trim().replace(/\\s+/g,' ');if(normalized.split(' ').length!==12&&normalized.split(' ').length!==24)throw new Error('Recovery phrase must contain 12 or 24 words.');mnemonicToAccount(normalized);await createVault(normalized,password);setUnlocked(normalized);return{address:session!.address};}
 export async function loadWalletSession(){return getWalletSession();}
 export function getWalletSession(){return session?{...session}:null;}
+export function lockWalletSession(){session=null;unlockedMnemonic=null;emit();}
 export function subscribeToWallet(l:(v:WalletSession|null)=>void){listeners.add(l);l(getWalletSession());return()=>listeners.delete(l);}
 export async function unlockWalletWithPassword(password:string){const vault=await loadVault();if(!vault)throw new Error('No local wallet is available on this device.');return setUnlocked(await unlockVaultMnemonic(vault,password));}
 export async function enableBiometricUnlockWithPassword(password:string){const vault=await loadVault();if(!vault)throw new Error('No local wallet is available on this device.');await unlockVaultMnemonic(vault,password);const ok=await enableProtectedBiometricUnlock(password);if(!ok)throw new Error('Unable to enable biometric wallet unlock.');if(!unlockedMnemonic)setUnlocked(await unlockVaultMnemonic(vault,password));return getBiometryLabel();}
