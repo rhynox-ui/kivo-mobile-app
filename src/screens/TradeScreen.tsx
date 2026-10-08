@@ -172,9 +172,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       if (side === 'buy') {
         const security = token.chainKey === 'solana'
           ? await checkSolanaTokenSecurity(token.tokenAddress)
-          : token.chainKey === 'near'
-            ? null
-            : await checkTokenSecurity(MAINNET_CHAIN_IDS[token.chainKey], token.tokenAddress);
+          : await checkTokenSecurity(MAINNET_CHAIN_IDS[token.chainKey], token.tokenAddress);
         if (security?.isHoneypot) throw new KivoExecutionError('GoPlus flagged this token as a possible honeypot. Kivo blocked the buy before signing.');
       }
 
