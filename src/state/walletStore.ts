@@ -187,8 +187,11 @@ export async function withDeviceAccounts<T>(title: string, action: (accounts: { 
   const evm = mnemonicToAccount(credentials.password);
   if (evm.address.toLowerCase() !== current.address.toLowerCase()) throw new Error('The unlocked wallet does not match the active session.');
   const solana = deriveSolanaKeypair(credentials.password);
-  const evmPrivateKey = evm.getHdKey().privateKey ? bytesToHex(evm.getHdKey().privateKey) : null;
-  if (!evmPrivateKey) throw new Error('The device wallet key is unavailable.');
+  const evmPrivateKeyBytes = evm.getHdKey().privateKey;
+  if (!evmPrivateKeyBytes) throw new Error('The device wallet key is unavailable.');
+  // TS 5.7+ distinguishes ArrayBufferLike from ArrayBuffer. Re-wrap the
+  // private key so viem receives its concrete ArrayBuffer-backed ByteArray.
+  const evmPrivateKey = bytesToHex(new Uint8Array(evmPrivateKeyBytes));
   const near = deriveNearAccount(credentials.password);
   const relay = {evm: {address: evm.address, privateKey: evmPrivateKey}, solana: {address: solana.publicKey.toBase58(), privateKey: bs58.encode(solana.secretKey)}, near};
   return action({evm, solana, near, relay});
