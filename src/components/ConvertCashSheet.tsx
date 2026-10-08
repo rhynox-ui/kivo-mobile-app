@@ -2,6 +2,7 @@ import {kivoTheme} from '../theme/kivoTheme';
 import React, {useEffect, useState} from 'react';
 import {ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import {NetworkIcon} from '../wallet/NetworkIcon';
+import {BottomSheet} from './BottomSheet';
 import {parseUnits} from 'viem';
 import {CHAIN_LABEL, NEAR_ENABLED, NEAR_LABEL, NEAR_USDC, NEAR_USDC_DECIMALS, assetDecimalsForChain, currencyAddress, type ChainKey} from '@kivo/trading/core/chainData';
 import {getRelayQuote, summarizeQuote, type QuoteSummary} from '@kivo/trading/core/relayQuote';
@@ -86,7 +87,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
    setHashes(result.txHashes);setExecute(null);await markOwnAction(wallet.address);recordTrade({side:'buy',token:{chainKey:to as ChainKey,address:currencyAddress(to as ChainKey,'USDC'),symbol:cashSymbol(to),name:cashSymbol(to),imageUrl:null},pay:{amount,symbol:'USDC',chainKey:from as ChainKey},receive:{amount:quote.receivedAmountFormatted??null,symbol:'USDC',chainKey:to as ChainKey},txHashes:result.txHashes,chainIds:[],requestId:null,status:'success'});refresh();onConverted();
  }catch(e){setExecute(null);setNearSending(false);const partial=getPartialTxHashes(e);if(partial.length){setHashes(partial);recordTrade({side:'buy',token:{chainKey:to as ChainKey,address:currencyAddress(to as ChainKey,'USDC'),symbol:'USDC',name:'USDC',imageUrl:null},pay:{amount,symbol:'USDC',chainKey:from as ChainKey},receive:{amount:null,symbol:'USDC',chainKey:to as ChainKey},txHashes:partial,chainIds:[],requestId:null,status:'failed',error:e instanceof Error?e.message:'Conversion failed after a transaction was broadcast.'});}setError(e instanceof Error?e.message:'Conversion failed. Nothing was confirmed.');}};
  if(!visible)return null;
- return <View style={s.overlay}><Pressable style={s.dismiss} onPress={onClose}/><View style={s.sheet}><View style={s.handle}/>
+ return <BottomSheet visible={visible} onClose={onClose}><View>
  {picker?<><View style={s.header}><Pressable onPress={()=>setPicker(null)}><Text style={s.back}>‹ Back</Text></Pressable><Text style={s.title}>Convert {picker==='from'?'from':'to'}</Text><View style={{width:40}}/></View><ScrollView style={s.list}>
  {chains.filter(c=>c!==(picker==='from'?to:from)).map(c=><Pressable key={c} style={s.network} onPress={()=>{picker==='from'?setFrom(c):setTo(c);setAmount('');setPicker(null);}}><View style={s.left}><NetworkIcon chainKey={c} size={24} /><Text style={s.networkText}>USDC · {chainLabel(c)}</Text></View><Text style={s.networkBalance}>{formatUsd(balanceFor(rows,c,nearBalance))}</Text></Pressable>)}</ScrollView></>
  :<><View style={s.header}><Text style={s.title}>Convert</Text><View style={s.free}><Text style={s.freeText}>Kivo fee: Free</Text></View></View>
