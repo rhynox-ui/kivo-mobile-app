@@ -114,7 +114,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
     setQuoteState('loading'); setQuote(null); setQuoteError('');
     try {
       const next: UnifiedPlan = side === 'buy'
-        ? await planUnifiedBuy({ token, amountUsd: parsed, userAddress: address, cash: cash!, slippageBps: settings.slippageBps ?? undefined })
+        ? await planUnifiedBuy({ token, amountUsd: parsed, userAddress: address, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined, cash: cash!, slippageBps: settings.slippageBps ?? undefined })
         : await (async () => {
             const single = await requestKivoQuote({ side, token, amount, userAddress: address, payChain: token.chainKey, tokenDecimals: tokenBalance?.decimals ?? 18, slippageBps: settings.slippageBps ?? undefined, execution: 'gasless' });
             return { legs: [{ chainKey: token.chainKey, amountUsd: single.view.pay.usd ?? 0, quote: single }], view: single.view };
