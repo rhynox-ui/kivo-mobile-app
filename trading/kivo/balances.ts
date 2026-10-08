@@ -10,7 +10,11 @@ import {EVM_TRADE_CHAINS, USDC_CHAINS, nativeSymbol} from './tokens';
 
 const EVM_CASH_CHAINS = EVM_TRADE_CHAINS;
 /** Mango parity: real spendable cash is USDC on verified USDC chains, plus USDG on Robinhood. */
-export const CASH_CHAINS: ChainKey[] = Array.from(new Set([...USDC_CHAINS, ...(TOKEN_ADDRESSES.USDG?.robinhood ? ['robinhood' as ChainKey] : [])]));
+export const CASH_CHAINS: ChainKey[] = Array.from(new Set([
+  ...USDC_CHAINS,
+  ...(TOKEN_ADDRESSES.USDC?.solana ? ['solana' as ChainKey] : []),
+  ...(TOKEN_ADDRESSES.USDG?.robinhood ? ['robinhood' as ChainKey] : []),
+]));
 
 /** USDC kept on Arc so the wallet can still pay the network gas after a trade. */
 export const ARC_GAS_RESERVE_USDC = 0.01;
