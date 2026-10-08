@@ -48,6 +48,27 @@ export type ClosedPosition = {key: string; chainKey: TradeChain; address: string
 const NATIVE_ADDRESS = '0x0000000000000000000000000000000000000000';
 const DUST_USD = 0.005;
 
+// Portfolio is assembled from multiple RPC/indexer/price sources. Cache the
+// complete result briefly so switching Profile tabs or re-rendering the
+// screen does not fan out the same chain reads again. Keep the cache account
+// and trade-history aware, and share an in-flight request between callers.
+const PORTFOLIO_CACHE_TTL_MS = 30_000;
+let portfolioCache: {key: string; data: Portfolio; fetchedAt: number} | null = null;
+let portfolioInFlight: {key: string; promise: Promise<Portfolio>} | null = null;
+
+function portfolioCacheKey(owner: string, history: TradeRecord[], addresses?: {solanaAddress?: string; nearAddress?: string}): string {
+  const last = history.length ? history[history.length - 1] : null;
+  return [
+    owner.toLowerCase(),
+    addresses?.solanaAddress ?? '',
+    addresses?.nearAddress ?? '',
+    history.length,
+    last?.createdAt ?? '',
+    last?.status ?? '',
+  ].join(':');
+}
+
+
 /** Tokens traded in Kivo, newest first, one per chain+address. */
 function tradedTokens(history: TradeRecord[]) {
   const seen = new Map<string, TradeRecord['token'] & {lastTradeAt: number}>();
@@ -58,7 +79,23 @@ function tradedTokens(history: TradeRecord[]) {
   return [...seen.values()];
 }
 
-export async function fetchPortfolio(owner: string, history: TradeRecord[], addresses?: {solanaAddress?: string; nearAddress?: string}): Promise<Portfolio> {
+export async function fetchPortfolio(owner: string, history: TradeRecord[], addresses?: {solanaAddress?: string; nearAddress?: string}, {forceFresh = false}: {forceFresh?: boolean} = {}): Promise<Portfolio> {
+  const key = portfolioCacheKey(owner, history, addresses);
+  if (!forceFresh) {
+    if (portfolioCache && portfolioCache.key === key && Date.now() - portfolioCache.fetchedAt < PORTFOLIO_CACHE_TTL_MS) return portfolioCache.data;
+    if (portfolioInFlight?.key === key) return portfolioInFlight.promise;
+  }
+  const promise = fetchPortfolioUncached(owner, history, addresses);
+  portfolioInFlight = {key, promise};
+  promise.then(data => {
+    portfolioCache = {key, data, fetchedAt: Date.now()};
+  }).finally(() => {
+    if (portfolioInFlight?.promise === promise) portfolioInFlight = null;
+  });
+  return promise;
+}
+
+async function fetchPortfolioUncached(owner: string, history: TradeRecord[], addresses?: {solanaAddress?: string; nearAddress?: string}): Promise<Portfolio> {
   let complete = true;
   const prices = await fetchWalletPrices().catch(() => { complete = false; return {} as Record<string, number>; });
 
