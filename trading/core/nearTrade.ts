@@ -26,6 +26,9 @@ import {assertRelayGaslessEvmAvailable} from './relayGaslessEvm.ts';
 import {privateKeyToAccount} from 'viem/accounts';
 import {getViemChain} from './chainRegistry.ts';
 import {NearSendError, ensureNearAccount, sendSponsoredNearCalls, type NearCall, type NearRelayOutcome} from './nearSigning.ts';
+import {withdrawUsdc} from '../kivo/cash.ts';
+import {Keypair} from '@solana/web3.js';
+import bs58 from 'bs58';
 import type {DerivedAccounts} from '../wallet/keys';
 import {fetchUsdcPortfolio} from './usdcBalances.ts';
 import {fetchOneClickTokens, findOneClickAssetId, ONE_CLICK_PROXY_BASE_URL, type OneClickQuoteRequest, requestOneClickQuote, fetchOneClickStatus, submitOneClickDepositTx} from './oneClick.ts';
@@ -143,8 +146,13 @@ export async function fundNearUsdcForTrade(
         originDecimals: decimals,
         fromAddress: sourceChain === 'solana' ? session.solana.address : session.evm.address,
         send: async (to, sendAmount) => {
-          const {sendUsdc} = await import('../kivo/cash.ts');
-          return (await sendUsdc(sourceChain, privateKeyToAccount(session.evm.privateKey as `0x${string}`), to, sendAmount)).hash;
+          const evmAccount = privateKeyToAccount(session.evm.privateKey as `0x${string}`);
+          if (sourceChain === 'solana') {
+            if (!session.solana) throw new NearTradeError('The Solana signing key is unavailable.');
+            const solanaKeypair = Keypair.fromSecretKey(bs58.decode(session.solana.privateKey));
+            return (await withdrawUsdc('solana', evmAccount, solanaKeypair, to, sendAmount)).hash;
+          }
+          return (await withdrawUsdc(sourceChain, evmAccount, Keypair.generate(), to, sendAmount)).hash;
         },
         store,
         submitDepositTx: (txHash, depositAddress) => submitOneClickDepositTx(txHash, depositAddress, {baseUrl: ONE_CLICK_PROXY_BASE_URL}),
