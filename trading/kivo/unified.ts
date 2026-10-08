@@ -48,6 +48,7 @@ export async function planUnifiedBuy(params: {
   token: KivoToken & {chainKey: ChainKey};
   amountUsd: number;
   userAddress: string;
+  solanaAddress?: string;
   cash: CashBalanceRow[];
   slippageBps?: number;
 }): Promise<UnifiedPlan> {
@@ -66,6 +67,7 @@ export async function planUnifiedBuy(params: {
       const quote = await requestKivoQuote({
         side: 'buy', token, amount: legUsd.toFixed(2), userAddress, payChain: contributor.chainKey,
         payAsset: {chainKey: contributor.chainKey, address: contributor.address, symbol: contributor.symbol, decimals: contributor.decimals},
+        recipientAddress: token.chainKey === 'solana' ? params.solanaAddress : userAddress,
         tokenDecimals: 18, slippageBps, execution: 'gasless',
       });
       const impact = quote.view.priceImpactPct;
