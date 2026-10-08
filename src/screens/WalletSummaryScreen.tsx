@@ -32,7 +32,7 @@ import { CHAIN_LABEL, type ChainKey } from '@kivo/trading/core/chainData';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, CASH_CHAINS, cashAssetSymbol, type CashBalanceRow } from '@kivo/trading/kivo/balances';
 import { isValidRecipientAddress, withdrawUsdc } from '@kivo/trading/kivo/cash';
 import { fetchGaslessStatus, type GaslessStatus } from '@kivo/trading/kivo/gasless';
-import { formatAmount, formatUsd, shortAddress } from '@kivo/trading/kivo/tokens';
+import { USDC_CHAINS, formatAmount, formatUsd, shortAddress } from '@kivo/trading/kivo/tokens';
 import { NetworkIcon } from '../wallet/NetworkIcon';
 import QRCode from 'react-native-qrcode-svg';
 
@@ -249,7 +249,7 @@ function DepositSheet({
                   <Pressable key={chain} onPress={() => setNetwork(chain)} style={styles.networkRow}>
                     <View style={styles.rowLeft}>
                       <NetworkIcon chainKey={chain} size={22} />
-                      <Text style={styles.networkRowText}>{CHAIN_LABEL[chain]}</Text>
+                      <Text style={styles.networkRowText}>{networkLabel(chain)}</Text>
                     </View>
                     <Text style={styles.chevron}>›</Text>
                   </Pressable>
