@@ -1,11 +1,13 @@
 import React, {useEffect, useState} from 'react';
 import {ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
+import {NetworkIcon} from '../wallet/NetworkIcon';
 import {parseUnits} from 'viem';
 import {kivoTheme} from '../theme/kivoTheme';
 import {CHAIN_LABEL, NEAR_ENABLED, NEAR_LABEL, NEAR_USDC, NEAR_USDC_DECIMALS, assetDecimalsForChain, currencyAddress, type ChainKey} from '@kivo/trading/core/chainData';
 import {getRelayQuote, summarizeQuote, type QuoteSummary} from '@kivo/trading/core/relayQuote';
 import {executeRelayQuote, getPartialTxHashes, type ExecuteStep} from '@kivo/trading/core/executeRelayQuote';
 import {fetchCashBalances, type CashBalanceRow} from '@kivo/trading/kivo/balances';
+import {recordTrade} from '@kivo/trading/kivo/history';
 import {USDC_CHAINS, formatUsd} from '@kivo/trading/kivo/tokens';
 import {getWalletSession, withDeviceAccounts, type WalletSession} from '../state/walletStore';
 import type {DerivedAccounts} from '@kivo/trading/wallet/keys';
@@ -14,6 +16,7 @@ import {nearCashMoveChains, nearCashMoveRequest, nearUsdcDepositCall} from '@kiv
 import {fetchOneClickStatus, fetchOneClickTokens, requestOneClickQuote, submitOneClickDepositTx} from '@kivo/trading/core/oneClick';
 import {fundOneClickQuote, refreshOneClickSwap, shouldPollOneClickSwap, type OneClickSwapRecord} from '@kivo/trading/core/oneClickDeposits';
 import {oneClickSwapStore} from '@kivo/trading/wallet/oneClickSwapStore';
+import {describeQuoteError} from '@kivo/trading/kivo/quote';
 import {nearView} from '@kivo/trading/core/nearRpc';
 
 type CashChain = ChainKey | 'near';
@@ -80,20 +83,20 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
    const result=await withDeviceAccounts('Confirm Convert',async session=>{
      return executeRelayQuote(quoteToExecute,session.relay,s=>setExecute(s),{useGaslessTrading:true,requote:quoteParams?async()=>getRelayQuote(quoteParams):undefined});
    });
-   setHashes(result.txHashes);setExecute(null);refresh();onConverted();
+   setHashes(result.txHashes);setExecute(null);recordTrade({side:'buy',token:{chainKey:to as ChainKey,address:currencyAddress(to as ChainKey,'USDC'),symbol:'USDC',name:'USDC',imageUrl:null},pay:{amount,symbol:'USDC',chainKey:from as ChainKey},receive:{amount:quote.receivedAmountFormatted??null,symbol:'USDC',chainKey:to as ChainKey},txHashes:result.txHashes,chainIds:[],requestId:null,status:'success'});refresh();onConverted();
  }catch(e){setExecute(null);setNearSending(false);const partial=getPartialTxHashes(e);if(partial.length)setHashes(partial);setError(e instanceof Error?e.message:'Conversion failed. Nothing was confirmed.');}};
  if(!visible)return null;
  return <View style={s.overlay}><Pressable style={s.dismiss} onPress={onClose}/><View style={s.sheet}><View style={s.handle}/>
  {picker?<><View style={s.header}><Pressable onPress={()=>setPicker(null)}><Text style={s.back}>‹ Back</Text></Pressable><Text style={s.title}>Convert {picker==='from'?'from':'to'}</Text><View style={{width:40}}/></View><ScrollView style={s.list}>
- {chains.filter(c=>c!==(picker==='from'?to:from)).map(c=><Pressable key={c} style={s.network} onPress={()=>{picker==='from'?setFrom(c):setTo(c);setAmount('');setPicker(null);}}><View style={s.left}><View style={s.icon}><Text style={s.glyph}>{glyph(c)}</Text></View><Text style={s.networkText}>USDC · {chainLabel(c)}</Text></View><Text style={s.networkBalance}>{formatUsd(balanceFor(rows,c,nearBalance))}</Text></Pressable>)}</ScrollView></>
+ {chains.filter(c=>c!==(picker==='from'?to:from)).map(c=><Pressable key={c} style={s.network} onPress={()=>{picker==='from'?setFrom(c):setTo(c);setAmount('');setPicker(null);}}><View style={s.left}><NetworkIcon chainKey={c} size={24} /><Text style={s.networkText}>USDC · {chainLabel(c)}</Text></View><Text style={s.networkBalance}>{formatUsd(balanceFor(rows,c,nearBalance))}</Text></Pressable>)}</ScrollView></>
  :<><View style={s.header}><Text style={s.title}>Convert</Text><View style={s.free}><Text style={s.freeText}>Kivo fee: Free</Text></View></View>
- <View style={s.asset}><View style={s.top}><Text style={s.muted}>FROM</Text><Text style={s.muted}>Available: {formatUsd(balance)}</Text></View><View style={s.main}><Pressable style={s.selector} onPress={()=>setPicker('from')}><View style={s.icon}><Text style={s.glyph}>{glyph(from)}</Text></View><Text style={s.symbol}>USDC</Text><Text style={s.chev}>⌄</Text></Pressable><TextInput value={amount} onChangeText={setAmount} placeholder='0' placeholderTextColor={kivoTheme.colors.textMuted} keyboardType='decimal-pad' style={s.amount}/></View><View style={s.bottom}><Text style={s.muted}>{chainLabel(from)}</Text><Pressable onPress={()=>setAmount(String(Math.floor(balance*1e6)/1e6))}><Text style={s.max}>Max</Text></Pressable></View></View>
+ <View style={s.asset}><View style={s.top}><Text style={s.muted}>FROM</Text><Text style={s.muted}>Available: {formatUsd(balance)}</Text></View><View style={s.main}><Pressable style={s.selector} onPress={()=>setPicker('from')}><NetworkIcon chainKey={from} size={26} /><Text style={s.symbol}>USDC</Text><Text style={s.chev}>⌄</Text></Pressable><TextInput value={amount} onChangeText={setAmount} placeholder='0' placeholderTextColor={kivoTheme.colors.textMuted} keyboardType='decimal-pad' style={s.amount}/></View><View style={s.bottom}><Text style={s.muted}>{chainLabel(from)}</Text><Pressable onPress={()=>setAmount(String(Math.floor(balance*1e6)/1e6))}><Text style={s.max}>Max</Text></Pressable></View></View>
  <View style={s.swapWrap}><Pressable style={s.swap} onPress={()=>{const x=from;setFrom(to);setTo(x);setAmount('');}}><Text style={s.swapText}>⇅</Text></Pressable></View>
- <View style={s.asset}><View style={s.top}><Text style={s.muted}>TO</Text><Text style={s.muted}>Available: {formatUsd(balanceFor(rows,to,nearBalance))}</Text></View><View style={s.main}><Pressable style={s.selector} onPress={()=>setPicker('to')}><View style={s.icon}><Text style={s.glyph}>{glyph(to)}</Text></View><Text style={s.symbol}>USDC</Text><Text style={s.chev}>⌄</Text></Pressable>{loading?<ActivityIndicator color={kivoTheme.colors.textMuted}/>:<Text style={s.receive}>{quote?.receivedAmountFormatted??'0'}</Text>}</View><Text style={s.muted}>{chainLabel(to)}</Text></View>
+ <View style={s.asset}><View style={s.top}><Text style={s.muted}>TO</Text><Text style={s.muted}>Available: {formatUsd(balanceFor(rows,to,nearBalance))}</Text></View><View style={s.main}><Pressable style={s.selector} onPress={()=>setPicker('to')}><NetworkIcon chainKey={to} size={26} /><Text style={s.symbol}>USDC</Text><Text style={s.chev}>⌄</Text></Pressable>{loading?<ActivityIndicator color={kivoTheme.colors.textMuted}/>:<Text style={s.receive}>{quote?.receivedAmountFormatted??'0'}</Text>}</View><Text style={s.muted}>{chainLabel(to)}</Text></View>
  {error&&<Text style={s.error}>{error}</Text>}{hashes&&<View style={s.success}><Text style={s.successText}>Converted successfully</Text>{hashes.map(h=><Text key={h} style={s.hash} numberOfLines={1}>{h}</Text>)}</View>}
  <Pressable disabled={!quote||same||n<=0||insufficient||!!execute} onPress={convert} style={[s.button,(!quote||same||n<=0||insufficient||!!execute)&&s.disabled]}><Text style={s.buttonText}>{nearSending?'Sending…':(nearRecord&&shouldPollOneClickSwap(nearRecord))?'Waiting for NEAR Intents…':execute?'Converting…':!amount?'Enter an amount':insufficient?'Insufficient USDC balance':same?'Pick two different networks':loading?'Finding rate…':quote?'Convert':'Finding rate…'}</Text></Pressable><Pressable onPress={onClose} style={s.cancel}><Text style={s.cancelText}>Cancel</Text></Pressable></>}</View></View>;
 }
-const c=kivoTheme.colors; const s=StyleSheet.create({
+const c={background:'#1B1B1E',backgroundDeep:'#111114',surface:'#242428',surfaceRaised:'#2B2B2F',border:'#3A3A3F',text:'#F4F4F5',textMuted:'#85858C',accent:'#2FD67B',danger:'#FF4F46',cream:'#F4F4F5'}; const s=StyleSheet.create({
 overlay:{...StyleSheet.absoluteFill,zIndex:100,justifyContent:'flex-end'},dismiss:{...StyleSheet.absoluteFill,backgroundColor:'rgba(0,0,0,.72)'},sheet:{backgroundColor:c.surface,borderTopLeftRadius:26,borderTopRightRadius:26,padding:20,paddingBottom:34,maxHeight:'90%',borderWidth:1,borderColor:c.border},handle:{width:48,height:5,borderRadius:3,backgroundColor:c.border,alignSelf:'center',marginBottom:14},
 header:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:16},title:{color:c.text,fontSize:20,fontWeight:'900'},back:{color:c.textMuted,fontWeight:'700'},free:{backgroundColor:c.surfaceRaised,borderRadius:999,paddingHorizontal:10,paddingVertical:6},freeText:{color:c.success,fontSize:11,fontWeight:'800'},
 asset:{backgroundColor:c.surfaceRaised,borderRadius:16,padding:14,gap:8},top:{flexDirection:'row',justifyContent:'space-between'},muted:{color:c.textMuted,fontSize:11,fontWeight:'700'},main:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},selector:{flexDirection:'row',alignItems:'center',gap:6},icon:{width:30,height:30,borderRadius:15,backgroundColor:c.surface,alignItems:'center',justifyContent:'center'},glyph:{color:c.text,fontWeight:'900'},symbol:{color:c.text,fontSize:16,fontWeight:'900'},chev:{color:c.textMuted},amount:{flex:1,textAlign:'right',color:c.text,fontSize:25,fontWeight:'800',padding:0,marginLeft:12},receive:{color:c.text,fontSize:24,fontWeight:'800',maxWidth:'55%',textAlign:'right'},bottom:{flexDirection:'row',justifyContent:'space-between'},max:{color:c.cream,fontWeight:'900'},
