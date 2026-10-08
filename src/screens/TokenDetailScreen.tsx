@@ -5,6 +5,8 @@ import { fetchCandles, fetchTokenMarket, type Candle, type ChartRange, type Toke
 import { chainLabel, formatPercent, formatUsd, shortAddress, tradeSupportFor, type KivoToken } from '@kivo/trading/kivo/tokens';
 import { getWalletSession, walletKind } from '../state/walletStore';
 import { LineChart } from '../components/LineChart';
+import { MAINNET_CHAIN_IDS } from '@kivo/trading/core/chainData';
+import { checkSolanaTokenSecurity, checkTokenSecurity, type TokenSecuritySummary } from '@kivo/trading/core/goplusTokenSecurity';
 
 const RANGES: ChartRange[] = ['1H', '1D', '1W', '1M'];
 
@@ -20,6 +22,8 @@ export function TokenDetailScreen({ token, onBuy, onSell, onBack, onMarket }: {
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<ChartRange>('1D');
   const [candles, setCandles] = useState<Candle[] | null>(null);
+  const [security, setSecurity] = useState<TokenSecuritySummary | null>(null);
+  const [securityLoading, setSecurityLoading] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -42,6 +46,20 @@ export function TokenDetailScreen({ token, onBuy, onSell, onBack, onMarket }: {
     fetchCandles(market.token.chainKey, market.pairAddress, range).then(data => { if (!cancelled) setCandles(data); });
     return () => { cancelled = true; };
   }, [market, range]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    setSecurity(null);
+    setSecurityLoading(true);
+    const run = token.chainKey === 'solana'
+      ? checkSolanaTokenSecurity(token.tokenAddress)
+      : checkTokenSecurity(MAINNET_CHAIN_IDS[token.chainKey], token.tokenAddress);
+    run.then(result => { if (!cancelled) setSecurity(result); })
+      .catch(() => { if (!cancelled) setSecurity(null); })
+      .finally(() => { if (!cancelled) setSecurityLoading(false); });
+    return () => { cancelled = true; };
+  }, [token?.chainKey, token?.tokenAddress]);
 
   if (!token) return <View style={styles.container}><Text style={styles.muted}>Choose a token from Discover.</Text></View>;
   const live = market?.token ?? token;
@@ -91,9 +109,28 @@ export function TokenDetailScreen({ token, onBuy, onSell, onBack, onMarket }: {
         </View>
       )}
 
+      <View style={styles.securityCard}>
+        <View style={styles.securityHead}>
+          <Text style={styles.securityTitle}>Token security</Text>
+          <Text style={securityLoading ? styles.securityChecking : security?.isHoneypot ? styles.securityDanger : security ? styles.securityOk : styles.securityUnknown}>
+            {securityLoading ? 'Checking…' : security?.isHoneypot ? 'High risk' : security ? (security.flags.length ? 'Review' : 'No flags') : 'Unavailable'}
+          </Text>
+        </View>
+        {security?.isHoneypot && <Text style={styles.securityDangerText}>GoPlus flags this token as a possible honeypot. Kivo will not start a buy from this screen.</Text>}
+        {security?.flags.length ? security.flags.slice(0, 4).map(flag => <Text key={flag} style={styles.securityFlag}>• {flag}</Text>) : null}
+        {security && (security.buyTaxPercent != null || security.sellTaxPercent != null) && (
+          <Text style={styles.securityMeta}>
+            {security.buyTaxPercent != null ? `Buy tax ${security.buyTaxPercent.toFixed(2)}%` : ''}
+            {security.buyTaxPercent != null && security.sellTaxPercent != null ? ' · ' : ''}
+            {security.sellTaxPercent != null ? `Sell tax ${security.sellTaxPercent.toFixed(2)}%` : ''}
+          </Text>
+        )}
+        {!securityLoading && !security && <Text style={styles.muted}>No live GoPlus result was available. This is not a safety confirmation.</Text>}
+      </View>
+
       {support.ok ? (
         <View style={styles.actions}>
-          <Pressable onPress={onBuy} style={styles.buy}><Text style={styles.buyText}>Buy</Text></Pressable>
+          <Pressable disabled={security?.isHoneypot === true} onPress={onBuy} style={[styles.buy, security?.isHoneypot === true && styles.disabled]}><Text style={styles.buyText}>{security?.isHoneypot ? 'Buy blocked' : 'Buy'}</Text></Pressable>
           <Pressable onPress={onSell} style={styles.sell}><Text style={styles.sellText}>Sell</Text></Pressable>
         </View>
       ) : <View style={styles.notice}><Text style={styles.muted}>{support.reason}</Text></View>}
@@ -137,4 +174,15 @@ const styles = StyleSheet.create({
   sell: { flex: 1, height: 56, borderRadius: 28, borderWidth: 1.5, borderColor: '#FF6B6B', alignItems: 'center', justifyContent: 'center' },
   sellText: { color: '#FF6B6B', fontWeight: '900', fontSize: 16 },
   notice: { marginTop: 20, padding: 14, borderRadius: 16, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+  securityCard: { marginTop: 16, padding: 14, borderRadius: 18, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+  securityHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  securityTitle: { color: c.text, fontWeight: '800', fontSize: 15 },
+  securityChecking: { color: c.textMuted, fontSize: 12, fontWeight: '800' },
+  securityOk: { color: c.success, fontSize: 12, fontWeight: '800' },
+  securityUnknown: { color: c.textMuted, fontSize: 12, fontWeight: '800' },
+  securityDanger: { color: c.danger, fontSize: 12, fontWeight: '900' },
+  securityDangerText: { color: c.danger, fontSize: 12.5, lineHeight: 18, marginTop: 8, fontWeight: '700' },
+  securityFlag: { color: c.textMuted, fontSize: 12, lineHeight: 18, marginTop: 5 },
+  securityMeta: { color: c.textMuted, fontSize: 11.5, marginTop: 8 },
+  disabled: { opacity: 0.45 },
 });
