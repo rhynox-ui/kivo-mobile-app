@@ -94,8 +94,18 @@ jobs:
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/kivo-release.keystore
           test -s android/app/kivo-release.keystore
 
-          # Validate the exact upload key before the long Gradle build.
-          keytool -list -v -keystore android/app/kivo-release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" -keypass "$ANDROID_KEY_PASSWORD" >/dev/null
+          # Validate credentials separately before the long Gradle build.
+          echo "Checking keystore password..."
+          keytool -list -keystore android/app/kivo-release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" >/dev/null
+          echo "Keystore password: OK"
+
+          echo "Checking alias..."
+          keytool -list -keystore android/app/kivo-release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          echo "Alias: OK"
+
+          echo "Checking private-key password..."
+          keytool -keypasswd -keystore android/app/kivo-release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" -keypass "$ANDROID_KEY_PASSWORD" -new "$ANDROID_KEY_PASSWORD" >/dev/null
+          echo "Private-key password: OK"
           echo "Android upload keystore verified: alias=$ANDROID_KEY_ALIAS"
 
       - name: Build signed release AAB (Google Play)
