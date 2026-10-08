@@ -146,7 +146,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
         <View style={styles.cashActions}>
           <Square label="Deposit" glyph="↓" onPress={() => onOpenWallet('deposit')} />
           <Square label="Withdraw" glyph="↑" onPress={() => onOpenWallet('withdraw')} />
-          <Square label="Swap" glyph="⇄" onPress={() => setConvertOpen(true)} />
+          <Square label="Convert" glyph="⇄" onPress={() => setConvertOpen(true)} />
         </View>
       </View>
 
