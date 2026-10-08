@@ -49,7 +49,7 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
   const openToken = (token: KivoToken) => { setSelectedToken(token); push({ name: 'token' }); };
 
   switch (view.name) {
-    case 'conversation': return <ConversationScreen id={view.id} onBack={back} onOpenInfo={id => openCommunity(id)} />;
+    case 'conversation': return <ConversationScreen id={view.id} onBack={back} onOpenInfo={id => openCommunity(id)} onOpenPerson={userId => push({ name: 'person', userId })} />;
     case 'community': return <CommunityScreen id={view.id} onBack={back} onOpenChat={openChat} onOpenPerson={userId => push({ name: 'person', userId })} />;
     case 'communities': return <CommunitiesScreen kind={view.kind} onBack={back} onOpenChat={openChat} onOpenInfo={openCommunity} />;
     case 'person': return <PersonScreen userId={view.userId} onBack={back} onOpenChat={openChat} onOpenCommunity={openCommunity} />;
