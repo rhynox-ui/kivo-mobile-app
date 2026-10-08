@@ -25,7 +25,7 @@ export type TradeSide = 'buy' | 'sell';
 /** Which wallet is signing — decides which chains a session can actually execute on. */
 export type WalletKind = 'evm-browser' | 'evm-local' | 'evm-watch' | 'solana-browser';
 
-export type TradeSupport = {ok: true; chainKey: ChainKey} | {ok: false; reason: string};
+export type TradeSupport = {ok: true; chainKey: TradeChain} | {ok: false; reason: string};
 
 /** EVM chains Kivo can quote, read balances on and sign for. Solana/NEAR are deliberately absent until a matching signer exists. */
 export const EVM_TRADE_CHAINS: ChainKey[] = (Object.keys(MAINNET_CHAIN_IDS) as ChainKey[]).filter(key => key !== 'solana' && Boolean(CHAIN_KEY_TO_VIEM_CHAIN[key]));
@@ -47,7 +47,10 @@ export function isEvmTradeChain(chain: TradeChain): chain is ChainKey {
  * exactly why it can't be traded from this wallet yet.
  */
 export function tradeSupportFor(token: Pick<KivoToken, 'chainKey' | 'tokenAddress'>, wallet: {kind: WalletKind} | null): TradeSupport {
-  if (token.chainKey === 'near') return {ok: false, reason: 'NEAR tokens can be researched in Kivo, but NEAR trading is not enabled yet.'};
+  if (token.chainKey === 'near') {
+    if (wallet?.kind === 'evm-watch') return {ok: false, reason: 'This wallet is connected read-only. Create or import a wallet on this device to sign NEAR trades.'};
+    return {ok: true, chainKey: 'near'};
+  }
   if (token.chainKey === 'solana') {
     if (wallet?.kind === 'evm-watch') return {ok: false, reason: 'This wallet is connected read-only. Create or import a wallet on this device to sign trades.'};
     return {ok: true, chainKey: 'solana'};
