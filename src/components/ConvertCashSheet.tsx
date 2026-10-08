@@ -6,7 +6,8 @@ import {CHAIN_LABEL, NEAR_ENABLED, NEAR_LABEL, NEAR_USDC, NEAR_USDC_DECIMALS, as
 import {getRelayQuote, summarizeQuote, type QuoteSummary} from '@kivo/trading/core/relayQuote';
 import {executeRelayQuote, getPartialTxHashes, type ExecuteStep} from '@kivo/trading/core/executeRelayQuote';
 import {fetchCashBalances, spendableCash, type CashBalanceRow} from '@kivo/trading/kivo/balances';
-import {recordTrade} from '@kivo/trading/kivo/history';\nimport {markOwnAction} from '../wallet/depositWatcher';
+import {recordTrade} from '@kivo/trading/kivo/history';
+import {markOwnAction} from '../wallet/depositWatcher';
 import {USDC_CHAINS, formatUsd} from '@kivo/trading/kivo/tokens';
 import {getWalletSession, withDeviceAccounts, type WalletSession} from '../state/walletStore';
 import type {DerivedAccounts} from '@kivo/trading/wallet/keys';
