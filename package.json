@@ -8,7 +8,11 @@
     "typecheck": "tsc --noEmit",
     "verify": "node scripts/verify-mango-parity.mjs",
     "verify:wallet": "node --experimental-strip-types scripts/verify-mango-wallet.mjs",
-    "verify:security": "node scripts/verify-mango-parity.mjs"
+    "verify:security": "node scripts/verify-mango-parity.mjs",
+    "verify:one-click": "node --experimental-strip-types scripts/verify-one-click.mjs",
+    "verify:one-click-deposits": "node --experimental-strip-types scripts/verify-one-click-deposits.mjs",
+    "verify:near-account": "node --experimental-strip-types scripts/verify-near-account.mjs",
+    "verify:near-signing": "node --experimental-strip-types scripts/verify-near-signing.mjs"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^3.1.1",
