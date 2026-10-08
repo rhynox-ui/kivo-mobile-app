@@ -54,7 +54,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftSlippage, setDraftSlippage] = useState<number | null>(null);
   const [customSlippage, setCustomSlippage] = useState('');
-  const [showDetails, setShowDetails] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);\n  const extremePriceImpact = plan?.legs.some(leg => leg.quote.view.priceImpactPct != null && Math.abs(leg.quote.view.priceImpactPct) > 50) ?? false;
   const quoteSeq = useRef(0);
   const amountRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const settings = useSettings();
@@ -161,7 +161,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   };
 
   const execute = async () => {
-    if (!plan || !token || running) return;
+    if (!plan || !token || running) return;\n    if (extremePriceImpact) { setResult({tone:'error',message:'Trade blocked: route price impact is above 50%.',hashes:[],chainIds:[],requestId:null}); return; }
     setRunning(true); setResult(null); setUpdate(null);
     const view = plan.view;
     const tokenInfo = { chainKey: token.chainKey, address: token.tokenAddress, symbol: token.symbol, name: token.name, imageUrl: token.imageUrl };
@@ -237,10 +237,10 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
 
   const feePct = view && view.fees.appUsd != null && view.pay.usd ? (view.fees.appUsd / view.pay.usd) * 100 : null;
   const cashTotal = cash ? totalCashUsd(cash).total : null;
-  const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && walletKind(wallet) === 'evm-local';
+  const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && !extremePriceImpact && walletKind(wallet) === 'evm-local';
   const tradeChain: ChainKey | null = token?.chainKey ?? (selectedToken?.chainKey !== 'near' ? selectedToken?.chainKey ?? null : null);
   const receiveSymbol = side === 'buy' ? token?.symbol ?? '' : token && TOKEN_ADDRESSES.USDC?.[token.chainKey] ? 'USDC' : token ? nativeSymbol(token.chainKey) : '';
-  const hint = !wallet ? 'Create or import a Kivo wallet on this phone to trade.'
+  const hint = extremePriceImpact ? 'Trade blocked — route price impact is above 50%.'\n    : !wallet ? 'Create or import a Kivo wallet on this phone to trade.'
     : amountProblem ?? (parsed == null ? `Enter an amount to ${side} ${token?.symbol ?? ''}`
       : quoteState === 'loading' ? 'Finding the best route…'
       : quoteState === 'error' ? quoteError

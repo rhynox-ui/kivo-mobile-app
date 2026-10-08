@@ -1,4 +1,4 @@
-import { mnemonicToAccount, type HDAccount } from 'viem/accounts';
+import { mnemonicToAccount, type HDAccount } from 'viem/accounts';\nimport { validateMnemonic } from '@scure/bip39';\nimport { english } from '@scure/bip39/wordlists/english';
 import { createWalletClient, bytesToHex, type Hex } from 'viem';
 import type { Keypair } from '@solana/web3.js';
 import bs58 from 'bs58';
@@ -17,7 +17,7 @@ function solanaAddressFor(m:string){try{return deriveSolanaKeypair(m).publicKey.
 function nearAddressFor(m:string){try{return deriveNearAccount(m).address;}catch{return undefined;}}
 function setUnlocked(mnemonic:string){const a=mnemonicToAccount(mnemonic);unlockedMnemonic=mnemonic;session={address:a.address,solanaAddress:solanaAddressFor(mnemonic),nearAddress:nearAddressFor(mnemonic),source:'local'};emit();return session;}
 export async function createLocalWallet(mnemonic:string,password:string){await createVault(mnemonic,password);return setUnlocked(mnemonic);}
-export async function importLocalWallet(mnemonic:string,password:string){const normalized=mnemonic.trim().replace(/\\s+/g,' ');if(normalized.split(' ').length!==12&&normalized.split(' ').length!==24)throw new Error('Recovery phrase must contain 12 or 24 words.');mnemonicToAccount(normalized);await createVault(normalized,password);setUnlocked(normalized);return{address:session!.address};}
+export async function importLocalWallet(mnemonic:string,password:string){const normalized=mnemonic.trim().replace(/\\s+/g,' ');if(!validateMnemonic(normalized,english))throw new Error('Recovery phrase is invalid. Check the words and order.');mnemonicToAccount(normalized);await createVault(normalized,password);setUnlocked(normalized);return{address:session!.address};}
 export async function loadWalletSession(){return getWalletSession();}
 export function getWalletSession(){return session?{...session}:null;}
 export function lockWalletSession(){session=null;unlockedMnemonic=null;emit();}

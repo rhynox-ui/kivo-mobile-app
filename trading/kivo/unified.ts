@@ -32,10 +32,10 @@ function floor2(value: number): number {
 }
 
 /** Cash per chain that can be spent, sorted the way Mango picks sources. */
-export function cashContributors(cash: CashBalanceRow[], tokenChain: ChainKey): {chainKey: ChainKey; balance: number}[] {
+export function cashContributors(cash: CashBalanceRow[], tokenChain: ChainKey): {chainKey: ChainKey; balance: number; address: string; symbol: string; decimals: number}[] {
   return cash
     .filter((row): row is CashBalanceRow & {status: 'ok'} => row.status === 'ok' && row.balance.amount > 0)
-    .map(row => ({chainKey: row.chainKey, balance: floor2(spendableCash(row.chainKey, row.balance.amount))}))
+    .map(row => ({chainKey: row.chainKey, balance: floor2(spendableCash(row.chainKey, row.balance.amount)), address: row.balance.tokenAddress, symbol: row.balance.symbol, decimals: row.balance.decimals}))
     .filter(item => item.balance >= MIN_LEG_USD)
     .sort((a, b) => (a.chainKey === tokenChain ? -1 : b.chainKey === tokenChain ? 1 : b.balance - a.balance));
 }
