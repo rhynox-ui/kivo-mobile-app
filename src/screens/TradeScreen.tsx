@@ -567,7 +567,7 @@ const styles = StyleSheet.create({
   presets: { flexDirection: 'row', gap: 6, marginTop: 10, marginBottom: 2 },
   preset: { flex: 1, alignItems: 'center', backgroundColor: c.surface, borderRadius: 999, paddingVertical: 7 },
   presetCustom: { flex: 1, backgroundColor: c.surfaceRaised },
-  presetPressed: { backgroundColor: c.input },
+  presetPressed: { backgroundColor: c.backgroundDeep },
   presetText: { color: c.textMuted, fontWeight: '600', fontSize: 11 },
   presetCustomText: { color: c.cream, fontWeight: '700' },
   cardsRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
