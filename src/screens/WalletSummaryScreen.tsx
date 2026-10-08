@@ -358,7 +358,7 @@ function WithdrawSheet({
     setChain(current => current ?? rows?.find(r => r.status === 'ok' && r.balance.amount > 0)?.chainKey ?? (nearBalance > 0 ? 'near' : rows?.[0]?.chainKey ?? DEPOSIT_CHAINS[0]));
     const nearChains = nearCashMoveChains();
     setDestination(current => nearChains.includes(current) ? current : (nearChains[0] ?? 'base'));
-  }, [visible, rows?.length]);
+  }, [visible, rows?.length, nearBalance]);
 
   const problem = !chain
     ? 'Choose a network.'
@@ -420,7 +420,9 @@ function WithdrawSheet({
     if (!canReview || !chain) return;
     Alert.alert(
       'Confirm withdrawal',
-      `Send ${amount} USDC on ${CHAIN_LABEL[chain]} to ${shortAddress(to.trim())}?\\n\\nThis transfer cannot be reversed.`,
+      chain === 'near'
+        ? `Send ${amount} USDC from NEAR to ${CHAIN_LABEL[destination]} at ${shortAddress(to.trim())}?\\n\\nThis transfer cannot be reversed.`
+        : `Send ${amount} USDC on ${CHAIN_LABEL[chain]} to ${shortAddress(to.trim())}?\\n\\nThis transfer cannot be reversed.`,
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Confirm', style: 'destructive', onPress: () => { void executeSend(); } },
@@ -445,7 +447,7 @@ function WithdrawSheet({
                 <ScrollView style={styles.networkList} nestedScrollEnabled showsVerticalScrollIndicator>
                   {chains.map(chainKey => {
                     const balanceRow = rows?.find(r => r.chainKey === chainKey);
-                    const balance = balanceRow?.status === 'ok' ? balanceRow.balance.amount : 0;
+                    const balance = chainKey === 'near' ? nearBalance : (balanceRow?.status === 'ok' ? balanceRow.balance.amount : 0);
                     return (
                       <Pressable key={chainKey} onPress={() => { setChain(chainKey); setTo(''); setAmount(''); setResult(null); }} style={[styles.networkRow, chain === chainKey && styles.networkRowActive]}>
                         <View style={styles.rowLeft}>
