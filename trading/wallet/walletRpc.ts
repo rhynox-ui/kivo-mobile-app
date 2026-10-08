@@ -51,15 +51,15 @@ function getAsyncStorage() {
 // Solana endpoints, both real infra providers already relied on
 // elsewhere in the RPC-aggregator ecosystem, not first-party but not a
 // fly-by-night host either.
-const MANGO_HELIUS_RPC_URL = 'https://mangoprotocol.site/api/v1/pro/helius-rpc';
+const SOLANA_PRIMARY_RPC_URL = 'https://rpc.solanatracker.io/public';
 
 async function heliusRpc<T>(method: string, params: unknown[]): Promise<T> {
-  const response = await fetch(MANGO_HELIUS_RPC_URL, {
+  const response = await fetch(SOLANA_PRIMARY_RPC_URL, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({jsonrpc: '2.0', id: Date.now(), method, params}),
   });
-  if (!response.ok) throw new Error('Mango Helius proxy unavailable');
+  if (!response.ok) throw new Error('Solana primary RPC unavailable');
   const payload = await response.json() as {result?: T; error?: {message?: string}};
   if (payload.error) throw new Error(payload.error.message ?? 'Helius RPC error');
   if (payload.result === undefined) throw new Error('Helius RPC returned no result');
@@ -312,7 +312,7 @@ export type TokenMetadata = {symbol: string; decimals: number};
 // addresses); Solana keys are NOT — a base58 mint address is
 // case-sensitive, and lowercasing it would silently look up a
 // different, wrong address.
-const TOKEN_METADATA_STORAGE_KEY = 'mango_pro_token_metadata_cache';
+const TOKEN_METADATA_STORAGE_KEY = 'kivo_token_metadata_cache';
 const tokenMetadataCache = new Map<string, TokenMetadata | number>();
 
 getAsyncStorage()
