@@ -5,7 +5,7 @@ import { CHAIN_LABEL, TOKEN_ADDRESSES, type ChainKey } from '@kivo/trading/core/
 import { fetchCashBalances, totalCashUsd, readTokenBalance, type CashBalanceRow, type TokenBalance } from '@kivo/trading/kivo/balances';
 import { planUnifiedBuy, totalSpendableCash, type UnifiedPlan } from '@kivo/trading/kivo/unified';
 import { explorerTxUrl, KivoExecutionError, preflightKivoQuote, relayRequestUrl, type ExecutionUpdate } from '@kivo/trading/kivo/execute';
-import { executeKivoQuoteGasless, fetchGaslessStatus, preflightGaslessQuote, type GaslessStatus } from '@kivo/trading/kivo/gasless';
+import { executeKivoQuoteGasless, preflightGaslessQuote } from '@kivo/trading/kivo/gasless';
 import { executeRelayQuote } from '@kivo/trading/core/executeRelayQuote';
 import bs58 from 'bs58';
 import { recordTrade } from '@kivo/trading/kivo/history';
@@ -58,10 +58,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const quoteSeq = useRef(0);
   const amountRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const settings = useSettings();
-  const [gasless, setGasless] = useState<GaslessStatus | null>(null);
   useEffect(() => { if (settingsOpen) { setDraftSlippage(settings.slippageBps ?? null); setCustomSlippage(settings.slippageBps != null && ![50,100,300].includes(settings.slippageBps) ? String(settings.slippageBps / 100) : ''); } }, [settingsOpen, settings.slippageBps]);
-
-  useEffect(() => { fetchGaslessStatus().then(setGasless); }, []);
 
   useEffect(() => subscribeToWallet(setWallet), []);
   useEffect(() => { setSide(initialSide); }, [initialSide]);
@@ -240,18 +237,17 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
 
   const feePct = view && view.fees.appUsd != null && view.pay.usd ? (view.fees.appUsd / view.pay.usd) * 100 : null;
   const cashTotal = cash ? totalCashUsd(cash).total : null;
-  const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && walletKind(wallet) === 'evm-local' && gasless?.available === true;
+  const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && walletKind(wallet) === 'evm-local';
   const tradeChain: ChainKey | null = token?.chainKey ?? (selectedToken?.chainKey !== 'near' ? selectedToken?.chainKey ?? null : null);
   const receiveSymbol = side === 'buy' ? token?.symbol ?? '' : token && TOKEN_ADDRESSES.USDC?.[token.chainKey] ? 'USDC' : token ? nativeSymbol(token.chainKey) : '';
   const hint = !wallet ? 'Create or import a Kivo wallet on this phone to trade.'
-    : gasless && !gasless.available ? gasless.reason ?? 'Gasless trading is not available right now.'
     : amountProblem ?? (parsed == null ? `Enter an amount to ${side} ${token?.symbol ?? ''}`
       : quoteState === 'loading' ? 'Finding the best route…'
       : quoteState === 'error' ? quoteError
       : expired ? 'Quote expired — tap Refresh.'
       : view?.unsupportedReason ? view.unsupportedReason
       : quoteState === 'ready' ? `Review and ${side} ${token?.symbol ?? ''}` : '');
-  const hintIsError = (gasless != null && !gasless.available) || Boolean(amountProblem) || quoteState === 'error' || Boolean(view?.unsupportedReason);
+  const hintIsError = Boolean(amountProblem) || quoteState === 'error' || Boolean(view?.unsupportedReason);
   const pressSide = (target: TradeSide) => {
     if (target !== side) { setSide(target); return; }
     if (ready) setReviewOpen(true);
