@@ -54,7 +54,9 @@ export function TokenDetailScreen({ token, onBuy, onSell, onBack, onMarket }: {
     setSecurityLoading(true);
     const run = token.chainKey === 'solana'
       ? checkSolanaTokenSecurity(token.tokenAddress)
-      : checkTokenSecurity(MAINNET_CHAIN_IDS[token.chainKey], token.tokenAddress);
+      : token.chainKey === 'near'
+        ? Promise.resolve(null)
+        : checkTokenSecurity(MAINNET_CHAIN_IDS[token.chainKey], token.tokenAddress);
     run.then(result => { if (!cancelled) setSecurity(result); })
       .catch(() => { if (!cancelled) setSecurity(null); })
       .finally(() => { if (!cancelled) setSecurityLoading(false); });
