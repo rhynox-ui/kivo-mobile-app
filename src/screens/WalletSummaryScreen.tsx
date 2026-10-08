@@ -5,7 +5,7 @@ import { getWalletSession, loadWalletSession, subscribeToWallet, withDeviceAccou
 import { useSettings } from '../state/settingsStore';
 import { addNotification } from '../state/notificationStore';
 import { CHAIN_LABEL, MAINNET_CHAIN_IDS, type ChainKey } from '@kivo/trading/core/chainData';
-import { fetchCashBalances, totalCashUsd, type CashBalanceRow } from '@kivo/trading/kivo/balances';
+import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, type CashBalanceRow } from '@kivo/trading/kivo/balances';
 import { isValidEvmRecipient, withdrawUsdcGasless } from '@kivo/trading/kivo/cash';
 import { explorerTxUrl } from '@kivo/trading/kivo/execute';
 import { fetchGaslessStatus, type GaslessStatus } from '@kivo/trading/kivo/gasless';
@@ -134,6 +134,7 @@ function WithdrawSheet({ visible, rows, gasless, onClose, onDone }: { visible: b
     setBusy(true); setResult(null);
     try {
       const outcome = await withDeviceAccount(`Send ${amount} USDC`, account => withdrawUsdcGasless({ account, chainKey: chain, to, amount }));
+      clearCashBalanceCache();
       setResult({ ok: true, message: `Sent ${amount} USDC on ${CHAIN_LABEL[chain]}.`, hash: outcome.hash, chainId: MAINNET_CHAIN_IDS[chain] });
       addNotification('Withdrawal sent', `${amount} USDC to ${shortAddress(to)}`);
       setAmount(''); setTo('');
