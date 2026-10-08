@@ -17,6 +17,8 @@ import {oneClickSwapStore} from '@kivo/trading/wallet/oneClickSwapStore';
 import {nearView} from '@kivo/trading/core/nearRpc';
 
 type CashChain = ChainKey | 'near';
+let oneClickTokensPromise: ReturnType<typeof fetchOneClickTokens> | null = null;
+const cachedOneClickTokens = () => oneClickTokensPromise ??= fetchOneClickTokens().catch(error => { oneClickTokensPromise = null; throw error; });
 const balanceFor=(rows:CashBalanceRow[]|null,chain:CashChain,nearBalance=0)=>{if(chain==='near')return nearBalance;const r=rows?.find(x=>x.chainKey===chain);return r?.status==='ok'?r.balance.amount:0;};
 const chainLabel=(chain:CashChain)=>chain==='near'?NEAR_LABEL:CHAIN_LABEL[chain];
 const decimalsFor=(chain:CashChain)=>chain==='near'?NEAR_USDC_DECIMALS:(assetDecimalsForChain(chain,'USDC')??6);
@@ -40,7 +42,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
    if(from==='near'||to==='near'){
      if(!wallet.nearAddress) throw new Error('NEAR account is unavailable.');
      const publicSession={evm:{address:wallet.address,privateKey:''},solana:{address:wallet.solanaAddress??'',privateKey:''},near:{address:wallet.nearAddress,privateKey:''},authMethod:'seed'} as DerivedAccounts;
-     const tokens=await fetchOneClickTokens();
+     const tokens=await cachedOneClickTokens();
      const move=nearCashMoveRequest({direction:from==='near'?'from-near':'to-near',chainKey:(from==='near'?to:from) as ChainKey,amountBaseUnits,session:publicSession,tokens,dry:true});
      const response=await requestOneClickQuote(move.request);
      setQuote({totalFeeUsd:null,etaSeconds:response.quote.timeEstimate??null,receivedAmountFormatted:response.quote.amountOutFormatted??null,payAmountUsd:Number(response.quote.amountInUsd)||null,receiveAmountUsd:Number(response.quote.amountOutUsd)||null,priceImpactPct:null});
@@ -82,7 +84,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
  <View style={s.swapWrap}><Pressable style={s.swap} onPress={()=>{const x=from;setFrom(to);setTo(x);setAmount('');}}><Text style={s.swapText}>⇅</Text></Pressable></View>
  <View style={s.asset}><View style={s.top}><Text style={s.muted}>TO</Text><Text style={s.muted}>Available: {formatUsd(balanceFor(rows,to,nearBalance))}</Text></View><View style={s.main}><Pressable style={s.selector} onPress={()=>setPicker('to')}><View style={s.icon}><Text style={s.glyph}>{glyph(to)}</Text></View><Text style={s.symbol}>USDC</Text><Text style={s.chev}>⌄</Text></Pressable>{loading?<ActivityIndicator color={kivoTheme.colors.textMuted}/>:<Text style={s.receive}>{quote?.receivedAmountFormatted??'0'}</Text>}</View><Text style={s.muted}>{chainLabel(to)}</Text></View>
  {error&&<Text style={s.error}>{error}</Text>}{hashes&&<View style={s.success}><Text style={s.successText}>Converted successfully</Text>{hashes.map(h=><Text key={h} style={s.hash} numberOfLines={1}>{h}</Text>)}</View>}
- <Pressable disabled={!quote||same||n<=0||insufficient||!!execute} onPress={convert} style={[s.button,(!quote||same||n<=0||insufficient||!!execute)&&s.disabled]}><Text style={s.buttonText}>{nearSending?'Sending…':execute?'Converting…':!amount?'Enter an amount':insufficient?'Insufficient USDC balance':same?'Pick two different networks':loading?'Finding rate…':quote?'Convert':'Finding rate…'}</Text></Pressable><Pressable onPress={onClose} style={s.cancel}><Text style={s.cancelText}>Cancel</Text></Pressable></>}</View></View>;
+ <Pressable disabled={!quote||same||n<=0||insufficient||!!execute} onPress={convert} style={[s.button,(!quote||same||n<=0||insufficient||!!execute)&&s.disabled]}><Text style={s.buttonText}>{nearSending?'Sending…':(nearRecord&&shouldPollOneClickSwap(nearRecord))?'Waiting for NEAR Intents…':execute?'Converting…':!amount?'Enter an amount':insufficient?'Insufficient USDC balance':same?'Pick two different networks':loading?'Finding rate…':quote?'Convert':'Finding rate…'}</Text></Pressable><Pressable onPress={onClose} style={s.cancel}><Text style={s.cancelText}>Cancel</Text></Pressable></>}</View></View>;
 }
 const c=kivoTheme.colors; const s=StyleSheet.create({
 overlay:{...StyleSheet.absoluteFill,zIndex:100,justifyContent:'flex-end'},dismiss:{...StyleSheet.absoluteFill,backgroundColor:'rgba(0,0,0,.72)'},sheet:{backgroundColor:c.surface,borderTopLeftRadius:26,borderTopRightRadius:26,padding:20,paddingBottom:34,maxHeight:'90%',borderWidth:1,borderColor:c.border},handle:{width:48,height:5,borderRadius:3,backgroundColor:c.border,alignSelf:'center',marginBottom:14},
