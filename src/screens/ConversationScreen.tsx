@@ -46,7 +46,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
         lastDay = day;
         out.push({ type: 'day', key: 'day-' + day, label: day === new Date().toDateString() ? 'Today' : new Date(message.createdAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) });
       }
-      out.push({ type: 'message', key: message.id, message, showName: conversation?.kind === 'group' && message.senderId !== me && messages[index - 1]?.senderId !== message.senderId });
+      out.push({ type: 'message', key: message.id, message, showName: conversation?.kind !== 'dm' && message.senderId !== me && messages[index - 1]?.senderId !== message.senderId });
     });
     return out;
   }, [messages, conversation?.kind, me]);
