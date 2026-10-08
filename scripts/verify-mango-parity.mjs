@@ -90,6 +90,20 @@ check('No hard-coded Relay API key', () => {
     assert.ok(!/RELAY_API_KEY\s*=\s*['"][^'"]+['"]/.test(read(p)));
   }
 });
+check('Mango deposit UI parity', () => {
+  const s = read('src/screens/WalletSummaryScreen.tsx');
+  assert.ok(s.includes("'near'"));
+  assert.ok(s.includes('react-native-qrcode-svg'));
+  assert.ok(read('src/wallet/NetworkIcon.tsx').includes("chainKey === 'near'"));
+});
+check('Mango Convert execution parity', () => {
+  const s = read('src/components/ConvertCashSheet.tsx');
+  assert.ok(s.includes('executeRelayQuote'));
+  assert.ok(s.includes('useGaslessTrading:true'));
+  assert.ok(s.includes('recordTrade'));
+  assert.ok(s.includes('NetworkIcon'));
+  assert.ok(s.includes("from==='arc'"));
+});
 check('Critical trading files are typechecked', () => {
   assert.equal(Object.prototype.hasOwnProperty.call(JSON.parse(read('tsconfig.json')), 'exclude'), false);
 });
