@@ -84,6 +84,13 @@ export async function readUsdcBalance(chainKey: ChainKey, owner: string): Promis
   const decimals = assetDecimalsForChain(chainKey, cashSymbol) ?? 6;
   return readTokenBalance(chainKey, address, owner, cashSymbol, decimals);
 }
+export async function readSolanaNativeBalance(owner: string): Promise<TokenBalance> {
+  const [{Connection, PublicKey}] = await Promise.all([import('@solana/web3.js')]);
+  const connection = new Connection('https://solana-rpc.publicnode.com', 'confirmed');
+  const raw = await connection.getBalance(new PublicKey(owner));
+  return {chainKey: 'solana', tokenAddress: '11111111111111111111111111111111', symbol: 'SOL', raw: BigInt(raw), decimals: 9, amount: Number(formatUnits(BigInt(raw), 9))};
+}
+
 export async function readSolanaTokenBalance(mintAddress: string, owner: string, symbolHint?: string): Promise<TokenBalance> {
   const [{Connection, PublicKey}] = await Promise.all([import('@solana/web3.js')]);
   const connection = new Connection('https://solana-rpc.publicnode.com', 'confirmed');
@@ -120,12 +127,12 @@ export async function readSolanaUsdcBalance(owner: string): Promise<TokenBalance
 }
 
 /** USDC across every chain Kivo can pay from. Each chain fails independently. */
-export async function fetchCashBalances(owner: string, chains: ChainKey[] = USDC_CHAINS): Promise<CashBalanceRow[]> {
+export async function fetchCashBalances(owner: string, chains: ChainKey[] = USDC_CHAINS, solanaOwner: string = owner): Promise<CashBalanceRow[]> {
   const key = owner.toLowerCase() + ':' + chains.join(',');
   if (cashCache && cashCache.key === key && Date.now() - cashCache.at < CASH_CACHE_TTL_MS) return cashCache.rows;
   if (cashInFlight?.key === key) return cashInFlight.promise;
   const promise = (async () => {
-    const settled = await Promise.allSettled(chains.map(chainKey => chainKey === 'solana' ? readSolanaUsdcBalance(owner) : readUsdcBalance(chainKey, owner)));
+    const settled = await Promise.allSettled(chains.map(chainKey => chainKey === 'solana' ? readSolanaUsdcBalance(solanaOwner) : readUsdcBalance(chainKey, owner)));
     const rows = settled.map((outcome, index): CashBalanceRow => {
       const chainKey = chains[index];
       return outcome.status === 'fulfilled'
