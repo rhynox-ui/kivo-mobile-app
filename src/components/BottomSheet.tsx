@@ -54,7 +54,7 @@ export function BottomSheet({visible,onClose,children,maxHeight}:{visible:boolea
 
 const styles=StyleSheet.create({
   overlay:{flex:1,justifyContent:'flex-end'},
-  backdrop:{...StyleSheet.absoluteFillObject,backgroundColor:'rgba(0,0,0,0.72)'},
+  backdrop:{position:'absolute',top:0,right:0,bottom:0,left:0,backgroundColor:'rgba(0,0,0,0.72)'},
   sheet:{backgroundColor:kivoTheme.colors.surface,borderTopLeftRadius:26,borderTopRightRadius:26,borderWidth:1,borderColor:kivoTheme.colors.border,borderBottomWidth:0,paddingHorizontal:20},
   handleArea:{alignItems:'center',paddingVertical:10},
   handle:{width:36,height:4,borderRadius:2,backgroundColor:kivoTheme.colors.border},
