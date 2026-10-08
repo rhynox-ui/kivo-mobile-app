@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Clipboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -40,7 +41,7 @@ type Sheet = null | 'deposit' | 'withdraw';
 type DepositNetwork = ChainKey | 'near';
 type WithdrawNetwork = ChainKey | 'near';
 
-const DEPOSIT_CHAINS: DepositNetwork[] = [...CASH_CHAINS, ...(CASH_CHAINS.includes('near' as ChainKey) ? [] : ['near' as const])];
+const DEPOSIT_CHAINS: DepositNetwork[] = [...new Set<DepositNetwork>([...CASH_CHAINS, 'near'])];
 
 
 function networkLabel(network: DepositNetwork): string {
@@ -216,13 +217,24 @@ function DepositSheet({
   onClose: () => void;
 }) {
   const [network, setNetwork] = useState<DepositNetwork | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (!visible) setNetwork(null);
+    if (!visible) {
+      setNetwork(null);
+      setCopied(false);
+    }
   }, [visible]);
 
   const selected = network;
   const address = selected ? networkAddress(wallet, selected) : '';
+
+  const copyAddress = async () => {
+    if (!address) return;
+    await Clipboard.setString(address);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -235,7 +247,7 @@ function DepositSheet({
                 <Pressable onPress={onClose}><Text style={styles.ghostText}>Close</Text></Pressable>
               </View>
 
-              <Text style={styles.note}>Choose a network to deposit from.</Text>
+              <Text style={styles.note}>Choose the network you want to receive USDC on.</Text>
 
               <ScrollView
                 style={styles.networkList}
@@ -255,17 +267,6 @@ function DepositSheet({
                   </Pressable>
                 ))}
 
-                <Pressable
-                  disabled={!wallet.nearAddress}
-                  onPress={() => setNetwork('near')}
-                  style={[styles.networkRow, !wallet.nearAddress && styles.disabledRow]}
-                >
-                  <View style={styles.rowLeft}>
-                    <NetworkBadge network="near" />
-                    <Text style={styles.networkRowText}>NEAR</Text>
-                  </View>
-                  <Text style={styles.chevron}>›</Text>
-                </Pressable>
               </ScrollView>
             </>
           ) : (
@@ -287,6 +288,14 @@ function DepositSheet({
               <Text style={styles.addressFull} selectable numberOfLines={1} ellipsizeMode="middle">
                 {address || 'Address unavailable'}
               </Text>
+              <View style={styles.addressActions}>
+                <Pressable disabled={!address} onPress={copyAddress} style={[styles.copyButton, !address && styles.disabled]}>
+                  <Text style={styles.copyButtonText}>{copied ? 'Copied' : 'Copy address'}</Text>
+                </Pressable>
+                <Pressable disabled={!address} onPress={() => Share.share({ message: address })} style={[styles.shareButton, !address && styles.disabled]}>
+                  <Text style={styles.shareButtonText}>Share</Text>
+                </Pressable>
+              </View>
 
               <Text style={styles.note}>
                 {selected === 'solana'
@@ -616,6 +625,11 @@ const styles = StyleSheet.create({
   qrWrap: { backgroundColor: '#FFFFFF', padding: 12, borderRadius: 18, alignSelf: 'center', marginTop: 8, marginBottom: 8 },
   addressPanelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   addressLabel: { color: c.textMuted, fontSize: 11, fontWeight: '700' },
+  addressActions: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  copyButton: { flex: 1, height: 44, borderRadius: 14, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center' },
+  copyButtonText: { color: c.backgroundDeep, fontWeight: '900', fontSize: 13 },
+  shareButton: { flex: 1, height: 44, borderRadius: 14, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' },
+  shareButtonText: { color: c.text, fontWeight: '800', fontSize: 13 },
   addressFull: { color: c.text, fontSize: 14, fontWeight: '600', marginTop: 8, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
   label: { color: c.textMuted, fontSize: 11, fontWeight: '900', letterSpacing: 1, marginTop: 12, textTransform: 'uppercase' },
   input: { height: 48, borderRadius: 14, paddingHorizontal: 14, backgroundColor: c.backgroundDeep, color: c.text, fontSize: 15, borderWidth: 1, borderColor: c.border, marginTop: 7 },
