@@ -34,6 +34,16 @@ check('NEAR wallet derivation contract', () => {
   assert.ok(s.includes("m/44'/397'/0'"));
   assert.ok(s.includes('near?: ChainAccount'));
 });
+check('NEAR execution and 1Click', () => {
+  for (const p of [
+    'trading/core/nearTrade.ts','trading/core/nearSigning.ts','trading/core/nearRpc.ts',
+    'trading/core/nearOutcome.ts','trading/core/intearRouter.ts','trading/core/oneClick.ts',
+    'trading/core/oneClickDeposits.ts','trading/core/nearCashMoves.ts','trading/wallet/oneClickSwapStore.ts'
+  ]) assert.ok(fs.existsSync(path.join(root,p)), p);
+  assert.equal(read('trading/core/chainData.ts').includes('NEAR_ENABLED = true'), true);
+  assert.ok(read('trading/kivo/tokens.ts').includes("chainKey: 'near'"));
+  assert.ok(read('src/screens/NearTradePanel.tsx').includes('executeNearTrade'));
+});
 check('GoPlus token security', () => {
   const s = read('trading/core/goplusTokenSecurity.ts');
   assert.ok(s.includes('api.gopluslabs.io'));
