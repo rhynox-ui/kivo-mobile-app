@@ -72,11 +72,7 @@ function networkAddress(wallet: WalletSession, network: DepositNetwork): string 
 }
 
 function NetworkBadge({ network }: { network: DepositNetwork }) {
-  return (
-    <View style={styles.networkBadge}>
-      <Text style={styles.networkGlyph}>{NETWORK_GLYPH[network] ?? '•'}</Text>
-    </View>
-  );
+  return <NetworkIcon chainKey={network} size={22} />;
 }
 
 /**
