@@ -98,6 +98,16 @@ export async function loadWalletSession(){
 
 export function getWalletSession(){return session?{...session}:null;}
 
+export async function unlockWalletWithBiometric(): Promise<WalletSession> {
+  const mnemonic = await getBiometricPassword();
+  if (!mnemonic) throw new Error('Wallet unlock was cancelled or failed.');
+  const account = mnemonicToAccount(mnemonic);
+  session = {address: account.address, solanaAddress: solanaAddressFor(mnemonic), nearAddress: nearAddressFor(mnemonic), source: 'local'};
+  emit();
+  return getWalletSession()!;
+}
+
+
 export function subscribeToWallet(listener:(value:WalletSession|null)=>void){
   listeners.add(listener);listener(getWalletSession());return ()=>{listeners.delete(listener);};
 }
