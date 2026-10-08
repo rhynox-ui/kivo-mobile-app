@@ -84,6 +84,24 @@ export async function readUsdcBalance(chainKey: ChainKey, owner: string): Promis
   const decimals = assetDecimalsForChain(chainKey, cashSymbol) ?? 6;
   return readTokenBalance(chainKey, address, owner, cashSymbol, decimals);
 }
+export async function readSolanaTokenBalance(mintAddress: string, owner: string, symbolHint?: string): Promise<TokenBalance> {
+  const [{Connection, PublicKey}] = await Promise.all([import('@solana/web3.js')]);
+  const connection = new Connection('https://solana-rpc.publicnode.com', 'confirmed');
+  const ownerKey = new PublicKey(owner);
+  const mint = new PublicKey(mintAddress);
+  const accounts = await connection.getParsedTokenAccountsByOwner(ownerKey, {mint});
+  let raw = 0n;
+  let decimals = 6;
+  for (const account of accounts.value) {
+    const info = account.account.data.parsed?.info;
+    const tokenAmount = info?.tokenAmount;
+    if (!tokenAmount) continue;
+    raw += BigInt(tokenAmount.amount ?? '0');
+    decimals = Number(tokenAmount.decimals ?? decimals);
+  }
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36) throw new Error('This Solana token reports invalid decimals.');
+  return {chainKey: 'solana', tokenAddress: mintAddress, symbol: symbolHint ?? '?', raw, decimals, amount: Number(formatUnits(raw, decimals))};
+}
 export async function readSolanaUsdcBalance(owner: string): Promise<TokenBalance> {
   const mintAddress = TOKEN_ADDRESSES.USDC?.solana;
   if (!mintAddress) throw new Error('No verified USDC mint on Solana.');
