@@ -82,11 +82,7 @@ export async function executeKivoQuoteGasless(
     onUpdate({stage, step, totalSteps: total, txHashes: [...txHashes], requestId, message});
 
   emit('preflight', 0, 0, 'Checking the route against your trade before anything is signed…');
-  // Preflight every chain before signing the first leg. Unified buys can
-  // span multiple chains; discovering an unsupported Calibur/EIP-7702 chain
-  // after leg 1 has already settled would leave the user partially filled.
-  const {warnings} = await preflightGaslessQuote(kq, account);
-  const {calls, requestId: quotedRequestId} = preflightKivoQuote(kq, account.address);
+  const {calls, warnings, requestId: quotedRequestId} = preflightKivoQuote(kq, account.address);
   requestId = quotedRequestId;
   const groups = groupByChain(calls);
   const total = groups.length;
