@@ -28,6 +28,8 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
  const [wallet,setWallet]=useState<WalletSession|null>(getWalletSession());
  const [rows,setRows]=useState<CashBalanceRow[]|null>(null);
  const [from,setFrom]=useState<CashChain>('base'); const [to,setTo]=useState<CashChain>('solana');
+ const pickDefaultFrom=(rows:CashBalanceRow[]|null,near:number):CashChain=>{let best:CashChain|undefined;let value=0;for(const chain of [...USDC_CHAINS,'solana'] as CashChain[]){const b=balanceFor(rows,chain,near);if(b>value){best=chain;value=b;}}if(NEAR_ENABLED&&near>value)best='near';return best??(USDC_CHAINS[0] as CashChain);};
+ const pickDefaultTo=(fromChain:CashChain,rows:CashBalanceRow[]|null,near:number):CashChain=>{let best:CashChain|undefined;let value=0;for(const chain of [...USDC_CHAINS,'solana',...(NEAR_ENABLED?nearCashMoveChains():[])] as CashChain[]){if(chain===fromChain)continue;const b=balanceFor(rows,chain,near);if(b>value){best=chain;value=b;}}return best??(fromChain==='base'?'solana':'base') as CashChain;};
  const [picker,setPicker]=useState<'from'|'to'|null>(null); const [amount,setAmount]=useState('');
  const [quote,setQuote]=useState<QuoteSummary|null>(null); const [loading,setLoading]=useState(false);
  const [error,setError]=useState<string|null>(null); const [execute,setExecute]=useState<ExecuteStep|null>(null); const [hashes,setHashes]=useState<string[]|null>(null);
@@ -35,6 +37,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
  const chains=[...new Set([...USDC_CHAINS,'solana',...(NEAR_ENABLED?nearCashMoveChains():[])])] as CashChain[];
  const refresh=()=>{const w=getWalletSession();setWallet(w);if(w){fetchCashBalances(w.address,[...USDC_CHAINS,'solana']).then(setRows).catch(()=>setRows([])); if(w.nearAddress) fetchNearTokenBalance(NEAR_USDC,w.nearAddress).then(v=>setNearBalance(Number(v)/10**NEAR_USDC_DECIMALS)).catch(()=>setNearBalance(0));}};
  useEffect(()=>{if(!visible)return;setAmount('');setQuote(null);setError(null);setHashes(null);setPicker(null);setNearRecord(null);refresh();},[visible]);
+ useEffect(()=>{if(!visible||amount||picker)return;if(rows===null)return;const f=pickDefaultFrom(rows,nearBalance);setFrom(f);setTo(pickDefaultTo(f,rows,nearBalance));},[visible,rows,nearBalance]);
  useEffect(()=>{if(!nearRecord||!shouldPollOneClickSwap(nearRecord))return;const t=setTimeout(()=>{refreshOneClickSwap(nearRecord,{fetchStatus:d=>fetchOneClickStatus(d),store:oneClickSwapStore}).then(next=>{setNearRecord(next);if(next.status==='SUCCESS'||next.status==='REFUNDED')onConverted();}).catch(()=>{});},5000);return()=>clearTimeout(t);},[nearRecord,onConverted]);
  const balance=balanceFor(rows,from,nearBalance); const n=Number(amount)||0; const same=from===to; const insufficient=(from==='near'||rows!==null)&&n>balance; const decimals=decimalsFor(from);
  useEffect(()=>{if(!visible||!wallet||same||n<=0||insufficient){setQuote(null);setLoading(false);return;} const t=setTimeout(async()=>{setLoading(true);setError(null);try{
