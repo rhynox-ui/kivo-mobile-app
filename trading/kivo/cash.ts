@@ -33,3 +33,8 @@ export async function withdrawUsdcGasless(params: {account: LocalAccount; chainK
     calls: [{to: usdc as Address, value: 0n, data}],
   });
 }
+
+/** Gasless USDC transfer used by NEAR Intents 1Click funding. */
+export async function sendUsdc(chainKey: ChainKey, account: LocalAccount, to: string, amount: string): Promise<{hash: string; requestId: string}> {
+  return withdrawUsdcGasless({account, chainKey, to, amount});
+}
