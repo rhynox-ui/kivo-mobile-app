@@ -157,7 +157,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       setAmount(fraction ? `${whole}.${fraction}` : whole);
       return;
     }
-    setAmount(String(Math.floor(available * pct / 100 * 1e6) / 1e6));
+    const decimals = side === 'sell' ? (tokenBalance?.decimals ?? 6) : 6; const scale = 10 ** decimals; setAmount(String(Math.floor(available * pct / 100 * scale) / scale));
   };
 
   const execute = async () => {
