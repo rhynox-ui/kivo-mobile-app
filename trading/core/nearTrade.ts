@@ -59,7 +59,7 @@ export async function fundNearUsdcForTrade(
 
   const portfolio = await fetchUsdcPortfolio(session, {forceFresh: true});
   const candidates = portfolio.results
-    .filter((r): r is Extract<typeof r, {status: 'ok'}> => r.status === 'ok' && r.balance > 0 && Boolean(TOKEN_ADDRESSES.USDC[r.chainKey]) && r.chainKey !== 'arc')
+    .filter((r): r is Extract<typeof r, {status: 'ok'}> => r.status === 'ok' && r.balance > 0 && Boolean(TOKEN_ADDRESSES.USDC[r.chainKey]) && r.chainKey !== 'arc' && r.chainKey !== 'solana')
     .sort((a, b) => b.balance - a.balance);
   if (candidates.length === 0) throw new NearTradeError('There is no USDC available on a supported source chain to fund this NEAR trade.');
 
@@ -142,8 +142,8 @@ export async function fundNearUsdcForTrade(
         originDecimals: decimals,
         fromAddress: sourceChain === 'solana' ? session.solana.address : session.evm.address,
         send: async (to, sendAmount) => {
-          const {sendUsdc} = await import('../wallet/sendUsdc.ts');
-          return (await sendUsdc(sourceChain, session, to, sendAmount, 'USDC', true)).txId;
+          const {sendUsdc} = await import('../kivo/cash.ts');
+          return (await sendUsdc(sourceChain, {address: session.evm.address, type: 'local', source: 'privateKey'} as any, to, sendAmount)).hash;
         },
         store,
         submitDepositTx: (txHash, depositAddress) => submitOneClickDepositTx(txHash, depositAddress, {baseUrl: ONE_CLICK_PROXY_BASE_URL}),
