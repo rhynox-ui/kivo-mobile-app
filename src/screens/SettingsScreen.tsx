@@ -3,7 +3,6 @@ import { Alert, Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } 
 import { kivoTheme } from '../theme/kivoTheme';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { disableBiometricUnlock, enableBiometricUnlock } from '../state/walletStore';
-import { getBiometryLabel, isBiometricAvailable, isBiometricUnlockEnabled } from '../wallet/biometricAuth';
 import { getTradeHistory } from '@kivo/trading/kivo/history';
 
 type SettingsItem = {
@@ -43,31 +42,7 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onLogout }
         Linking.openSettings().catch(()=>{});
         return;
       case 'language': updateSettings({language:settings.language==='System'?'English':'System'}); return;
-      case 'security': {
-        (async () => {
-          const [available, enabled, label] = await Promise.all([
-            isBiometricAvailable(),
-            isBiometricUnlockEnabled(),
-            getBiometryLabel(),
-          ]);
-          if (!available) {
-            Alert.alert('Security', 'Biometric unlock is not available on this device.');
-            return;
-          }
-          if (enabled) {
-            Alert.alert('Security', `Kivo wallet unlock is protected by ${label} or your device passcode.`, [
-              {text:'Cancel',style:'cancel'},
-              {text:'Disable',style:'destructive',onPress:()=>disableBiometricUnlock().catch(error=>Alert.alert('Biometrics',error instanceof Error ? error.message : 'Unable to disable biometric unlock.'))},
-            ]);
-          } else {
-            Alert.alert('Security', `Protect wallet access with ${label} or your device passcode.`, [
-              {text:'Cancel',style:'cancel'},
-              {text:'Enable',onPress:()=>enableBiometricUnlock().catch(error=>Alert.alert('Biometrics',error instanceof Error ? error.message : 'Unable to enable biometric unlock.'))},
-            ]);
-          }
-        })();
-        return;
-      }
+      case 'security': onOpenSecurity?.(); return;
       case 'legal': Linking.openURL('https://kivo-web.pages.dev/docs/').catch(()=>Alert.alert('Legal and Privacy','Unable to open Kivo documentation right now.')); return;
       case 'taxes': {
         const rows = getTradeHistory();
