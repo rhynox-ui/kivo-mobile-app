@@ -40,7 +40,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
  useEffect(()=>{if(!visible||amount||picker)return;if(rows===null)return;const f=pickDefaultFrom(rows,nearBalance);setFrom(f);setTo(pickDefaultTo(f,rows,nearBalance));},[visible,rows,nearBalance]);
  useEffect(()=>{if(!nearRecord||!shouldPollOneClickSwap(nearRecord))return;const t=setTimeout(()=>{refreshOneClickSwap(nearRecord,{fetchStatus:d=>fetchOneClickStatus(d),store:oneClickSwapStore}).then(next=>{setNearRecord(next);if(next.status==='SUCCESS'||next.status==='REFUNDED')onConverted();}).catch(()=>{});},5000);return()=>clearTimeout(t);},[nearRecord,onConverted]);
  const balance=balanceFor(rows,from,nearBalance); const n=Number(amount)||0; const same=from===to; const insufficient=(from==='near'||rows!==null)&&n>balance; const decimals=decimalsFor(from);
- useEffect(()=>{if(!visible||!wallet||same||n<=0||insufficient){setQuote(null);setLoading(false);return;} const requestId=++quoteRequestIdRef.current; const t=setTimeout(async()=>{setLoading(true);setError(null);try{
+ useEffect(()=>{if(!visible||!wallet||same||n<=0||insufficient){setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setLoading(false);return;} const requestId=++quoteRequestIdRef.current; const t=setTimeout(async()=>{setLoading(true);setError(null);try{
    const amountBaseUnits=parseUnits(amount,decimals).toString();
    if(from==='near'||to==='near'){
      if(!wallet.nearAddress) throw new Error('NEAR account is unavailable.');
@@ -48,14 +48,14 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
      const tokens=await cachedOneClickTokens();
      const move=nearCashMoveRequest({direction:from==='near'?'from-near':'to-near',chainKey:(from==='near'?to:from) as ChainKey,amountBaseUnits,session:publicSession,tokens,dry:true});
      const response=await requestOneClickQuote(move.request);
-     setQuote({totalFeeUsd:null,etaSeconds:response.quote.timeEstimate??null,receivedAmountFormatted:response.quote.amountOutFormatted??null,payAmountUsd:Number(response.quote.amountInUsd)||null,receiveAmountUsd:Number(response.quote.amountOutUsd)||null,priceImpactPct:null});
+     if(requestId!==quoteRequestIdRef.current)return; rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setQuote({totalFeeUsd:null,etaSeconds:response.quote.timeEstimate??null,receivedAmountFormatted:response.quote.amountOutFormatted??null,payAmountUsd:Number(response.quote.amountInUsd)||null,receiveAmountUsd:Number(response.quote.amountOutUsd)||null,priceImpactPct:null});
    } else {
      const user=from==='solana'?wallet.solanaAddress:wallet.address; const recipient=to==='solana'?wallet.solanaAddress:wallet.address; if(!user||!recipient)throw new Error('Selected wallet address is unavailable.');
      const quoteParams={fromChainKey:from as ChainKey,toChainKey:to as ChainKey,originCurrency:currencyAddress(from as ChainKey,'USDC'),destinationCurrency:currencyAddress(to as ChainKey,'USDC'),amountBaseUnits,userAddress:user,recipientAddress:recipient,originAmountUsd:n,waiveAppFee:true};
      const q=await getRelayQuote(quoteParams); if(requestId!==quoteRequestIdRef.current)return; rawQuoteRef.current=q; lastQuoteParamsRef.current=quoteParams;
      setQuote(summarizeQuote(q,assetDecimalsForChain(to as ChainKey,'USDC')??6));
    }
- }catch(e){setQuote(null);setError(e instanceof Error?e.message:'Could not get a conversion rate.');}finally{setLoading(false);}},450);return()=>clearTimeout(t);},[visible,wallet?.address,wallet?.solanaAddress,wallet?.nearAddress,from,to,amount,n,same,insufficient,decimals]);
+ }catch(e){if(requestId!==quoteRequestIdRef.current)return;setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setError(e instanceof Error?e.message:'Could not get a conversion rate.');}finally{if(requestId===quoteRequestIdRef.current)setLoading(false);}},450);return()=>clearTimeout(t);},[visible,wallet?.address,wallet?.solanaAddress,wallet?.nearAddress,from,to,amount,n,same,insufficient,decimals]);
  const convert=async()=>{if(!quote||!wallet||same||n<=0||insufficient||execute||nearSending)return;setError(null);setHashes(null);try{
    if(from==='near'||to==='near'){
      setNearSending(true);
