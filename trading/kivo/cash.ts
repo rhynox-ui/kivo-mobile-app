@@ -8,10 +8,10 @@ import {encodeFunctionData, isAddress, parseUnits, type Address} from 'viem';
 import bs58 from 'bs58';
 import {signAndSendSponsoredSolanaStep, type SolanaTransactionSigner} from '../core/executeRelayQuote';
 import type {LocalAccount} from 'viem/accounts';
-import {TOKEN_ADDRESSES, type ChainKey} from '../core/chainData';
+import {TOKEN_ADDRESSES, assetDecimalsForChain, type ChainKey} from '../core/chainData';
 import {getViemChain} from '../core/chainRegistry';
 import {sendEvmCallsViaRelayGasless} from '../core/relayGaslessEvm';
-import {cashAssetAddress,cashAssetSymbol,assetDecimalsForChain} from './balances';
+import {cashAssetAddress,cashAssetSymbol} from './balances';
 
 const ERC20_TRANSFER_ABI = [{type: 'function', name: 'transfer', inputs: [{name: 'to', type: 'address'}, {name: 'amount', type: 'uint256'}], outputs: [{type: 'bool'}], stateMutability: 'nonpayable'}] as const;
 
