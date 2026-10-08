@@ -120,7 +120,7 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
           {text:'Confirm',onPress:()=>{void execute();}},
         ]);
       }} style={[styles.button, (!quote || running || insufficient) && styles.disabled]}>
-        {running ? <ActivityIndicator color={c.backgroundDeep}/> : <Text style={styles.buttonText}>{funding ? 'Funding from Kivo cash…' : side === 'buy' ? 'Buy' : 'Sell'} {token.symbol}</Text>}
+        {running ? <><ActivityIndicator color={c.backgroundDeep}/><Text style={styles.buttonText}>{funding ? 'Funding from Kivo cash…' : 'Processing…'}</Text></> : <Text style={styles.buttonText}>{side === 'buy' ? 'Buy' : 'Sell'} {token.symbol}</Text>}
       </Pressable>
     </View>
   );
