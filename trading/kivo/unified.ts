@@ -27,21 +27,17 @@ export type UnifiedPlan = {legs: UnifiedLeg[]; view: KivoQuoteView};
 const EXTREME_PRICE_IMPACT_PCT = 50;
 const MIN_LEG_USD = 0.05;
 
-function floor2(value: number): number {
-  return Math.floor(value * 100) / 100;
-}
-
 /** Cash per chain that can be spent, sorted the way Mango picks sources. */
 export function cashContributors(cash: CashBalanceRow[], tokenChain: ChainKey): {chainKey: ChainKey; balance: number; address: string; symbol: string; decimals: number}[] {
   return cash
     .filter((row): row is CashBalanceRow & {status: 'ok'} => row.status === 'ok' && row.balance.amount > 0)
-    .map(row => ({chainKey: row.chainKey, balance: floor2(spendableCash(row.chainKey, row.balance.amount)), address: row.balance.tokenAddress, symbol: row.balance.symbol, decimals: row.balance.decimals}))
+    .map(row => ({chainKey: row.chainKey, balance: spendableCash(row.chainKey, row.balance.amount), address: row.balance.tokenAddress, symbol: row.balance.symbol, decimals: row.balance.decimals}))
     .filter(item => item.balance >= MIN_LEG_USD)
     .sort((a, b) => (a.chainKey === tokenChain ? -1 : b.chainKey === tokenChain ? 1 : b.balance - a.balance));
 }
 
 export function totalSpendableCash(cash: CashBalanceRow[] | null, tokenChain: ChainKey): number {
-  return cash ? floor2(cashContributors(cash, tokenChain).reduce((sum, item) => sum + item.balance, 0)) : 0;
+  return cash ? cashContributors(cash, tokenChain).reduce((sum, item) => sum + item.balance, 0) : 0;
 }
 
 export async function planUnifiedBuy(params: {
@@ -63,7 +59,7 @@ export async function planUnifiedBuy(params: {
 
   const quoteCandidates = async (contributors: typeof remaining): Promise<Candidate[]> => {
     const settled = await Promise.allSettled(contributors.map(async contributor => {
-      const legUsd = floor2(Math.min(remainingUsd, contributor.balance));
+      const legUsd = Math.min(remainingUsd, contributor.balance);
       if (legUsd < MIN_LEG_USD) throw new Error('leg too small');
       const quote = await requestKivoQuote({
         side: 'buy', token, amount: legUsd.toFixed(2), userAddress, payChain: contributor.chainKey,
@@ -93,7 +89,7 @@ export async function planUnifiedBuy(params: {
     if (!candidates.length) break;
     const best = candidates[0];
     legs.push({chainKey: best.chainKey, amountUsd: best.legUsd, quote: best.quote});
-    remainingUsd = floor2(remainingUsd - best.legUsd);
+    remainingUsd -= best.legUsd;
     remaining.splice(remaining.findIndex(c => c.chainKey === best.chainKey), 1);
   }
 
