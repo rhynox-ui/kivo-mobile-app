@@ -1,3 +1,31 @@
-import React,{useState}from'react';import{ActivityIndicator,Pressable,StyleSheet,Text,TextInput,View}from'react-native';import{kivoTheme}from'../theme/kivoTheme';import{checkPasswordPolicy,MIN_PASSWORD_LENGTH}from'../wallet/passwordPolicy';import{createLocalWallet,importLocalWallet}from'../state/walletStore';
-export function PasswordSetupScreen({mnemonic,mode,onDone,onBack}:{mnemonic:string;mode:'create'|'import';onDone:(password:string)=>void;onBack:()=>void}){const[p,setP]=useState('');const[c,setC]=useState('');const[busy,setBusy]=useState(false);const[error,setError]=useState('');const submit=async()=>{const policy=checkPasswordPolicy(p);if(!policy.ok){setError('Use at least '+MIN_PASSWORD_LENGTH+' characters and avoid common or predictable passwords.');return;}if(p!==c){setError('Passwords do not match.');return;}setBusy(true);setError('');try{if(mode==='create')await createLocalWallet(mnemonic,p);else await importLocalWallet(mnemonic,p);onDone(p);}catch(e){setError(e instanceof Error?e.message:'Unable to secure wallet.');}finally{setBusy(false)}};return <View style={styles.root}><View><Pressable onPress={onBack}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.title}>Set a password</Text><Text style={styles.body}>This password encrypts your wallet on this device. Kivo never sees it and cannot reset it for you.</Text><TextInput value={p}onChangeText={setP}placeholder="Password"placeholderTextColor={kivoTheme.colors.textMuted}secureTextEntry style={styles.input}/><TextInput value={c}onChangeText={setC}placeholder="Confirm password"placeholderTextColor={kivoTheme.colors.textMuted}secureTextEntry style={styles.input}/>{error?<Text style={styles.error}>{error}</Text>:null}</View><Pressable disabled={busy}onPress={submit}style={[styles.button,busy&&styles.disabled]}>{busy?<ActivityIndicator color={kivoTheme.colors.backgroundDeep}/>:<Text style={styles.buttonText}>Secure wallet</Text>}</Pressable></View>}
-const styles=StyleSheet.create({root:{flex:1,backgroundColor:kivoTheme.colors.background,padding:24,justifyContent:'space-between'},back:{color:kivoTheme.colors.cream,fontSize:38,width:35},title:{color:kivoTheme.colors.text,fontSize:30,fontWeight:'800',marginTop:22},body:{color:kivoTheme.colors.textMuted,fontSize:14,lineHeight:21,marginTop:10},input:{height:56,marginTop:16,borderWidth:1,borderColor:kivoTheme.colors.border,borderRadius:14,backgroundColor:kivoTheme.colors.surface,color:kivoTheme.colors.text,paddingHorizontal:16},error:{color:'#E0443E',fontSize:13,marginTop:10},button:{height:58,borderRadius:29,backgroundColor:kivoTheme.colors.cream,alignItems:'center',justifyContent:'center',marginBottom:12},disabled:{opacity:.6},buttonText:{color:kivoTheme.colors.backgroundDeep,fontWeight:'800'}});
+import React,{useState}from'react';
+import{StyleSheet,Text,View}from'react-native';
+import{kivoTheme}from'../theme/kivoTheme';
+import{checkPasswordPolicy,MIN_PASSWORD_LENGTH}from'../wallet/passwordPolicy';
+import{createLocalWallet,importLocalWallet}from'../state/walletStore';
+import{ErrorText,PasswordField,PrimaryButton,RequirementRow}from'../onboarding/ui';
+
+export function PasswordSetupScreen({mnemonic,mode,onDone,onBack}:{mnemonic:string;mode:'create'|'import';onDone:(password:string)=>void;onBack:()=>void}){
+ const[p,setP]=useState('');const[c,setC]=useState('');const[busy,setBusy]=useState(false);const[error,setError]=useState('');
+ const{longEnough,notCommon}=checkPasswordPolicy(p);const passwordsMatch=p.length>0&&c===p;const canSubmit=longEnough&&notCommon&&passwordsMatch&&!busy;
+ async function submit(){setBusy(true);setError('');await new Promise(resolve=>setTimeout(resolve,0));try{if(mode==='create')await createLocalWallet(mnemonic,p);else await importLocalWallet(mnemonic,p);onDone(p);}catch(e){setError(e instanceof Error?e.message:'Unable to secure wallet.');}setBusy(false);}
+ return <View style={styles.root}>
+  <View>
+   <Text style={styles.title}>Secure your Kivo wallet</Text>
+   <Text style={styles.body}>Kivo has moved to the Mango Pro password-encrypted wallet vault. Set a password now to keep this existing wallet.</Text>
+   <View style={styles.field}><PasswordField value={p} onChangeText={setP} placeholder="Password" autoFocus/></View>
+   <View style={styles.field}><PasswordField value={c} onChangeText={setC} placeholder="Confirm password"/></View>
+   <View style={styles.checklist}>
+    <RequirementRow met={longEnough}>At least {MIN_PASSWORD_LENGTH} characters</RequirementRow>
+    <RequirementRow met={notCommon}>Not a commonly used password</RequirementRow>
+    <RequirementRow met={passwordsMatch}>Passwords match</RequirementRow>
+   </View>
+   <ErrorText>{error}</ErrorText>
+  </View>
+  <View style={styles.footer}>
+   {busy?<Text style={styles.busyHint}>Encrypting your wallet on this device — this can take a moment, please don't close the app.</Text>:null}
+   <PrimaryButton onPress={submit} disabled={!canSubmit} loading={busy}>{canSubmit?'Secure wallet':!longEnough?'Enter a password':'Confirm password to continue'}</PrimaryButton>
+  </View>
+ </View>;
+}
+const styles=StyleSheet.create({root:{flex:1,backgroundColor:kivoTheme.colors.background,padding:24,justifyContent:'space-between'},title:{color:kivoTheme.colors.text,fontSize:30,lineHeight:36,fontWeight:'800',marginTop:42},body:{color:kivoTheme.colors.textMuted,fontSize:14,lineHeight:21,marginTop:10,marginBottom:18},field:{marginBottom:0},checklist:{gap:6,marginTop:4,marginBottom:6},footer:{paddingBottom:12,gap:10},busyHint:{color:kivoTheme.colors.textMuted,fontSize:12,textAlign:'center',lineHeight:17}});
