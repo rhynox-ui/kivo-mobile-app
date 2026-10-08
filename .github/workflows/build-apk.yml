@@ -104,7 +104,9 @@ jobs:
           echo "Alias: OK"
 
           echo "Checking private-key password..."
-          keytool -keypasswd -keystore android/app/kivo-release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" -keypass "$ANDROID_KEY_PASSWORD" -new "$ANDROID_KEY_PASSWORD" >/dev/null
+          keytool -certreq -keystore android/app/kivo-release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" -keypass "$ANDROID_KEY_PASSWORD" -file "$RUNNER_TEMP/kivo-signing-check.csr" >/dev/null
+          test -s "$RUNNER_TEMP/kivo-signing-check.csr"
+          rm -f "$RUNNER_TEMP/kivo-signing-check.csr"
           echo "Private-key password: OK"
           echo "Android upload keystore verified: alias=$ANDROID_KEY_ALIAS"
 
