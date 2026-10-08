@@ -26,13 +26,9 @@ export type ChainKey =
 // eth_getBalance reports them with 18 decimals.
 export const ARC_USDC = '0x3600000000000000000000000000000000000000';
 
-// NEAR — deliberately NOT a ChainKey. Every ChainKey is a Relay chain (EVM
-// or Solana) and the tables below are keyed by it; NEAR is served by NEAR
-// Intents (1Click) and NEAR's own DEXes instead, so it lives beside them.
-// NEAR is enabled because deposit, USDC cash moves, token trading, and
-// withdrawal paths are implemented end to end through the existing NEAR
-// relayer + NEAR Intents 1Click integration.
-export const NEAR_ENABLED = true;
+// NEAR is discovery/view-only in mobile until a matching production signer
+// and execution path are wired. Do not expose it as tradable.
+export const NEAR_ENABLED = false;
 export const NEAR_LABEL = 'NEAR';
 /** Native USDC on NEAR (Circle), 6 decimals — the same contract 1Click and the site use. */
 export const NEAR_USDC = '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1';
