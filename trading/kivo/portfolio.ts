@@ -68,7 +68,7 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
     fetchCashBalances(owner, undefined, addresses?.solanaAddress ?? owner),
     Promise.allSettled(tradedTokens(history).map(async token => {
       const [balance, pair] = await Promise.all([
-        token.chainKey === 'solana' ? readSolanaTokenBalance(token.address, owner, token.symbol) : readTokenBalance(token.chainKey, token.address, owner, token.symbol),
+        token.chainKey === 'solana' ? readSolanaTokenBalance(token.address, addresses?.solanaAddress ?? owner, token.symbol) : readTokenBalance(token.chainKey, token.address, owner, token.symbol),
         resolveDexScreenerPair({chainKey: token.chainKey, tokenAddress: token.address}),
       ]);
       return {token, balance, priceUsd: pair?.priceUsd ?? null};
