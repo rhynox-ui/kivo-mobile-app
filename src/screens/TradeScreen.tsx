@@ -5,7 +5,7 @@ import { CHAIN_LABEL, TOKEN_ADDRESSES, type ChainKey } from '@kivo/trading/core/
 import { fetchCashBalances, totalCashUsd, readTokenBalance, type CashBalanceRow, type TokenBalance } from '@kivo/trading/kivo/balances';
 import { planUnifiedBuy, totalSpendableCash, type UnifiedPlan } from '@kivo/trading/kivo/unified';
 import { explorerTxUrl, KivoExecutionError, preflightKivoQuote, relayRequestUrl, type ExecutionUpdate } from '@kivo/trading/kivo/execute';
-import { executeKivoQuoteGasless, preflightGaslessQuote } from '@kivo/trading/kivo/gasless';
+import { loadGaslessTradingEnabled } from '../settings/gaslessTradingPrefs';
 import { executeRelayQuote } from '@kivo/trading/core/executeRelayQuote';
 import bs58 from 'bs58';
 import { recordTrade } from '@kivo/trading/kivo/history';
@@ -57,6 +57,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const [draftSlippage, setDraftSlippage] = useState<number | null>(null);
   const [customSlippage, setCustomSlippage] = useState('');
   const [showDetails, setShowDetails] = useState(false);
+  const [gaslessTradingEnabled, setGaslessTradingEnabled] = useState(true);
   const extremePriceImpact = plan?.legs.some(leg => leg.quote.view.priceImpactPct != null && Math.abs(leg.quote.view.priceImpactPct) > 50) ?? false;
   const quoteSeq = useRef(0);
   const amountRef = useRef<React.ComponentRef<typeof TextInput>>(null);
@@ -64,6 +65,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   useEffect(() => { if (settingsOpen) { setDraftSlippage(settings.slippageBps ?? null); setCustomSlippage(settings.slippageBps != null && ![50,100,300].includes(settings.slippageBps) ? String(settings.slippageBps / 100) : ''); } }, [settingsOpen, settings.slippageBps]);
 
   useEffect(() => subscribeToWallet(setWallet), []);
+  useEffect(() => { loadGaslessTradingEnabled().then(setGaslessTradingEnabled); }, []);
   useEffect(() => { setSide(initialSide); }, [initialSide]);
 
   const support = selectedToken ? tradeSupportFor(selectedToken, wallet ? { kind: walletKind(wallet)! } : null) : null;
@@ -117,7 +119,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       const next: UnifiedPlan = side === 'buy'
         ? await planUnifiedBuy({ token, amountUsd: parsed, userAddress: address, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined, cash: cash!, tokenDecimals, slippageBps: settings.slippageBps ?? undefined })
         : await (async () => {
-            const single = await requestKivoQuote({ side, token, amount, userAddress: address, payChain: token.chainKey, tokenDecimals: tokenBalance?.decimals ?? 18, slippageBps: settings.slippageBps ?? undefined, execution: 'gasless' });
+            const single = await requestKivoQuote({ side, token, amount, userAddress: address, payChain: token.chainKey, tokenDecimals: tokenBalance?.decimals ?? 18, slippageBps: settings.slippageBps ?? undefined, execution: gaslessTradingEnabled ? 'gasless' : 'standard' });
             return { legs: [{ chainKey: token.chainKey, amountUsd: single.view.pay.usd ?? 0, quote: single }], view: single.view };
           })();
       if (seq !== quoteSeq.current) return;
@@ -197,8 +199,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
             const legResult = hasSolanaStep
               ? await executeRelayQuote(leg.quote.quote, session, step => setUpdate({stage: step === 'build' ? 'preflight' : step === 'signing' ? 'awaiting-signature' : step === 'filling' ? 'filling' : 'success', step: index + 1, totalSteps: plan.legs.length, txHashes: [...done.txHashes], requestId: done.requestId, message: step === 'done' ? 'Trade complete.' : 'Processing trade…'}))
               : await (async () => {
-                  await preflightGaslessQuote(leg.quote, evm);
-                  return executeKivoQuoteGasless(leg.quote, evm, setUpdate);
+                  return executeRelayQuote(leg.quote.quote, session, step => setUpdate({stage: step === 'build' ? 'preflight' : step === 'signing' ? 'awaiting-signature' : step === 'filling' ? 'filling' : 'success', step: index + 1, totalSteps: plan.legs.length, txHashes: [...done.txHashes], requestId: done.requestId, message: step === 'done' ? 'Trade complete.' : 'Processing trade…'}), {useGaslessTrading: gaslessTradingEnabled});
                 })();
             done.txHashes.push(...legResult.txHashes);
             const legChainIds = (leg.quote.quote.steps ?? []).flatMap(step => (step.items ?? []).map(item => Number(item.data?.chainId)).filter(id => Number.isInteger(id) && id > 0));
