@@ -20,7 +20,7 @@ export function ActivityScreen({ onBack }: { onBack: () => void }) {
     <View style={styles.root}>
       <View style={styles.header}><Pressable onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.title}>Activity</Text></View>
       <ScrollView contentContainerStyle={styles.body}>
-        {trades.length === 0 ? <Text style={styles.muted}>No trades yet. Only trades you sign and broadcast are recorded — quotes never are.</Text> : trades.map(trade => (
+        {trades.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>No trades yet</Text><Text style={styles.emptyText}>Only trades you sign and broadcast are recorded. Quotes never are.</Text></View> : trades.map(trade => (
           <View key={trade.id} style={styles.card}>
             <View style={styles.row}>
               <Text style={styles.name}>{trade.side === 'buy' ? 'Buy' : 'Sell'} {trade.token.symbol}</Text>
@@ -48,7 +48,10 @@ const styles = StyleSheet.create({
   header: { minHeight: 64, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: c.border },
   back: { color: c.cream, fontSize: 36 },
   title: { color: c.text, fontSize: 22, fontWeight: '800' },
-  body: { padding: 18, gap: 10 },
+  body: { padding: 18, gap: 10, flexGrow: 1 },
+  empty: { flex: 1, minHeight: 420, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
+  emptyTitle: { color: c.text, fontSize: 18, fontWeight: '800', textAlign: 'center' },
+  emptyText: { color: c.textMuted, fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 8 },
   card: { padding: 14, borderRadius: 16, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, gap: 5 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   name: { color: c.text, fontWeight: '800', fontSize: 15 },
