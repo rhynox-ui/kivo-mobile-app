@@ -359,8 +359,6 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
                 <QuoteRow label="Quote" value={expired ? 'Expired' : `Refreshes in ${Math.max(0, Math.ceil((view.expiresAt - now) / 1000))}s`} />
               </View>
             )}
-            {side === 'buy' && cash && !cash.some(r => r.status === 'ok' && r.balance.amount > 0) && <Text style={styles.note}>No USDC found on supported chains. Receive USDC to {shortAddress(address)} to buy.</Text>}
-            <Text style={styles.note}>Gasless: you only need USDC — Kivo covers network gas. Your wallet {address ? shortAddress(address) : ''} stays on this phone, and every route is checked by Kivo's transaction firewall before you sign.</Text>
           </>
         )}
 
