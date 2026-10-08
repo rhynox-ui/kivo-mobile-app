@@ -91,7 +91,7 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
     setRunning(true);setError('');setResult(null);
     try{
       await withDeviceAccounts(`Confirm NEAR ${side} ${token.symbol}`,async accounts=>{
-        const session=sessionFromAccounts(accounts);
+        const session=sessionFromAccounts(accounts);if(!session.near)throw new Error('NEAR account is unavailable.');
         if(side==='buy'){
           const currentUsdc=await fetchNearTokenBalance(NEAR_USDC,session.near.address);
           if(quote.payUnits>currentUsdc){
