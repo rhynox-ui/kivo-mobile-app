@@ -14,7 +14,7 @@ export function WalletSetupScreen({ onCreate, onImport }: Props) {
       <Text style={styles.eyebrow}>KIVO WALLET</Text>
       <Text style={styles.title}>Set up your wallet</Text>
       <Text style={styles.subtitle}>
-        Your Kivo wallet lives on this phone. Fund it with USDC and trade any token — Kivo covers the network fees, so you never need ETH or other gas.
+        Fund your Kivo wallet with USDC and trade tokens from that balance across supported networks, without worrying about gas.
       </Text>
 
       <View style={styles.art}>
