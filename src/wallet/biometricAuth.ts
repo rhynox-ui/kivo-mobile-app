@@ -65,7 +65,7 @@ export async function enableBiometricUnlock(mnemonic: string): Promise<boolean> 
   return true;
 }
 
-export async function disableBiometricUnlock(): Promise<boolean> {
+export async function disableBiometricUnlock(): Promise<string | null> {
   try {
     const credentials = await Keychain.getGenericPassword({
       service: SERVICE,
@@ -75,11 +75,11 @@ export async function disableBiometricUnlock(): Promise<boolean> {
         cancel: 'Cancel',
       },
     });
-    if (!credentials) return false;
+    if (!credentials) return null;
     await Keychain.resetGenericPassword({service: SERVICE});
-    return true;
+    return credentials.password;
   } catch {
-    return false;
+    return null;
   }
 }
 
