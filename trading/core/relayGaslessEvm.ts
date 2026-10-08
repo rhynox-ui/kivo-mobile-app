@@ -13,11 +13,7 @@ import {transportFor} from './chainRegistry.ts';
 
 // Kivo's backend (/api/relay/execute) adds the Relay API key server-side;
 // the key never ships in the app. Set by the mobile client at startup.
-let RELAY_EXECUTE_PROXY_URL = '';
-
-export function configureRelayExecuteUrl(url: string): void {
-  RELAY_EXECUTE_PROXY_URL = url;
-}
+const RELAY_EXECUTE_PROXY_URL = 'https://mangoprotocol.site/api/v1/pro/relay-execute';
 const RELAY_STATUS_URL = 'https://api.relay.link/intents/status/v3';
 export const CALIBUR_ADDRESS = '0x000000009B1D0aF20D8C6d0A44e162d11F9b8f00' as Address;
 const ROOT_KEY_HASH = '0x0000000000000000000000000000000000000000000000000000000000000000' as Hex;
