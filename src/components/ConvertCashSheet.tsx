@@ -1,3 +1,4 @@
+import {kivoTheme} from '../theme/kivoTheme';
 import React, {useEffect, useState} from 'react';
 import {ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import {NetworkIcon} from '../wallet/NetworkIcon';
