@@ -44,6 +44,8 @@ check('Crash diagnostics', () => {
   const s = read('src/debug/crashReporter.tsx');
   assert.ok(s.includes('installCrashReporter'));
   assert.ok(s.includes('CrashBoundary'));
+  assert.ok(read('App.tsx').includes('installCrashReporter()'));
+  assert.ok(read('App.tsx').includes('<CrashBoundary>'));
 });
 check('Android build CI', () => {
   const s = read('.github/workflows/android-build-check.yml');
