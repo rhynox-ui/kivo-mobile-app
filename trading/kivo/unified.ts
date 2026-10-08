@@ -19,6 +19,7 @@ import type {ChainKey} from '../core/chainData';
 import type {CashBalanceRow} from './balances';
 import {requestKivoQuote, type KivoQuote, type KivoQuoteView} from './quote';
 import type {KivoToken} from './tokens';
+import {spendableCash} from './balances';
 
 export type UnifiedLeg = {chainKey: ChainKey; amountUsd: number; quote: KivoQuote};
 export type UnifiedPlan = {legs: UnifiedLeg[]; view: KivoQuoteView};
@@ -34,7 +35,7 @@ function floor2(value: number): number {
 export function cashContributors(cash: CashBalanceRow[], tokenChain: ChainKey): {chainKey: ChainKey; balance: number}[] {
   return cash
     .filter((row): row is CashBalanceRow & {status: 'ok'} => row.status === 'ok' && row.balance.amount > 0)
-    .map(row => ({chainKey: row.chainKey, balance: floor2(row.balance.amount)}))
+    .map(row => ({chainKey: row.chainKey, balance: floor2(spendableCash(row.chainKey, row.balance.amount))}))
     .filter(item => item.balance >= MIN_LEG_USD)
     .sort((a, b) => (a.chainKey === tokenChain ? -1 : b.chainKey === tokenChain ? 1 : b.balance - a.balance));
 }
