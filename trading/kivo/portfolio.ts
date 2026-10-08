@@ -10,7 +10,7 @@
 // discovered (no indexer), and the UI says so.
 
 import type {KeyValueStorage} from '../../shared/storage';
-import {CHAIN_LABEL, NATIVE_SYMBOL, type ChainKey} from '../core/chainData';
+import {CHAIN_LABEL, NATIVE_SYMBOL, NEAR_USDC, NEAR_USDC_DECIMALS, type ChainKey} from '../core/chainData';
 import {resolveDexScreenerPair} from '../core/dexScreener';
 import {fetchWalletPrices} from '../core/walletPrices';
 import {cashAssetSymbol, fetchCashBalances, readNativeBalance, readSolanaNativeBalance, readSolanaTokenBalance, readTokenBalance} from './balances';
@@ -63,9 +63,10 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
 
   // Arc's native coin IS USDC (same balance as the ERC-20 view) — counted once, as cash.
   const nativeChains = EVM_TRADE_CHAINS.filter(chain => chain !== 'arc');
-  const [natives, cash, tokens, indexedAssets] = await Promise.all([
+  const [natives, cash, nearCash, tokens, indexedAssets] = await Promise.all([
     Promise.allSettled(nativeChains.map(chain => readNativeBalance(chain, owner))),
     fetchCashBalances(owner, undefined, addresses?.solanaAddress ?? owner),
+    addresses?.nearAddress ? fetchNearTokenBalance(NEAR_USDC, addresses.nearAddress).catch(() => 0n) : Promise.resolve(0n),
     Promise.allSettled(tradedTokens(history).map(async token => {
       const [balance, pair] = await Promise.all([
         token.chainKey === 'solana' ? readSolanaTokenBalance(token.address, addresses?.solanaAddress ?? owner, token.symbol) : readTokenBalance(token.chainKey, token.address, owner, token.symbol),
@@ -98,7 +99,12 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
     cashUsd += row.balance.amount;
     holdings.push({key: `${row.chainKey}:${cashAssetSymbol(row.chainKey).toLowerCase()}`, kind: 'cash', chainKey: row.chainKey, address: row.balance.tokenAddress, symbol: cashAssetSymbol(row.chainKey), name: `${cashAssetSymbol(row.chainKey)} · ${CHAIN_LABEL[row.chainKey]}`, amount: row.balance.amount, priceUsd: 1, valueUsd: row.balance.amount, imageUrl: null});
   }
-  if (indexedAssets.status === 'fulfilled' && indexedAssets.value) {
+  if (nearCash > 0n && addresses?.nearAddress) {
+    const amount = Number(nearCash) / 10 ** NEAR_USDC_DECIMALS;
+    cashUsd += amount;
+    holdings.push({key: 'near:usdc', kind: 'cash', chainKey: 'near', address: NEAR_USDC, symbol: 'USDC', name: 'USDC · NEAR', amount, priceUsd: 1, valueUsd: amount, imageUrl: null});
+  }
+    if (indexedAssets.status === 'fulfilled' && indexedAssets.value) {
     if (!indexedAssets.value.complete) complete = false;
     for (const asset of indexedAssets.value.holdings) {
       if (asset.isNative || asset.chainKey === 'near' || asset.symbol === 'USDC' || asset.symbol === 'USDG' || asset.amount <= 0) continue;
