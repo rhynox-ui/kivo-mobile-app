@@ -40,7 +40,7 @@ type Sheet = null | 'deposit' | 'withdraw';
 type DepositNetwork = ChainKey | 'near';
 type WithdrawNetwork = ChainKey | 'near';
 
-const DEPOSIT_CHAINS: DepositNetwork[] = [...CASH_CHAINS, 'near'];
+const DEPOSIT_CHAINS: DepositNetwork[] = [...CASH_CHAINS, ...(CASH_CHAINS.includes('near' as ChainKey) ? [] : ['near' as const])];
 
 
 function networkLabel(network: DepositNetwork): string {
@@ -333,7 +333,7 @@ function WithdrawSheet({
   const [review, setReview] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string; hash?: string; chainId?: number } | null>(null);
 
-  const chains = useMemo<WithdrawNetwork[]>(() => [...(rows?.map(r => r.chainKey) ?? DEPOSIT_CHAINS), ...(nearBalance > 0 && wallet.nearAddress ? ['near' as const] : [])], [rows, nearBalance, wallet.nearAddress]);
+  const chains = useMemo<WithdrawNetwork[]>(() => { const base = rows?.map(r => r.chainKey) ?? CASH_CHAINS; return [...new Set<WithdrawNetwork>([...base, ...(nearBalance > 0 && wallet.nearAddress ? ['near' as const] : [])])]; }, [rows, nearBalance, wallet.nearAddress]);
   const row = chain && chain !== 'near' ? rows?.find(r => r.chainKey === chain) : null;
   const available = chain === 'near' ? nearBalance : (row?.status === 'ok' ? row.balance.amount : 0);
   const parsed = Number(amount);
@@ -454,7 +454,7 @@ This transfer cannot be reversed.`,
                             <NetworkBadge network={chainKey} />
                             <Text style={styles.networkRowText}>{chainKey === 'near' ? 'NEAR' : CHAIN_LABEL[chainKey]}</Text>
                           </View>
-                          <Text style={styles.networkRowBalance}>{'$'}{formatUsd(balance)}</Text>
+                          <Text style={styles.networkRowBalance}>{formatUsd(balance)}</Text>
                         </Pressable>
                       );
                     })}
@@ -505,7 +505,7 @@ This transfer cannot be reversed.`,
                       </Pressable>
                     </View>
 
-                    <Text style={styles.available}>Available on {chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}: ${formatUsd(available)}</Text>
+                    <Text style={styles.available}>Available on {chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}: {formatUsd(available)}</Text>
                     {problem && <Text style={styles.warn}>{problem}</Text>}
                     {chain === 'near'
                       ? <Text style={styles.note}>NEAR withdrawals use NEAR Intents. Kivo pays NEAR transaction gas through the existing sponsored call path.</Text>
@@ -590,8 +590,8 @@ const styles = StyleSheet.create({
   rowValue: { color: c.text, fontWeight: '800', fontSize: 13 },
   networkBadge: { width: 32, height: 32, borderRadius: 16, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' },
   networkGlyph: { color: c.cream, fontSize: 13, fontWeight: '900' },
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: c.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 36, maxHeight: '92%' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(3,37,33,0.78)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: c.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 36, maxHeight: '92%', borderWidth: 1, borderBottomWidth: 0, borderColor: c.border },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
   sheetTitle: { color: c.text, fontSize: 18, fontWeight: '800' },
   networkList: { maxHeight: 520, flexShrink: 1, marginBottom: 0 },
@@ -603,7 +603,7 @@ const styles = StyleSheet.create({
   backText: { color: c.text, fontSize: 14, fontWeight: '700' },
   headerSpacer: { width: 20 },
   addressSectionTitle: { color: c.textMuted, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginTop: 0, textTransform: 'uppercase' },
-  networkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.surfaceRaised, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 15, marginBottom: 8 },
+  networkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 15, marginBottom: 8 },
   networkRowActive: { backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.accent },
   disabledRow: { opacity: 0.45 },
   networkRowText: { color: c.text, fontSize: 15, fontWeight: '700' },
@@ -616,11 +616,11 @@ const styles = StyleSheet.create({
   addressLabel: { color: c.textMuted, fontSize: 11, fontWeight: '700' },
   addressFull: { color: c.text, fontSize: 14, fontWeight: '600', marginTop: 8, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
   label: { color: c.textMuted, fontSize: 11, fontWeight: '900', letterSpacing: 1, marginTop: 12, textTransform: 'uppercase' },
-  input: { height: 48, borderRadius: 14, paddingHorizontal: 14, backgroundColor: c.surface, color: c.text, fontSize: 15, borderWidth: 1, borderColor: c.border, marginTop: 7 },
+  input: { height: 48, borderRadius: 14, paddingHorizontal: 14, backgroundColor: c.backgroundDeep, color: c.text, fontSize: 15, borderWidth: 1, borderColor: c.border, marginTop: 7 },
   amountRow: { flexDirection: 'row', gap: 8 },
   flexInput: { flex: 1 },
-  max: { height: 48, paddingHorizontal: 16, borderRadius: 14, backgroundColor: c.surfaceRaised, justifyContent: 'center', alignSelf: 'flex-end', marginTop: 7 },
-  maxText: { color: c.cream, fontWeight: '900' },
+  max: { height: 48, paddingHorizontal: 16, borderRadius: 14, backgroundColor: c.accent, justifyContent: 'center', alignSelf: 'flex-end', marginTop: 7 },
+  maxText: { color: c.backgroundDeep, fontWeight: '900' },
   available: { color: c.textMuted, fontSize: 11, marginTop: 7 },
   warn: { color: c.danger, fontSize: 12, lineHeight: 18, marginTop: 8 },
   ok: { color: c.success, fontSize: 12.5, lineHeight: 18, marginTop: 8, fontWeight: '700' },
