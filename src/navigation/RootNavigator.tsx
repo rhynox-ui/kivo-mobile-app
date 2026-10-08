@@ -17,7 +17,8 @@ import { ProfileSetupScreen } from '../screens/ProfileSetupScreen';
 import { MainShell } from '../screens/MainShell';
 import { kivoTheme } from '../theme/kivoTheme';
 import { loadWalletSession } from '../state/walletStore';
-import { startKivoSession } from '../state/session';
+import { api, startKivoSession } from '../state/session';
+import { clearLocalWallet } from '../state/walletStore';
 
 export type RootStackParamList = {
   Splash: undefined;
@@ -122,7 +123,11 @@ export function RootNavigator() {
             <ProfileSetupScreen onDone={() => navigation.replace('Home')} />
           )}
         />
-        <Stack.Screen name="Home">{({ navigation }) => <MainShell onLogout={() => navigation.replace('WalletSetup')} />}</Stack.Screen>
+        <Stack.Screen name="Home">{({ navigation }) => <MainShell onLogout={async () => {
+          await api.signOut();
+          await clearLocalWallet();
+          navigation.replace('WalletSetup');
+        }} />}</Stack.Screen>
       </Stack.Navigator>
     </NavigationContainer>
   );
