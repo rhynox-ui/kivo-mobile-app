@@ -54,11 +54,11 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   useEffect(() => subscribeToTradeHistory(setTrades), []);
   useEffect(() => { if (socialReady) api.social(profile.userId).then(setSocial).catch(() => {}); }, [socialReady, profile.userId]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (forceFresh = false) => {
     if (!wallet) return;
     setLoading(true);
     try {
-      const next = await fetchPortfolio(wallet.address, trades, {solanaAddress: wallet.solanaAddress, nearAddress: wallet.nearAddress});
+      const next = await fetchPortfolio(wallet.address, trades, {solanaAddress: wallet.solanaAddress, nearAddress: wallet.nearAddress}, {forceFresh});
       setPortfolio(next);
       setHistory(next.complete ? await recordPortfolioSnapshot(storage, wallet.address, next.totalUsd) : await getPortfolioHistory(storage, wallet.address));
     } catch {
@@ -80,7 +80,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={kivoTheme.colors.accent} />}>
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(true); }} tintColor={kivoTheme.colors.accent} />}>
       <View style={styles.corner}>
         <Pressable onPress={onOpenHistory} hitSlop={10} accessibilityLabel="Trade history"><Text style={styles.cornerIcon}>◷</Text></Pressable>
         <Pressable onPress={onOpenSettings} hitSlop={10} accessibilityLabel="Settings"><Text style={styles.cornerIcon}>⚙</Text></Pressable>
@@ -202,7 +202,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
           ))}
       </ScrollView>
       ) : <Empty title="No groups yet" body={socialReady ? 'Join communities to make your profile social, not just financial.' : 'Turn on chats to join groups and channels.'} />}
-      <ConvertCashSheet visible={convertOpen} onClose={() => setConvertOpen(false)} onConverted={load} />
+      <ConvertCashSheet visible={convertOpen} onClose={() => setConvertOpen(false)} onConverted={() => { void load(true); }} />
     </ScrollView>
   );
 }
