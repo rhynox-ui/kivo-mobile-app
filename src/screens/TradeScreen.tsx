@@ -178,8 +178,11 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
                   await preflightGaslessQuote(leg.quote, evm);
                   return executeKivoQuoteGasless(leg.quote, evm, setUpdate);
                 })();
-            done.txHashes.push(...legResult.txHashes); done.chainIds.push(...(legResult.chainIds ?? leg.quote.view ? [leg.quote.input.chainKey] : [] as any));
-            done.requestId = done.requestId ?? legResult.requestId ?? null;
+            done.txHashes.push(...legResult.txHashes);
+            const legChainIds = (leg.quote.quote.steps ?? []).flatMap(step => (step.items ?? []).map(item => Number(item.data?.chainId)).filter(id => Number.isInteger(id) && id > 0));
+            done.chainIds.push(...Array.from(new Set(legChainIds)));
+            const legRequestId = (leg.quote.quote.steps ?? []).map(step => step.requestId).find(Boolean) ?? null;
+            done.requestId = done.requestId ?? legRequestId;
           } catch (legError) {
             const message = legError instanceof Error ? legError.message : 'Trade failed.';
             const partial = index > 0 ? ` ${index} of ${plan.legs.length} parts already completed; the rest was not sent.` : '';
