@@ -63,7 +63,7 @@ export async function fundNearUsdcForTrade(
 
   const portfolio = await fetchUsdcPortfolio(session, {forceFresh: true});
   const candidates = portfolio.results
-    .filter((r): r is Extract<typeof r, {status: 'ok'}> => r.status === 'ok' && r.balance > 0 && Boolean(TOKEN_ADDRESSES.USDC[r.chainKey]) && r.chainKey !== 'arc' && r.chainKey !== 'solana')
+    .filter((r): r is Extract<typeof r, {status: 'ok'}> => r.status === 'ok' && r.balance > 0 && Boolean(TOKEN_ADDRESSES.USDC[r.chainKey]) && r.chainKey !== 'arc')
     .sort((a, b) => b.balance - a.balance);
   if (candidates.length === 0) throw new NearTradeError('There is no USDC available on a supported source chain to fund this NEAR trade.');
 
