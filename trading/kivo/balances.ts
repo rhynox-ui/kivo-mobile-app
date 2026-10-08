@@ -171,8 +171,8 @@ export function totalCashUsd(rows: CashBalanceRow[]): {total: number; complete: 
 export function pickPayChain(rows: CashBalanceRow[], tokenChain: ChainKey, amountUsd: number | null): ChainKey | null {
   const ok = rows.filter((row): row is Extract<CashBalanceRow, {status: 'ok'}> => row.status === 'ok' && row.balance.amount > 0);
   const sameChain = ok.find(row => row.chainKey === tokenChain);
-  if (sameChain && (amountUsd == null || sameChain.balance.amount >= amountUsd)) return tokenChain;
-  const sorted = [...ok].sort((a, b) => b.balance.amount - a.balance.amount);
+  if (sameChain && (amountUsd == null || spendableCash(tokenChain, sameChain.balance.amount) >= amountUsd)) return tokenChain;
+  const sorted = [...ok].sort((a, b) => spendableCash(b.chainKey, b.balance.amount) - spendableCash(a.chainKey, a.balance.amount));
   return sorted[0]?.chainKey ?? (USDC_CHAINS.includes(tokenChain) ? tokenChain : null);
 }
 
