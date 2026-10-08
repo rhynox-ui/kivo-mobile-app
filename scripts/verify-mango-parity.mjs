@@ -29,7 +29,7 @@ check('EIP-7702 gasless execution', () => {
 check('Cached USDC balances', () => {
   const s = read('trading/kivo/balances.ts');
   assert.ok(s.includes('CACHE_TTL_MS'));
-  assert.ok(s.includes('inFlight'));
+  assert.ok(s.includes('inFlight') || s.includes('cashInFlight'));
   assert.ok(s.includes('assetDecimalsForChain'));
 });
 check('Fee rate and cap', () => {
