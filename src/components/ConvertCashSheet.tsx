@@ -4,7 +4,7 @@ import {parseUnits} from 'viem';
 import {kivoTheme} from '../theme/kivoTheme';
 import {CHAIN_LABEL, NEAR_ENABLED, NEAR_LABEL, NEAR_USDC, NEAR_USDC_DECIMALS, assetDecimalsForChain, currencyAddress, type ChainKey} from '@kivo/trading/core/chainData';
 import {getRelayQuote, summarizeQuote, type QuoteSummary} from '@kivo/trading/core/relayQuote';
-import {executeRelayQuote, type ExecuteStep} from '@kivo/trading/core/executeRelayQuote';
+import {executeRelayQuote, getPartialTxHashes, type ExecuteStep} from '@kivo/trading/core/executeRelayQuote';
 import {fetchCashBalances, type CashBalanceRow} from '@kivo/trading/kivo/balances';
 import {USDC_CHAINS, formatUsd} from '@kivo/trading/kivo/tokens';
 import {getWalletSession, withDeviceAccounts, type WalletSession} from '../state/walletStore';
@@ -74,11 +74,14 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
      });
      return;
    }
-   const result=await withDeviceAccounts('Confirm Convert',async session=>{const user=from==='solana'?session.solana.publicKey.toBase58():session.evm.address;const recipient=to==='solana'?session.solana.publicKey.toBase58():session.evm.address;
-     const q=await getRelayQuote({fromChainKey:from as ChainKey,toChainKey:to as ChainKey,originCurrency:currencyAddress(from as ChainKey,'USDC'),destinationCurrency:currencyAddress(to as ChainKey,'USDC'),amountBaseUnits:parseUnits(amount,decimals).toString(),userAddress:user,recipientAddress:recipient,originAmountUsd:n,waiveAppFee:true});
-     return executeRelayQuote(q,session.relay,s=>setExecute(s),{useGaslessTrading:false});});
+   const quoteToExecute=rawQuoteRef.current;
+   const quoteParams=lastQuoteParamsRef.current;
+   if(!quoteToExecute) throw new Error('The conversion quote is no longer available. Enter the amount again.');
+   const result=await withDeviceAccounts('Confirm Convert',async session=>{
+     return executeRelayQuote(quoteToExecute,session.relay,s=>setExecute(s),{useGaslessTrading:true,requote:quoteParams?async()=>getRelayQuote(quoteParams):undefined});
+   });
    setHashes(result.txHashes);setExecute(null);refresh();onConverted();
- }catch(e){setExecute(null);setNearSending(false);setError(e instanceof Error?e.message:'Conversion failed. Nothing was confirmed.');}};
+ }catch(e){setExecute(null);setNearSending(false);const partial=getPartialTxHashes(e);if(partial.length)setHashes(partial);setError(e instanceof Error?e.message:'Conversion failed. Nothing was confirmed.');}};
  if(!visible)return null;
  return <View style={s.overlay}><Pressable style={s.dismiss} onPress={onClose}/><View style={s.sheet}><View style={s.handle}/>
  {picker?<><View style={s.header}><Pressable onPress={()=>setPicker(null)}><Text style={s.back}>‹ Back</Text></Pressable><Text style={s.title}>Convert {picker==='from'?'from':'to'}</Text><View style={{width:40}}/></View><ScrollView style={s.list}>
