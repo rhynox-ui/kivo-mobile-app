@@ -26,9 +26,8 @@ export type ChainKey =
 // eth_getBalance reports them with 18 decimals.
 export const ARC_USDC = '0x3600000000000000000000000000000000000000';
 
-// NEAR is discovery/view-only in mobile until a matching production signer
-// and execution path are wired. Do not expose it as tradable.
-export const NEAR_ENABLED = false;
+// NEAR has a local wallet signer, Intear route firewall, and 1Click funding path.
+export const NEAR_ENABLED = true;
 export const NEAR_LABEL = 'NEAR';
 /** Native USDC on NEAR (Circle), 6 decimals — the same contract 1Click and the site use. */
 export const NEAR_USDC = '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1';
