@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
+import {parseUnits} from 'viem';
 import bs58 from 'bs58';
 import {kivoTheme} from '../theme/kivoTheme';
 import {NEAR_USDC, NEAR_USDC_DECIMALS, type TradeChain} from '@kivo/trading/core/chainData';
