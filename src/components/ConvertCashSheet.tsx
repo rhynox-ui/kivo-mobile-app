@@ -31,16 +31,16 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
  const pickDefaultFrom=(rows:CashBalanceRow[]|null,near:number):CashChain=>{let best:CashChain|undefined;let value=0;for(const chain of [...USDC_CHAINS,'solana'] as CashChain[]){const b=balanceFor(rows,chain,near);if(b>value){best=chain;value=b;}}if(NEAR_ENABLED&&near>value)best='near';return best??(USDC_CHAINS[0] as CashChain);};
  const pickDefaultTo=(fromChain:CashChain,rows:CashBalanceRow[]|null,near:number):CashChain=>{let best:CashChain|undefined;let value=0;for(const chain of [...USDC_CHAINS,'solana',...(NEAR_ENABLED?nearCashMoveChains():[])] as CashChain[]){if(chain===fromChain)continue;const b=balanceFor(rows,chain,near);if(b>value){best=chain;value=b;}}return best??(fromChain==='base'?'solana':'base') as CashChain;};
  const [picker,setPicker]=useState<'from'|'to'|null>(null); const [amount,setAmount]=useState('');
- const [quote,setQuote]=useState<QuoteSummary|null>(null); const [loading,setLoading]=useState(false);
+ const [quote,setQuote]=useState<QuoteSummary|null>(null); const [loading,setLoading]=useState(false); const rawQuoteRef=React.useRef<Awaited<ReturnType<typeof getRelayQuote>>|null>(null); const lastQuoteParamsRef=React.useRef<Parameters<typeof getRelayQuote>[0]|null>(null); const quoteRequestIdRef=React.useRef(0);
  const [error,setError]=useState<string|null>(null); const [execute,setExecute]=useState<ExecuteStep|null>(null); const [hashes,setHashes]=useState<string[]|null>(null);
  const [nearBalance,setNearBalance]=useState(0); const [nearRecord,setNearRecord]=useState<OneClickSwapRecord|null>(null); const [nearSending,setNearSending]=useState(false);
  const chains=[...new Set([...USDC_CHAINS,'solana',...(NEAR_ENABLED?nearCashMoveChains():[])])] as CashChain[];
  const refresh=()=>{const w=getWalletSession();setWallet(w);if(w){fetchCashBalances(w.address,[...USDC_CHAINS,'solana']).then(setRows).catch(()=>setRows([])); if(w.nearAddress) fetchNearTokenBalance(NEAR_USDC,w.nearAddress).then(v=>setNearBalance(Number(v)/10**NEAR_USDC_DECIMALS)).catch(()=>setNearBalance(0));}};
- useEffect(()=>{if(!visible)return;setAmount('');setQuote(null);setError(null);setHashes(null);setPicker(null);setNearRecord(null);refresh();},[visible]);
+ useEffect(()=>{if(!visible)return;setAmount('');setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setError(null);setHashes(null);setPicker(null);setNearRecord(null);refresh();},[visible]);
  useEffect(()=>{if(!visible||amount||picker)return;if(rows===null)return;const f=pickDefaultFrom(rows,nearBalance);setFrom(f);setTo(pickDefaultTo(f,rows,nearBalance));},[visible,rows,nearBalance]);
  useEffect(()=>{if(!nearRecord||!shouldPollOneClickSwap(nearRecord))return;const t=setTimeout(()=>{refreshOneClickSwap(nearRecord,{fetchStatus:d=>fetchOneClickStatus(d),store:oneClickSwapStore}).then(next=>{setNearRecord(next);if(next.status==='SUCCESS'||next.status==='REFUNDED')onConverted();}).catch(()=>{});},5000);return()=>clearTimeout(t);},[nearRecord,onConverted]);
  const balance=balanceFor(rows,from,nearBalance); const n=Number(amount)||0; const same=from===to; const insufficient=(from==='near'||rows!==null)&&n>balance; const decimals=decimalsFor(from);
- useEffect(()=>{if(!visible||!wallet||same||n<=0||insufficient){setQuote(null);setLoading(false);return;} const t=setTimeout(async()=>{setLoading(true);setError(null);try{
+ useEffect(()=>{if(!visible||!wallet||same||n<=0||insufficient){setQuote(null);setLoading(false);return;} const requestId=++quoteRequestIdRef.current; const t=setTimeout(async()=>{setLoading(true);setError(null);try{
    const amountBaseUnits=parseUnits(amount,decimals).toString();
    if(from==='near'||to==='near'){
      if(!wallet.nearAddress) throw new Error('NEAR account is unavailable.');
@@ -51,7 +51,8 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
      setQuote({totalFeeUsd:null,etaSeconds:response.quote.timeEstimate??null,receivedAmountFormatted:response.quote.amountOutFormatted??null,payAmountUsd:Number(response.quote.amountInUsd)||null,receiveAmountUsd:Number(response.quote.amountOutUsd)||null,priceImpactPct:null});
    } else {
      const user=from==='solana'?wallet.solanaAddress:wallet.address; const recipient=to==='solana'?wallet.solanaAddress:wallet.address; if(!user||!recipient)throw new Error('Selected wallet address is unavailable.');
-     const q=await getRelayQuote({fromChainKey:from as ChainKey,toChainKey:to as ChainKey,originCurrency:currencyAddress(from as ChainKey,'USDC'),destinationCurrency:currencyAddress(to as ChainKey,'USDC'),amountBaseUnits, userAddress:user,recipientAddress:recipient,originAmountUsd:n,waiveAppFee:true});
+     const quoteParams={fromChainKey:from as ChainKey,toChainKey:to as ChainKey,originCurrency:currencyAddress(from as ChainKey,'USDC'),destinationCurrency:currencyAddress(to as ChainKey,'USDC'),amountBaseUnits,userAddress:user,recipientAddress:recipient,originAmountUsd:n,waiveAppFee:true};
+     const q=await getRelayQuote(quoteParams); if(requestId!==quoteRequestIdRef.current)return; rawQuoteRef.current=q; lastQuoteParamsRef.current=quoteParams;
      setQuote(summarizeQuote(q,assetDecimalsForChain(to as ChainKey,'USDC')??6));
    }
  }catch(e){setQuote(null);setError(e instanceof Error?e.message:'Could not get a conversion rate.');}finally{setLoading(false);}},450);return()=>clearTimeout(t);},[visible,wallet?.address,wallet?.solanaAddress,wallet?.nearAddress,from,to,amount,n,same,insufficient,decimals]);
