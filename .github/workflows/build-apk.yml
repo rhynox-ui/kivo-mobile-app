@@ -1,45 +1,63 @@
-name: Kivo Android APK Build
+name: Kivo Android release (choose version)
+
+# Manual production-release workflow.
+# Builds a signed AAB for Google Play and a signed APK for direct testing.
+# Play publishing is optional and only runs when PLAY_SERVICE_ACCOUNT_JSON exists.
 
 on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: "App version"
+        description: 'Version name shown to users (e.g. 1.0.0)'
         required: true
-        default: "0.1.0"
+        default: '1.0.0'
         type: string
-      version_code:
-        description: "Android version code"
+      play_track:
+        description: 'Play Console track to publish to (only used if PLAY_SERVICE_ACCOUNT_JSON is set)'
         required: true
-        default: "1"
-        type: string
-  push:
-    branches:
-      - main
+        default: internal
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
 
 concurrency:
-  group: kivo-mobile-android-${{ github.ref }}
-  cancel-in-progress: true
+  group: kivo-android-release
+  cancel-in-progress: false
 
 jobs:
-  build-apk:
+  build-signed-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
 
       - name: Setup Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
           cache: gradle
 
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          cache: npm
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null || true
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;27.1.12297006"
 
       - name: Install dependencies
         run: npm ci
@@ -60,21 +78,70 @@ jobs:
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/kivo-release.keystore
           test -s android/app/kivo-release.keystore
 
-      - name: Build release APK
+      - name: Build signed release AAB (Google Play)
         working-directory: android
         env:
           ANDROID_KEYSTORE_FILE: kivo-release.keystore
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: ./gradlew assembleRelease --no-daemon -PVERSION_NAME="${{ inputs.version_name || '0.1.0' }}" -PVERSION_CODE="${{ inputs.version_code || '1' }}"
+        run: ./gradlew bundleRelease --no-daemon -PVERSION_CODE=${{ github.run_number }} -PVERSION_NAME="${{ inputs.version_name }}"
 
-      - name: Upload APK
+      - name: Build signed release APK (direct install)
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_FILE: kivo-release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon -PVERSION_CODE=${{ github.run_number }} -PVERSION_NAME="${{ inputs.version_name }}"
+
+      - name: Upload AAB artifact
         uses: actions/upload-artifact@v6
         with:
-          name: kivo-android-release-apk
+          name: kivo-release-aab-v${{ inputs.version_name }}-${{ github.run_number }}
+          path: android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: kivo-release-apk-v${{ inputs.version_name }}-${{ github.run_number }}
           path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: release-v${{ inputs.version_name }}-${{ github.run_number }}
+          name: Kivo v${{ inputs.version_name }} (build ${{ github.run_number }})
+          body: |
+            Signed Kivo release build.
+            APK: direct Android installation/testing.
+            AAB: Google Play upload.
+          files: |
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/bundle/release/*.aab
+
+      - name: Check for Play Console secret
+        id: play_secret_check
+        run: |
+          if [ -n "${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}" ]; then
+            echo "has_secret=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_secret=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish AAB to Google Play
+        if: steps.play_secret_check.outputs.has_secret == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.kivo.chat
+          releaseFiles: android/app/build/outputs/bundle/release/*.aab
+          tracks: ${{ inputs.play_track }}
 
       - name: Remove signing key
         if: always()
