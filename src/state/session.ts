@@ -54,20 +54,24 @@ export async function startKivoSession() {
   await loadSettings();
   configureProfileStore({ storage });
   configureTradeHistory({ storage });
-  // Mobile model: the device wallet signs, the user only needs USDC, and
-  // Relay may submit gaslessly when Kivo's backend says sponsorship is live.
-  // Do not advertise/assume sponsorship merely because the client wants it.
-  let sponsorship = false;
-  try {
-    const response = await fetch(`${KIVO_API_BASE_URL}/api/relay/config`);
-    const body = await response.json().catch(() => ({})) as {gasless?: boolean};
-    sponsorship = response.ok && body.gasless === true;
-  } catch {
-    sponsorship = false;
-  }
-  configureRelayEndpoints({ quoteUrl: `${KIVO_API_BASE_URL}/api/relay/quote`, sponsorship });
-  configureRelayExecuteUrl(`${KIVO_API_BASE_URL}/api/relay/execute`);
-  configureGaslessStatusUrl(`${KIVO_API_BASE_URL}/api/relay/config`);
+  // Configure Relay immediately so the app does not block startup on a
+  // network request. Sponsorship is confirmed in the background from Kivo's
+  // backend before it is advertised/used.
+  const relayQuoteUrl = `${KIVO_API_BASE_URL}/api/relay/quote`;
+  const relayExecuteUrl = `${KIVO_API_BASE_URL}/api/relay/execute`;
+  const relayConfigUrl = `${KIVO_API_BASE_URL}/api/relay/config`;
+  configureRelayEndpoints({ quoteUrl: relayQuoteUrl, sponsorship: false });
+  configureRelayExecuteUrl(relayExecuteUrl);
+  configureGaslessStatusUrl(relayConfigUrl);
+  void (async () => {
+    try {
+      const response = await fetch(relayConfigUrl);
+      const body = await response.json().catch(() => ({})) as {gasless?: boolean};
+      configureRelayEndpoints({ quoteUrl: relayQuoteUrl, sponsorship: response.ok && body.gasless === true });
+    } catch {
+      // Keep Relay configured without sponsorship if the network is unavailable.
+    }
+  })();
   // Phones are the archive: keep a deep local history per conversation.
   configureChat({
     api,
