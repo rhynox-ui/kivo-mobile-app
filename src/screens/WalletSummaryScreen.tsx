@@ -246,15 +246,6 @@ function DepositSheet({
   const selected = network;
   const address = selected ? networkAddress(wallet, selected) : '';
 
-  const share = async () => {
-    if (!selected || !address) return;
-    try {
-      await Share.share({
-        message: `Kivo deposit · ${networkLabel(selected)}\\n\\n${address}\\n\\nSend USDC only on ${networkLabel(selected)}. Do not send another asset.`,
-      });
-    } catch {}
-  };
-
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
