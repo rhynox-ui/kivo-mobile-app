@@ -39,7 +39,7 @@ type WithdrawNetwork = ChainKey | 'near';
 
 const DEPOSIT_CHAINS: ChainKey[] = [
   'ethereum', 'base', 'avalanche', 'arbitrum', 'unichain',
-  'solana', 'bnb', 'hyperevm', 'ink', 'abstract', 'xlayer', 'arc',
+  'solana', 'bnb', 'hyperevm', 'ink', 'abstract', 'xlayer', 'arc', 'robinhood',
 ];
 
 const NETWORK_GLYPH: Partial<Record<ChainKey | 'near', string>> = {
@@ -55,6 +55,7 @@ const NETWORK_GLYPH: Partial<Record<ChainKey | 'near', string>> = {
   abstract: '✣',
   xlayer: '▦',
   arc: '◒',
+  robinhood: '◈',
   near: 'N',
 };
 
@@ -235,12 +236,13 @@ function DepositSheet({
   onClose: () => void;
 }) {
   const [network, setNetwork] = useState<DepositNetwork | null>(null);
-  const selected = network ?? DEPOSIT_CHAINS[0] ?? null;
-  const address = selected ? networkAddress(wallet, selected) : '';
 
   useEffect(() => {
-    if (visible) setNetwork(current => current ?? DEPOSIT_CHAINS[0] ?? null);
+    if (!visible) setNetwork(null);
   }, [visible]);
+
+  const selected = network;
+  const address = selected ? networkAddress(wallet, selected) : '';
 
   const share = async () => {
     if (!selected || !address) return;
@@ -255,58 +257,84 @@ function DepositSheet({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={() => {}}>
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>Deposit USDC</Text>
-            <Pressable onPress={onClose}><Text style={styles.ghostText}>Close</Text></Pressable>
-          </View>
+          {!selected ? (
+            <>
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetTitle}>Deposit</Text>
+                <Pressable onPress={onClose}><Text style={styles.ghostText}>Close</Text></Pressable>
+              </View>
 
-          <Text style={styles.note}>Choose a network to deposit from. EVM networks use your same Kivo address; Solana and NEAR use their own wallet addresses.</Text>
+              <Text style={styles.note}>Choose a network to deposit from.</Text>
 
-          <ScrollView style={styles.networkList} nestedScrollEnabled showsVerticalScrollIndicator>
-            {DEPOSIT_CHAINS.map(chain => (
-              <Pressable key={chain} onPress={() => setNetwork(chain)} style={[styles.networkRow, selected === chain && styles.networkRowActive]}>
-                <View style={styles.rowLeft}>
-                  <NetworkBadge network={chain} />
-                  <Text style={styles.networkRowText}>{CHAIN_LABEL[chain]}</Text>
+              <ScrollView
+                style={styles.networkList}
+                contentContainerStyle={styles.depositNetworkContent}
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+                persistentScrollbar
+                bounces={false}
+              >
+                {DEPOSIT_CHAINS.map(chain => (
+                  <Pressable key={chain} onPress={() => setNetwork(chain)} style={styles.networkRow}>
+                    <View style={styles.rowLeft}>
+                      <NetworkBadge network={chain} />
+                      <Text style={styles.networkRowText}>{CHAIN_LABEL[chain]}</Text>
+                    </View>
+                    <Text style={styles.chevron}>›</Text>
+                  </Pressable>
+                ))}
+
+                <Pressable
+                  disabled={!wallet.nearAddress}
+                  onPress={() => setNetwork('near')}
+                  style={[styles.networkRow, !wallet.nearAddress && styles.disabledRow]}
+                >
+                  <View style={styles.rowLeft}>
+                    <NetworkBadge network="near" />
+                    <Text style={styles.networkRowText}>NEAR</Text>
+                  </View>
+                  <Text style={styles.chevron}>›</Text>
+                </Pressable>
+              </ScrollView>
+            </>
+          ) : (
+            <>
+              <View style={styles.sheetHeader}>
+                <Pressable onPress={() => setNetwork(null)} hitSlop={10}>
+                  <Text style={styles.backText}>‹ Back</Text>
+                </Pressable>
+                <Text style={styles.sheetTitle}>{networkLabel(selected)}</Text>
+                <View style={styles.headerSpacer} />
+              </View>
+
+              <Text style={styles.addressSectionTitle}>Your {networkLabel(selected)} address</Text>
+              <View style={styles.addressPanel}>
+                <View style={styles.addressPanelHeader}>
+                  <Text style={styles.addressFull} selectable>{address || 'Address unavailable'}</Text>
+                  <NetworkBadge network={selected} />
                 </View>
-                <Text style={styles.chevron}>›</Text>
-              </Pressable>
-            ))}
-            <Text style={styles.sectionLabel}>NEAR</Text>
-            <Pressable
-              disabled={!wallet.nearAddress}
-              onPress={() => setNetwork('near')}
-              style={[styles.networkRow, selected === 'near' && styles.networkRowActive, !wallet.nearAddress && styles.disabledRow]}>
-              <View style={styles.rowLeft}>
-                <NetworkBadge network="near" />
-                <Text style={styles.networkRowText}>NEAR</Text>
               </View>
-              <Text style={styles.chevron}>›</Text>
-            </Pressable>
-          </ScrollView>
 
-          {selected && (
-            <View style={styles.addressPanel}>
-              <View style={styles.addressPanelHeader}>
-                <Text style={styles.label}>Your {networkLabel(selected)} address</Text>
-                <NetworkBadge network={selected} />
-              </View>
-              <Text style={styles.addressFull} selectable>{address || 'Address unavailable'}</Text>
               <Text style={styles.note}>
                 {selected === 'solana'
-                  ? 'Solana uses a separate address from your EVM wallet.'
+                  ? 'A separate address — Solana cannot share the EVM address.'
                   : selected === 'near'
-                    ? 'This is your NEAR account derived from the same recovery phrase.'
-                    : `The same EVM address works on the other supported EVM networks.`}
+                    ? 'Your NEAR account is derived from the same recovery phrase.'
+                    : 'The same EVM address works on the other supported EVM networks.'}
               </Text>
-              <Text style={styles.warn}>Only send USDC on the selected network. Other assets or unsupported networks may not appear in your Kivo cash balance.</Text>
-            </View>
-          )}
 
-          <Pressable onPress={share} disabled={!address} style={[styles.primary, !address && styles.disabled]}>
-            <Text style={styles.primaryText}>Share address</Text>
-          </Pressable>
-          <Pressable onPress={onClose} style={styles.ghost}><Text style={styles.ghostText}>Done</Text></Pressable>
+              <Text style={styles.warn}>
+                Only send USDC on {networkLabel(selected)}. Other assets or unsupported networks may be lost.
+              </Text>
+
+              <Pressable onPress={share} disabled={!address} style={[styles.primary, !address && styles.disabled]}>
+                <Text style={styles.primaryText}>Share address</Text>
+              </Pressable>
+              <Pressable onPress={onClose} style={styles.ghost}>
+                <Text style={styles.ghostText}>Done</Text>
+              </Pressable>
+            </>
+          )}
         </Pressable>
       </Pressable>
     </Modal>
@@ -583,7 +611,11 @@ const styles = StyleSheet.create({
   sheet: { backgroundColor: c.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 34, borderWidth: 1, borderColor: c.border, maxHeight: '92%' },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   sheetTitle: { color: c.text, fontSize: 20, fontWeight: '800' },
-  networkList: { maxHeight: 360, marginBottom: 8 },
+  networkList: { maxHeight: 430, marginBottom: 8 },
+  depositNetworkContent: { paddingBottom: 4 },
+  backText: { color: c.cream, fontSize: 14, fontWeight: '800' },
+  headerSpacer: { width: 48 },
+  addressSectionTitle: { color: c.textMuted, fontSize: 11, fontWeight: '900', letterSpacing: 1, marginTop: 4, textTransform: 'uppercase' },
   networkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 7 },
   networkRowActive: { borderColor: c.accent, backgroundColor: c.surfaceRaised },
   disabledRow: { opacity: 0.45 },
