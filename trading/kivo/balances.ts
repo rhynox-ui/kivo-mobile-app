@@ -71,7 +71,7 @@ export async function readNativeBalance(chainKey: ChainKey, owner: string): Prom
 }
 
 /** USDC on one chain, with the chain's real on-chain decimals (BNB Chain USDC is 18, not 6). */
-export async function readUsdcBalance(chainKey: ChainKey, owner: string): Promise<TokenBalance> {
+export function cashAssetSymbol(chainKey: ChainKey): 'USDC' | 'USDG' { return chainKey === 'robinhood' ? 'USDG' : 'USDC'; }\n\nexport function cashAssetAddress(chainKey: ChainKey): string { const symbol = cashAssetSymbol(chainKey); const address = TOKEN_ADDRESSES[symbol]?.[chainKey]; if (!address) throw new Error(`No verified ${symbol} contract on ${chainKey}.`); return address; }\n\nexport async function readUsdcBalance(chainKey: ChainKey, owner: string): Promise<TokenBalance> {
   const address = TOKEN_ADDRESSES.USDC?.[chainKey];
   if (!address) throw new Error(`No verified USDC contract on ${chainKey}.`);
   // Mango Pro keeps verified token decimals in chainData. Do the same here:
