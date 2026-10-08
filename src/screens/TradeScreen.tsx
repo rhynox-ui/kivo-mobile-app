@@ -56,6 +56,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftSlippage, setDraftSlippage] = useState<number | null>(null);
   const [customSlippage, setCustomSlippage] = useState('');
+  const [pressedPreset, setPressedPreset] = useState<number | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [gaslessTradingEnabled, setGaslessTradingEnabled] = useState(true);
   const extremePriceImpact = plan?.legs.some(leg => leg.quote.view.priceImpactPct != null && Math.abs(leg.quote.view.priceImpactPct) > 50) ?? false;
@@ -312,11 +313,33 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
 
             <View style={styles.presets}>
               {[25, 50, 75, 100].map(pct => (
-                <Pressable key={pct} disabled={available == null || available <= 0} onPress={() => choosePreset(pct)} style={[styles.preset, (available == null || available <= 0) && styles.disabled]}>
+                <Pressable
+                  key={pct}
+                  disabled={available == null || available <= 0}
+                  onPress={() => choosePreset(pct)}
+                  onPressIn={() => setPressedPreset(pct)}
+                  onPressOut={() => setPressedPreset(null)}
+                  style={[
+                    styles.preset,
+                    pressedPreset === pct && styles.presetPressed,
+                    (available == null || available <= 0) && styles.disabled,
+                  ]}
+                >
                   <Text style={styles.presetText}>{pct === 100 ? 'MAX' : `${pct}%`}</Text>
                 </Pressable>
               ))}
-              <Pressable disabled={disabledInput} onPress={() => amountRef.current?.focus()} style={[styles.preset, styles.presetCustom, disabledInput && styles.disabled]}>
+              <Pressable
+                disabled={disabledInput}
+                onPress={() => amountRef.current?.focus()}
+                onPressIn={() => setPressedPreset(0)}
+                onPressOut={() => setPressedPreset(null)}
+                style={[
+                  styles.preset,
+                  styles.presetCustom,
+                  pressedPreset === 0 && styles.presetPressed,
+                  disabledInput && styles.disabled,
+                ]}
+              >
                 <Text style={[styles.presetText, styles.presetCustomText]}>Custom</Text>
               </Pressable>
             </View>
@@ -544,6 +567,7 @@ const styles = StyleSheet.create({
   presets: { flexDirection: 'row', gap: 6, marginTop: 10, marginBottom: 2 },
   preset: { flex: 1, alignItems: 'center', backgroundColor: c.surface, borderRadius: 999, paddingVertical: 7 },
   presetCustom: { flex: 1, backgroundColor: c.surfaceRaised },
+  presetPressed: { backgroundColor: c.input },
   presetText: { color: c.textMuted, fontWeight: '600', fontSize: 11 },
   presetCustomText: { color: c.cream, fontWeight: '700' },
   cardsRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
