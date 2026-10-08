@@ -14,6 +14,12 @@ const STORAGE_KEY = 'kivo_last_crash';
 
 type StoredCrash = { message: string; stack: string; isFatal: boolean; at: number };
 
+// Keep fatal JS errors inside the app. React Native's default global handler
+// terminates the process after reporting the error, which is exactly the
+// "Kivo closed because this app has a bug" behaviour we need to avoid.
+let runtimeCrash: StoredCrash | null = null;
+const crashListeners = new Set<(crash: StoredCrash) => void>();
+
 export function installCrashReporter(): void {
   const errorUtils = (globalThis as { ErrorUtils?: { setGlobalHandler: (h: (e: Error, isFatal?: boolean) => void) => void; getGlobalHandler?: () => (e: Error, isFatal?: boolean) => void } }).ErrorUtils;
   if (!errorUtils) return;
@@ -21,6 +27,11 @@ export function installCrashReporter(): void {
   errorUtils.setGlobalHandler((error, isFatal) => {
     const record: StoredCrash = { message: error?.message ?? String(error), stack: error?.stack ?? '', isFatal: Boolean(isFatal), at: Date.now() };
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(record)).catch(() => {});
+    if (isFatal) {
+      runtimeCrash = record;
+      crashListeners.forEach(listener => listener(record));
+      return;
+    }
     previous?.(error, isFatal);
   });
 }
@@ -35,7 +46,14 @@ export async function readLastCrash(): Promise<StoredCrash | null> {
 }
 
 export function clearLastCrash(): void {
+  runtimeCrash = null;
   AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
+}
+
+function subscribeToRuntimeCrash(listener: (crash: StoredCrash) => void): () => void {
+  crashListeners.add(listener);
+  if (runtimeCrash) listener(runtimeCrash);
+  return () => crashListeners.delete(listener);
 }
 
 export function CrashScreen({ error, onDismiss }: { error: { message?: string; stack?: string }; onDismiss?: () => void }) {
@@ -72,8 +90,18 @@ export class CrashBoundary extends React.Component<{ children: React.ReactNode }
   }
 
   componentDidMount() {
-    readLastCrash().then(lastCrash => { if (lastCrash) this.setState({ lastCrash }); }).catch(() => {});
+    const unsubscribe = subscribeToRuntimeCrash(error => this.setState({ lastCrash: error }));
+    readLastCrash().then(lastCrash => {
+      if (lastCrash && !this.state.lastCrash) this.setState({ lastCrash });
+    }).catch(() => {});
+    this.unsubscribeCrash = unsubscribe;
   }
+
+  componentWillUnmount() {
+    this.unsubscribeCrash?.();
+  }
+
+  private unsubscribeCrash?: () => void;
 
   render() {
     if (this.state.error) return <CrashScreen error={this.state.error} onDismiss={() => this.setState({ error: null })} />;
