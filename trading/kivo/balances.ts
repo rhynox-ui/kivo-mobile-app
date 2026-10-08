@@ -127,7 +127,7 @@ export async function readSolanaUsdcBalance(owner: string): Promise<TokenBalance
 }
 
 /** USDC across every chain Kivo can pay from. Each chain fails independently. */
-export async function fetchCashBalances(owner: string, chains: ChainKey[] = USDC_CHAINS, solanaOwner: string = owner): Promise<CashBalanceRow[]> {
+export async function fetchCashBalances(owner: string, chains: ChainKey[] = CASH_CHAINS, solanaOwner: string = owner): Promise<CashBalanceRow[]> {
   const key = owner.toLowerCase() + ':' + chains.join(',');
   if (cashCache && cashCache.key === key && Date.now() - cashCache.at < CASH_CACHE_TTL_MS) return cashCache.rows;
   if (cashInFlight?.key === key) return cashInFlight.promise;
