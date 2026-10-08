@@ -14,8 +14,8 @@ export type TradeRecord = {
   createdAt: number;
   side: TradeSide;
   token: {chainKey: TradeChain; address: string; symbol: string; name: string; imageUrl: string | null};
-  pay: {amount: string; symbol: string; chainKey: ChainKey};
-  receive: {amount: string | null; symbol: string; chainKey: ChainKey};
+  pay: {amount: string; symbol: string; chainKey: TradeChain};
+  receive: {amount: string | null; symbol: string; chainKey: TradeChain};
   txHashes: string[];
   chainIds: number[];
   requestId: string | null;
