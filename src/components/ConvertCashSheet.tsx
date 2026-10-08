@@ -5,7 +5,7 @@ import {parseUnits} from 'viem';
 import {CHAIN_LABEL, NEAR_ENABLED, NEAR_LABEL, NEAR_USDC, NEAR_USDC_DECIMALS, assetDecimalsForChain, currencyAddress, type ChainKey} from '@kivo/trading/core/chainData';
 import {getRelayQuote, summarizeQuote, type QuoteSummary} from '@kivo/trading/core/relayQuote';
 import {executeRelayQuote, getPartialTxHashes, type ExecuteStep} from '@kivo/trading/core/executeRelayQuote';
-import {cashAssetAddress,cashAssetSymbol,fetchCashBalances, spendableCash, type CashBalanceRow} from '@kivo/trading/kivo/balances';
+import {cashAssetSymbol,fetchCashBalances, spendableCash, type CashBalanceRow} from '@kivo/trading/kivo/balances';
 import {recordTrade} from '@kivo/trading/kivo/history';
 import {markOwnAction} from '../wallet/depositWatcher';
 import {USDC_CHAINS, formatUsd} from '@kivo/trading/kivo/tokens';
