@@ -30,7 +30,11 @@
     "viem": "^2.37.9",
     "@pump-fun/pump-sdk": "^1.36.0",
     "@pump-fun/pump-swap-sdk": "^1.19.0",
-    "bn.js": "^5.2.5"
+    "bn.js": "^5.2.5",
+    "@near-js/crypto": "2.5.1",
+    "@near-js/transactions": "2.5.1",
+    "@noble/curves": "^1.9.1",
+    "@noble/hashes": "^1.8.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
