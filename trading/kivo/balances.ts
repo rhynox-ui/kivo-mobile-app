@@ -26,6 +26,9 @@ export function spendableCash(chainKey: ChainKey, balance: number): number {
 
 const READ_TIMEOUT_MS = 8_000;
 const CASH_CACHE_TTL_MS = 30_000;
+const NATIVE_CACHE_TTL_MS = 45_000;
+const nativeBalanceCache = new Map<string, {amount: number; at: number}>();
+const nativeBalanceInFlight = new Map<string, Promise<TokenBalance>>();
 let cashCache: {key: string; rows: CashBalanceRow[]; at: number} | null = null;
 let cashInFlight: {key: string; promise: Promise<CashBalanceRow[]>} | null = null;
 
@@ -72,8 +75,26 @@ export async function readTokenBalance(chainKey: ChainKey, tokenAddress: string,
   return {chainKey, tokenAddress, symbol: String(symbol), raw, decimals: d, amount: Number(formatUnits(raw, d))};
 }
 
-export async function readNativeBalance(chainKey: ChainKey, owner: string): Promise<TokenBalance> {
-  return readTokenBalance(chainKey, '0x0000000000000000000000000000000000000000', owner);
+export async function readNativeBalance(chainKey: ChainKey, owner: string, {forceFresh = false}: {forceFresh?: boolean} = {}): Promise<TokenBalance> {
+  const key = `${chainKey}:${owner.toLowerCase()}`;
+  if (!forceFresh) {
+    const cached = nativeBalanceCache.get(key);
+    if (cached && Date.now() - cached.at < NATIVE_CACHE_TTL_MS) {
+      return {chainKey, tokenAddress: '0x0000000000000000000000000000000000000000', symbol: nativeSymbol(chainKey), raw: 0n, decimals: 18, amount: cached.amount};
+    }
+    const inFlight = nativeBalanceInFlight.get(key);
+    if (inFlight) return inFlight;
+  }
+  const promise = readTokenBalance(chainKey, '0x0000000000000000000000000000000000000000', owner).then(result => {
+    nativeBalanceCache.set(key, {amount: result.amount, at: Date.now()});
+    nativeBalanceInFlight.delete(key);
+    return result;
+  }, error => {
+    nativeBalanceInFlight.delete(key);
+    throw error;
+  });
+  nativeBalanceInFlight.set(key, promise);
+  return promise;
 }
 
 /** USDC on one chain, with the chain's real on-chain decimals (BNB Chain USDC is 18, not 6). */
@@ -90,11 +111,22 @@ export async function readUsdcBalance(chainKey: ChainKey, owner: string): Promis
   const decimals = assetDecimalsForChain(chainKey, cashSymbol) ?? 6;
   return readTokenBalance(chainKey, address, owner, cashSymbol, decimals);
 }
-export async function readSolanaNativeBalance(owner: string): Promise<TokenBalance> {
+export async function readSolanaNativeBalance(owner: string, {forceFresh = false}: {forceFresh?: boolean} = {}): Promise<TokenBalance> {
+  const key = `solana:${owner}`;
+  if (!forceFresh) {
+    const cached = nativeBalanceCache.get(key);
+    if (cached && Date.now() - cached.at < NATIVE_CACHE_TTL_MS) return {chainKey: 'solana', tokenAddress: '11111111111111111111111111111111', symbol: 'SOL', raw: 0n, decimals: 9, amount: cached.amount};
+    const inFlight = nativeBalanceInFlight.get(key);
+    if (inFlight) return inFlight;
+  }
   const [{Connection, PublicKey}] = await Promise.all([import('@solana/web3.js')]);
   const connection = new Connection('https://solana-rpc.publicnode.com', 'confirmed');
   const raw = await connection.getBalance(new PublicKey(owner));
-  return {chainKey: 'solana', tokenAddress: '11111111111111111111111111111111', symbol: 'SOL', raw: BigInt(raw), decimals: 9, amount: Number(formatUnits(BigInt(raw), 9))};
+  const amount = Number(formatUnits(BigInt(raw), 9));
+  const result = {chainKey: 'solana' as ChainKey, tokenAddress: '11111111111111111111111111111111', symbol: 'SOL', raw: BigInt(raw), decimals: 9, amount};
+  nativeBalanceCache.set(key, {amount, at: Date.now()});
+  nativeBalanceInFlight.delete(key);
+  return result;
 }
 
 export async function readSolanaTokenBalance(mintAddress: string, owner: string, symbolHint?: string): Promise<TokenBalance> {
@@ -133,10 +165,10 @@ export async function readSolanaUsdcBalance(owner: string): Promise<TokenBalance
 }
 
 /** USDC across every chain Kivo can pay from. Each chain fails independently. */
-export async function fetchCashBalances(owner: string, chains: ChainKey[] = CASH_CHAINS, solanaOwner: string = owner): Promise<CashBalanceRow[]> {
+export async function fetchCashBalances(owner: string, chains: ChainKey[] = CASH_CHAINS, solanaOwner: string = owner, {forceFresh = false}: {forceFresh?: boolean} = {}): Promise<CashBalanceRow[]> {
   const key = owner.toLowerCase() + ':' + solanaOwner + ':' + chains.join(',');
-  if (cashCache && cashCache.key === key && Date.now() - cashCache.at < CASH_CACHE_TTL_MS) return cashCache.rows;
-  if (cashInFlight?.key === key) return cashInFlight.promise;
+  if (!forceFresh && cashCache && cashCache.key === key && Date.now() - cashCache.at < CASH_CACHE_TTL_MS) return cashCache.rows;
+  if (!forceFresh && cashInFlight?.key === key) return cashInFlight.promise;
   const promise = (async () => {
     const settled = await Promise.allSettled(chains.map(chainKey => chainKey === 'solana' ? readSolanaUsdcBalance(solanaOwner) : readUsdcBalance(chainKey, owner)));
     const rows = settled.map((outcome, index): CashBalanceRow => {
