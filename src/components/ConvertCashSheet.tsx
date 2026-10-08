@@ -5,7 +5,7 @@ import {parseUnits} from 'viem';
 import {CHAIN_LABEL, NEAR_ENABLED, NEAR_LABEL, NEAR_USDC, NEAR_USDC_DECIMALS, assetDecimalsForChain, currencyAddress, type ChainKey} from '@kivo/trading/core/chainData';
 import {getRelayQuote, summarizeQuote, type QuoteSummary} from '@kivo/trading/core/relayQuote';
 import {executeRelayQuote, getPartialTxHashes, type ExecuteStep} from '@kivo/trading/core/executeRelayQuote';
-import {fetchCashBalances, type CashBalanceRow} from '@kivo/trading/kivo/balances';
+import {fetchCashBalances, spendableCash, type CashBalanceRow} from '@kivo/trading/kivo/balances';
 import {recordTrade} from '@kivo/trading/kivo/history';
 import {USDC_CHAINS, formatUsd} from '@kivo/trading/kivo/tokens';
 import {getWalletSession, withDeviceAccounts, type WalletSession} from '../state/walletStore';
@@ -21,7 +21,7 @@ import {nearView} from '@kivo/trading/core/nearRpc';
 type CashChain = ChainKey | 'near';
 let oneClickTokensPromise: ReturnType<typeof fetchOneClickTokens> | null = null;
 const cachedOneClickTokens = () => oneClickTokensPromise ??= fetchOneClickTokens().catch(error => { oneClickTokensPromise = null; throw error; });
-const balanceFor=(rows:CashBalanceRow[]|null,chain:CashChain,nearBalance=0)=>{if(chain==='near')return nearBalance;const r=rows?.find(x=>x.chainKey===chain);return r?.status==='ok'?r.balance.amount:0;};
+const balanceFor=(rows:CashBalanceRow[]|null,chain:CashChain,nearBalance=0)=>{if(chain==='near')return nearBalance;const r=rows?.find(x=>x.chainKey===chain);return r?.status==='ok'?spendableCash(chain,r.balance.amount):0;};
 const chainLabel=(chain:CashChain)=>chain==='near'?NEAR_LABEL:CHAIN_LABEL[chain];
 const decimalsFor=(chain:CashChain)=>chain==='near'?NEAR_USDC_DECIMALS:(assetDecimalsForChain(chain,'USDC')??6);
 
@@ -40,7 +40,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
  useEffect(()=>{if(!visible)return;setAmount('');setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setError(null);setHashes(null);setPicker(null);setNearRecord(null);refresh();},[visible]);
  useEffect(()=>{if(!visible||amount||picker)return;if(rows===null)return;const f=pickDefaultFrom(rows,nearBalance);setFrom(f);setTo(pickDefaultTo(f,rows,nearBalance));},[visible,rows,nearBalance]);
  useEffect(()=>{if(!nearRecord||!shouldPollOneClickSwap(nearRecord))return;const t=setTimeout(()=>{refreshOneClickSwap(nearRecord,{fetchStatus:d=>fetchOneClickStatus(d),store:oneClickSwapStore}).then(next=>{setNearRecord(next);if(next.status==='SUCCESS'||next.status==='REFUNDED')onConverted();}).catch(()=>{});},5000);return()=>clearTimeout(t);},[nearRecord,onConverted]);
- const rawBalance=balanceFor(rows,from,nearBalance); const balance=from==='arc'?Math.max(0,rawBalance-0.01):rawBalance; const inputStep=10**-decimalsFor(from); const n=Number(amount)||0; const same=from===to; const insufficient=(from==='near'||rows!==null)&&n>balance; const decimals=decimalsFor(from);
+ const balance=balanceFor(rows,from,nearBalance); const inputStep=10**-decimalsFor(from); const n=Number(amount)||0; const same=from===to; const insufficient=(from==='near'||rows!==null)&&n>balance; const decimals=decimalsFor(from);
  useEffect(()=>{if(!visible||!wallet||same||n<=0||insufficient){setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setLoading(false);return;} const requestId=++quoteRequestIdRef.current; const t=setTimeout(async()=>{setLoading(true);setError(null);try{
    const amountBaseUnits=parseUnits(amount,decimals).toString();
    if(from==='near'||to==='near'){
