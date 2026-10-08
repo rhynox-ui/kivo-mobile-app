@@ -100,7 +100,7 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
             setFunding(false);
           }
         }
-        const fresh=await quoteNearTrade({side:quote.side,token:quote.token,payUnits:quote.payUnits,accountId:session.near.address,slippageBps:quote.slippageBps});
+        const fresh=await quoteNearTrade({side:quote.side,token:quote.token,payUnits:quote.payUnits,accountId:near.address,slippageBps:quote.slippageBps});
         const entry=await executeNearTrade(session,fresh,{requote:()=>quoteNearTrade({side:fresh.side,token:fresh.token,payUnits:fresh.payUnits,accountId:session.near.address,slippageBps:fresh.slippageBps})});
         const hashes=entry.hashes;
         const kind=entry.status;
