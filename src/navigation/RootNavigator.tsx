@@ -40,7 +40,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function SplashRoute({ navigation }: NativeStackScreenProps<RootStackParamList, 'Splash'>) {
   // Restore the session while the splash plays; navigate when both are done.
-  const [target, setTarget] = useState<'Home' | 'Onboarding' | null>(null);
+  const [target, setTarget] = useState<'Home' | 'Onboarding' | 'BiometricUnlock' | null>(null);
   const [animationDone, setAnimationDone] = useState(false);
   const [quick, setQuick] = useState<boolean | null>(null);
   useEffect(() => {
