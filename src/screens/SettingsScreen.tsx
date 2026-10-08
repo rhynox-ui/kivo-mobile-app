@@ -42,7 +42,7 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onLogout }
       case 'taxes': Alert.alert('Taxes','Kivo does not calculate or file taxes yet. Keep your own transaction records and consult a qualified tax professional for your jurisdiction.'); return;
       case 'help': Alert.alert('Help and Support','For support, include the Kivo app version, device model and the exact error message. Never send a recovery phrase or private key.'); return;
       case 'docs': Linking.openURL('https://kivo-web.pages.dev/docs/').catch(()=>Alert.alert('Documentation','Unable to open documentation right now.')); return;
-      case 'x': Alert.alert('Kivo on X','The official social link will be connected here when the account is configured.'); return;
+      case 'x': Linking.openURL('https://x.com/Kivotrade').catch(()=>Alert.alert('Kivo on X','Unable to open X right now.')); return;
       case 'telegram': Alert.alert('Kivo Telegram','The official community link will be connected here when the channel is configured.'); return;
       case 'logout':
         Alert.alert('Log out','End the current Kivo session on this device?',[
