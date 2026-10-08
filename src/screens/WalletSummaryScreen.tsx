@@ -44,22 +44,6 @@ const DEPOSIT_CHAINS: DepositNetwork[] = [
   'solana', 'bnb', 'hyperevm', 'ink', 'abstract', 'xlayer', 'arc', 'robinhood', 'near',
 ];
 
-const NETWORK_GLYPH: Partial<Record<ChainKey | 'near', string>> = {
-  ethereum: '◆',
-  base: '■',
-  avalanche: '▲',
-  arbitrum: '◎',
-  unichain: '✦',
-  solana: '≋',
-  bnb: '⬡',
-  hyperevm: '●',
-  ink: '◉',
-  abstract: '✣',
-  xlayer: '▦',
-  arc: '◒',
-  robinhood: '◈',
-  near: 'N',
-};
 
 function networkLabel(network: DepositNetwork): string {
   return network === 'near' ? 'NEAR' : CHAIN_LABEL[network];
