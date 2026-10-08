@@ -99,7 +99,7 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
   return promise;
 }
 
-async function fetchPortfolioUncached(owner: string, history: TradeRecord[], addresses?: {solanaAddress?: string; nearAddress?: string}): Promise<Portfolio> {
+async function fetchPortfolioUncached(owner: string, history: TradeRecord[], addresses?: {solanaAddress?: string; nearAddress?: string}, {forceFresh = false}: {forceFresh?: boolean} = {}): Promise<Portfolio> {
   let complete = true;
   const prices = await fetchWalletPrices().catch(() => { complete = false; return {} as Record<string, number>; });
 
