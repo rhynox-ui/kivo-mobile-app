@@ -68,7 +68,8 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
     Promise.allSettled(nativeChains.map(chain => readNativeBalance(chain, owner))),
     fetchCashBalances(owner, undefined, addresses?.solanaAddress ?? owner),
     addresses?.nearAddress ? fetchNearTokenBalance(NEAR_USDC, addresses.nearAddress).catch(() => 0n) : Promise.resolve(0n),
-    Promise.allSettled(tradedTokens(history).filter(token => token.chainKey !== 'near').map(async token => {
+    Promise.allSettled(tradedTokens(history).map(async token => {
+      if (token.chainKey === 'near') return null;
       const [balance, pair] = await Promise.all([
         token.chainKey === 'solana' ? readSolanaTokenBalance(token.address, addresses?.solanaAddress ?? owner, token.symbol) : readTokenBalance(token.chainKey, token.address, owner, token.symbol),
         resolveDexScreenerPair({chainKey: token.chainKey, tokenAddress: token.address}),
@@ -106,9 +107,9 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
     cashUsd += amount;
     holdings.push({key: 'near:usdc', kind: 'cash', chainKey: 'near', address: NEAR_USDC, symbol: 'USDC', name: 'USDC · NEAR', amount, priceUsd: 1, valueUsd: amount, imageUrl: null});
   }
-    if (indexedAssets.status === 'fulfilled' && indexedAssets.value) {
-    if (!indexedAssets.value.complete) complete = false;
-    for (const asset of indexedAssets.value.holdings) {
+    if (indexedAssets) {
+    if (!indexedAssets.complete) complete = false;
+    for (const asset of indexedAssets.holdings) {
       if (asset.isNative || asset.chainKey === 'near' || asset.symbol === 'USDC' || asset.symbol === 'USDG' || asset.amount <= 0) continue;
       const key = asset.chainKey + ':' + asset.address;
       if (holdings.some(h => h.key.toLowerCase() === key.toLowerCase())) continue;
@@ -117,6 +118,7 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
   }
   for (const outcome of tokens) {
     if (outcome.status !== 'fulfilled') { complete = false; continue; }
+    if (!outcome.value) continue;
     const {token, balance, priceUsd} = outcome.value;
     holdings.push({key: `${token.chainKey}:${token.address.toLowerCase()}`, kind: 'token', chainKey: token.chainKey, address: token.address, symbol: token.symbol, name: token.name, amount: balance.amount, priceUsd, valueUsd: priceUsd == null ? null : balance.amount * priceUsd, imageUrl: token.imageUrl});
   }
