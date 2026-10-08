@@ -534,7 +534,7 @@ const styles = StyleSheet.create({
   sides: { flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 2 },
   buy: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 11, borderRadius: 999, borderWidth: 1, backgroundColor: c.success, borderColor: c.success },
   buyText: { color: '#fff', fontWeight: '700', fontSize: 13.5 },
-  sell: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 11, borderRadius: 999, borderWidth: 1, borderColor: c.danger, alignItems: 'center' },
+  sell: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 11, borderRadius: 999, borderWidth: 1, borderColor: c.danger },
   sellReady: { backgroundColor: c.danger, borderColor: c.danger },
   sellText: { color: c.danger, fontWeight: '700', fontSize: 13.5 },
   sellTextReady: { color: '#fff' },
