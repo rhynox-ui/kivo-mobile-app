@@ -38,7 +38,8 @@ android {
     buildTypes {
         debug { signingConfig signingConfigs.debug }
         release {
-            signingConfig signingConfigs.debug
+            // Production signing is supplied by the release pipeline/Play Console.
+            // CI must never ship an APK signed with the debug key.
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
