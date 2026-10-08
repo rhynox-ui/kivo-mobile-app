@@ -31,7 +31,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
  const convert=async()=>{if(!quote||!wallet||same||n<=0||insufficient||execute)return;setError(null);setHashes(null);try{
    const result=await withDeviceAccounts('Confirm Convert',async session=>{const user=from==='solana'?session.solana.address:session.evm.address;const recipient=to==='solana'?session.solana.address:session.evm.address;
      const q=await getRelayQuote({fromChainKey:from,toChainKey:to,originCurrency:currencyAddress(from,'USDC'),destinationCurrency:currencyAddress(to,'USDC'),amountBaseUnits:parseUnits(amount,decimals).toString(),userAddress:user,recipientAddress:recipient,originAmountUsd:n,waiveAppFee:true});
-     return executeRelayQuote(q,session,s=>setExecute(s),{useGaslessTrading:false});});
+     return executeRelayQuote(q,session.relay,s=>setExecute(s),{useGaslessTrading:false});});
    setHashes(result.txHashes);setExecute(null);refresh();onConverted();
  }catch(e){setExecute(null);setError(e instanceof Error?e.message:'Conversion failed. Nothing was confirmed.');}};
  if(!visible)return null;
