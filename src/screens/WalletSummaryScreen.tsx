@@ -33,6 +33,7 @@ import { isValidRecipientAddress, withdrawUsdc } from '@kivo/trading/kivo/cash';
 import { fetchGaslessStatus, type GaslessStatus } from '@kivo/trading/kivo/gasless';
 import { formatAmount, formatUsd, shortAddress, USDC_CHAINS } from '@kivo/trading/kivo/tokens';
 import { NetworkIcon } from '../wallet/NetworkIcon';
+import QRCode from 'react-native-qrcode-svg';
 
 type Sheet = null | 'deposit' | 'withdraw';
 type DepositNetwork = ChainKey | 'near';
@@ -309,31 +310,27 @@ function DepositSheet({
               </View>
 
               <Text style={styles.addressSectionTitle}>Your {networkLabel(selected)} address</Text>
-              <View style={styles.addressPanel}>
-                <View style={styles.addressPanelHeader}>
-                  <Text style={styles.addressFull} selectable>{address || 'Address unavailable'}</Text>
-                  <NetworkIcon chainKey={selected} size={22} />
+              {address ? (
+                <View style={styles.qrWrap}>
+                  <QRCode value={address} size={210} backgroundColor="#ffffff" color="#000000" ecl="H" quietZone={8} />
                 </View>
-              </View>
+              ) : null}
+              <Text style={styles.addressFull} selectable numberOfLines={1} ellipsizeMode="middle">
+                {address || 'Address unavailable'}
+              </Text>
 
               <Text style={styles.note}>
                 {selected === 'solana'
-                  ? 'A separate address — Solana cannot share the EVM address.'
+                  ? "A separate address — Solana isn't an EVM chain, so it can't share the address other networks use."
                   : selected === 'near'
-                    ? 'Your NEAR account is derived from the same recovery phrase.'
-                    : 'The same EVM address works on the other supported EVM networks.'}
+                    ? 'Your NEAR account, from the same recovery phrase — it also works in compatible NEAR wallets.'
+                    : 'The same EVM address also works on the other supported EVM networks.'}
               </Text>
 
               <Text style={styles.warn}>
                 Only send USDC on {networkLabel(selected)}. Other assets or unsupported networks may be lost.
               </Text>
 
-              <Pressable onPress={share} disabled={!address} style={[styles.primary, !address && styles.disabled]}>
-                <Text style={styles.primaryText}>Share address</Text>
-              </Pressable>
-              <Pressable onPress={onClose} style={styles.ghost}>
-                <Text style={styles.ghostText}>Done</Text>
-              </Pressable>
             </>
           )}
         </Pressable>
@@ -625,9 +622,10 @@ const styles = StyleSheet.create({
   chevron: { color: '#85858C', fontSize: 20, lineHeight: 20 },
   sectionLabel: { color: '#85858C', fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginTop: 8, marginBottom: 7, textTransform: 'uppercase' },
   addressPanel: { backgroundColor: '#242428', borderRadius: 12, borderWidth: 1, borderColor: '#3A3A3F', padding: 14, marginTop: 8 },
+  qrWrap: { backgroundColor: '#ffffff', padding: 12, borderRadius: 18, alignSelf: 'center', marginTop: 8, marginBottom: 8 },
   addressPanelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   addressLabel: { color: '#85858C', fontSize: 11, fontWeight: '700' },
-  addressFull: { color: '#F4F4F5', fontSize: 14, fontWeight: '600', lineHeight: 20, marginTop: 8 },
+  addressFull: { color: '#F4F4F5', fontSize: 14, fontWeight: '600', marginTop: 8, backgroundColor: '#242428', borderWidth: 1, borderColor: '#3A3A3F', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
   label: { color: c.textMuted, fontSize: 11, fontWeight: '900', letterSpacing: 1, marginTop: 12, textTransform: 'uppercase' },
   input: { height: 48, borderRadius: 14, paddingHorizontal: 14, backgroundColor: c.surface, color: c.text, fontSize: 15, borderWidth: 1, borderColor: c.border, marginTop: 7 },
   amountRow: { flexDirection: 'row', gap: 8 },
