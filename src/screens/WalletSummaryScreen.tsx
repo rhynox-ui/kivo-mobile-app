@@ -451,7 +451,7 @@ This transfer cannot be reversed.`,
                         <Pressable key={chainKey} onPress={() => { setChain(chainKey); setTo(''); setAmount(''); setResult(null); }} style={styles.networkRow}>
                           <View style={styles.rowLeft}>
                             <NetworkBadge network={chainKey} />
-                            <Text style={styles.networkRowText}>{chainKey === 'near' ? 'NEAR' : CHAIN_LABEL[chainKey]}</Text>
+                            <Text style={styles.networkRowText}>{networkLabel(chainKey)}</Text>
                           </View>
                           <Text style={styles.networkRowBalance}>{formatUsd(balance)}</Text>
                         </Pressable>
