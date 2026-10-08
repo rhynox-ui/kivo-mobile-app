@@ -2,7 +2,6 @@ import React from 'react';
 import { Alert, Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { kivoTheme } from '../theme/kivoTheme';
 import { updateSettings, useSettings } from '../state/settingsStore';
-import { disableBiometricUnlock, enableBiometricUnlock } from '../state/walletStore';
 import { getTradeHistory } from '@kivo/trading/kivo/history';
 
 type SettingsItem = {
@@ -13,7 +12,7 @@ type SettingsItem = {
   action: 'wallet' | 'profile' | 'haptics' | 'notifications' | 'language' | 'security' | 'legal' | 'taxes' | 'help' | 'docs' | 'x' | 'telegram' | 'logout' | 'delete';
 };
 
-export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onLogout }: { onBack:()=>void; onOpenWallet?:()=>void; onOpenProfile?:()=>void; onLogout?:()=>void }) {
+export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecurity, onLogout }: { onBack:()=>void; onOpenWallet?:()=>void; onOpenProfile?:()=>void; onOpenSecurity?:()=>void; onLogout?:()=>void }) {
   const settings = useSettings();
   const items: SettingsItem[] = [
     { label:'Profile and Account',icon:'♙',action:'profile' },
