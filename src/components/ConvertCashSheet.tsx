@@ -5,7 +5,7 @@ import {parseUnits} from 'viem';
 import {CHAIN_LABEL, NEAR_ENABLED, NEAR_LABEL, NEAR_USDC, NEAR_USDC_DECIMALS, assetDecimalsForChain, currencyAddress, type ChainKey} from '@kivo/trading/core/chainData';
 import {getRelayQuote, summarizeQuote, type QuoteSummary} from '@kivo/trading/core/relayQuote';
 import {executeRelayQuote, getPartialTxHashes, type ExecuteStep} from '@kivo/trading/core/executeRelayQuote';
-import {fetchCashBalances, spendableCash, type CashBalanceRow} from '@kivo/trading/kivo/balances';
+import {cashAssetAddress,cashAssetSymbol,fetchCashBalances, spendableCash, type CashBalanceRow} from '@kivo/trading/kivo/balances';
 import {recordTrade} from '@kivo/trading/kivo/history';
 import {markOwnAction} from '../wallet/depositWatcher';
 import {USDC_CHAINS, formatUsd} from '@kivo/trading/kivo/tokens';
@@ -24,7 +24,7 @@ let oneClickTokensPromise: ReturnType<typeof fetchOneClickTokens> | null = null;
 const cachedOneClickTokens = () => oneClickTokensPromise ??= fetchOneClickTokens().catch(error => { oneClickTokensPromise = null; throw error; });
 const balanceFor=(rows:CashBalanceRow[]|null,chain:CashChain,nearBalance=0)=>{if(chain==='near')return nearBalance;const r=rows?.find(x=>x.chainKey===chain);return r?.status==='ok'?spendableCash(chain,r.balance.amount):0;};
 const chainLabel=(chain:CashChain)=>chain==='near'?NEAR_LABEL:CHAIN_LABEL[chain];
-const decimalsFor=(chain:CashChain)=>chain==='near'?NEAR_USDC_DECIMALS:(assetDecimalsForChain(chain,'USDC')??6);
+const cashSymbol=(chain:CashChain)=>chain==='near'?'USDC':cashAssetSymbol(chain); const decimalsFor=(chain:CashChain)=>chain==='near'?NEAR_USDC_DECIMALS:(assetDecimalsForChain(chain,cashAssetSymbol(chain))??6);
 
 export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;onClose:()=>void;onConverted:()=>void}){
  const [wallet,setWallet]=useState<WalletSession|null>(getWalletSession());
@@ -53,7 +53,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
      if(requestId!==quoteRequestIdRef.current)return; rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setQuote({totalFeeUsd:null,etaSeconds:response.quote.timeEstimate??null,receivedAmountFormatted:response.quote.amountOutFormatted??null,payAmountUsd:Number(response.quote.amountInUsd)||null,receiveAmountUsd:Number(response.quote.amountOutUsd)||null,priceImpactPct:null});
    } else {
      const user=from==='solana'?wallet.solanaAddress:wallet.address; const recipient=to==='solana'?wallet.solanaAddress:wallet.address; if(!user||!recipient)throw new Error('Selected wallet address is unavailable.');
-     const quoteParams={fromChainKey:from as ChainKey,toChainKey:to as ChainKey,originCurrency:currencyAddress(from as ChainKey,'USDC'),destinationCurrency:currencyAddress(to as ChainKey,'USDC'),amountBaseUnits,userAddress:user,recipientAddress:recipient,originAmountUsd:n,waiveAppFee:true};
+     const quoteParams={fromChainKey:from as ChainKey,toChainKey:to as ChainKey,originCurrency:currencyAddress(from as ChainKey,cashAssetSymbol(from as ChainKey)),destinationCurrency:currencyAddress(to as ChainKey,cashAssetSymbol(to as ChainKey)),amountBaseUnits,userAddress:user,recipientAddress:recipient,originAmountUsd:n,waiveAppFee:true};
      const q=await getRelayQuote(quoteParams); if(requestId!==quoteRequestIdRef.current)return; rawQuoteRef.current=q; lastQuoteParamsRef.current=quoteParams;
      setQuote(summarizeQuote(q,assetDecimalsForChain(to as ChainKey,'USDC')??6));
    }
@@ -68,7 +68,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
        const response=await requestOneClickQuote(move.request);
        const originDecimals=from==='near'?NEAR_USDC_DECIMALS:decimalsFor(from);
        const fromAddress=from==='near'?session.near!.address:(from==='solana'?wallet.solanaAddress!:wallet.address);
-       const record=await fundOneClickQuote({response,expected:move.expected,originChainKey:from==='near'?'near':from as ChainKey,originSymbol:'USDC',originDecimals,fromAddress,store:oneClickSwapStore,submitDepositTx:(txHash,depositAddress)=>submitOneClickDepositTx(txHash,depositAddress),send:async(toAddress,sendAmount)=>{
+       const record=await fundOneClickQuote({response,expected:move.expected,originChainKey:from==='near'?'near':from as ChainKey,originSymbol:cashSymbol(from),originDecimals,fromAddress,store:oneClickSwapStore,submitDepositTx:(txHash,depositAddress)=>submitOneClickDepositTx(txHash,depositAddress),send:async(toAddress,sendAmount)=>{
          if(from==='near'){const call=await nearUsdcDepositCall(toAddress,parseUnits(sendAmount,NEAR_USDC_DECIMALS),nearView);const [outcome]=await import('@kivo/trading/core/nearSigning').then(m=>m.sendSponsoredNearCalls(session,[call]));return outcome.hash;}
          const {withdrawUsdc}=await import('@kivo/trading/kivo/cash'); return (await withdrawUsdc(from as ChainKey,accounts.evm,accounts.solana,toAddress,sendAmount)).hash;
        }});
@@ -82,7 +82,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
    const result=await withDeviceAccounts('Confirm Convert',async session=>{
      return executeRelayQuote(quoteToExecute,session.relay,s=>setExecute(s),{useGaslessTrading:true,requote:quoteParams?async()=>getRelayQuote(quoteParams):undefined});
    });
-   setHashes(result.txHashes);setExecute(null);await markOwnAction(wallet.address);recordTrade({side:'buy',token:{chainKey:to as ChainKey,address:currencyAddress(to as ChainKey,'USDC'),symbol:'USDC',name:'USDC',imageUrl:null},pay:{amount,symbol:'USDC',chainKey:from as ChainKey},receive:{amount:quote.receivedAmountFormatted??null,symbol:'USDC',chainKey:to as ChainKey},txHashes:result.txHashes,chainIds:[],requestId:null,status:'success'});refresh();onConverted();
+   setHashes(result.txHashes);setExecute(null);await markOwnAction(wallet.address);recordTrade({side:'buy',token:{chainKey:to as ChainKey,address:currencyAddress(to as ChainKey,'USDC'),symbol:cashSymbol(to),name:cashSymbol(to),imageUrl:null},pay:{amount,symbol:'USDC',chainKey:from as ChainKey},receive:{amount:quote.receivedAmountFormatted??null,symbol:'USDC',chainKey:to as ChainKey},txHashes:result.txHashes,chainIds:[],requestId:null,status:'success'});refresh();onConverted();
  }catch(e){setExecute(null);setNearSending(false);const partial=getPartialTxHashes(e);if(partial.length){setHashes(partial);recordTrade({side:'buy',token:{chainKey:to as ChainKey,address:currencyAddress(to as ChainKey,'USDC'),symbol:'USDC',name:'USDC',imageUrl:null},pay:{amount,symbol:'USDC',chainKey:from as ChainKey},receive:{amount:null,symbol:'USDC',chainKey:to as ChainKey},txHashes:partial,chainIds:[],requestId:null,status:'failed',error:e instanceof Error?e.message:'Conversion failed after a transaction was broadcast.'});}setError(e instanceof Error?e.message:'Conversion failed. Nothing was confirmed.');}};
  if(!visible)return null;
  return <View style={s.overlay}><Pressable style={s.dismiss} onPress={onClose}/><View style={s.sheet}><View style={s.handle}/>
