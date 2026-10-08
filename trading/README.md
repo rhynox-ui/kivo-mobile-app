@@ -19,16 +19,15 @@ Wired into Kivo today:
 | `chainData.ts`, `chainRegistry.ts` | Chain ids, verified token addresses, RPC fallbacks |
 | `tokenSearch.ts`, `dexScreener.ts` | Token search (DexScreener) |
 | `discoveryFeed.ts`, `geckoTerminalNetworks.ts` | Trending tokens (DexScreener boosts + GeckoTerminal) |
-| `fees.ts`, `relayGaslessEvm.ts` | Fee rules; gasless capability check (sponsorship disabled for Kivo) |
+| `fees.ts`, `relayGaslessEvm.ts` | Fee rules; gasless capability check through Kivo backend |
 
-Present but **not wired** (they need modules or infrastructure Kivo does not
-have yet — Solana signer, Kivo-owned sponsor/proxy backend, fallback-DEX
-providers): `executeRelayQuote.ts`, `fallbackDex.ts`, `fallbackTxFirewall.ts`,
-`usdcBalances.ts`, `solanaSpendGuard.ts`, `solanaTxIntent.ts`,
-`walletPrices.ts`, `tradeErrors.ts`. They are excluded from typechecks because
-nothing imports them. `fallbackDex.ts` and `relayGaslessEvm.ts` still point at
-mangoprotocol.site proxy URLs — replace with Kivo-owned endpoints before
-wiring them.
+Mobile execution is wired through `kivo/gasless.ts`, `execute.ts`, and the Kivo
+backend Relay endpoints. The following remain intentionally outside the mobile
+execution path: `executeRelayQuote.ts`, `fallbackDex.ts`, `fallbackTxFirewall.ts`,
+`walletPrices.ts`, `tradeErrors.ts`. Solana remains view-only on mobile until its
+local signer is exposed through the trade-support gate. `usdcBalances.ts`,
+`solanaSpendGuard.ts`, and `solanaTxIntent.ts` are used by the mobile trading
+path.
 
 ## `kivo/` — Kivo adapter over the engine
 
@@ -53,5 +52,5 @@ send in order, confirm each receipt → poll Relay). Only the signer differs:
   turned into a viem account inside `walletStore.localEvmSigner()`, and never
   returned or logged.
 
-Execution pays normal network gas from the user's wallet. Relay gas
-sponsorship stays off until Kivo runs its own sponsor infrastructure.
+Mobile execution uses Kivo's Relay sponsorship endpoint and does not silently
+fall back to user-paid gas. Web execution remains a separate signer path.
