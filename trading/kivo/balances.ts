@@ -10,6 +10,14 @@ import {EVM_TRADE_CHAINS, USDC_CHAINS, nativeSymbol} from './tokens';
 
 const EVM_CASH_CHAINS = EVM_TRADE_CHAINS;
 
+/** USDC kept on Arc so the wallet can still pay the network gas after a trade. */
+export const ARC_GAS_RESERVE_USDC = 0.01;
+
+export function spendableCash(chainKey: ChainKey, balance: number): number {
+  if (chainKey !== 'arc') return balance;
+  return Math.max(0, balance - ARC_GAS_RESERVE_USDC);
+}
+
 const READ_TIMEOUT_MS = 8_000;
 const CASH_CACHE_TTL_MS = 30_000;
 let cashCache: {key: string; rows: CashBalanceRow[]; at: number} | null = null;
