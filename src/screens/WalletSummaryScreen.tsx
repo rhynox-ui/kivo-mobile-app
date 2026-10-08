@@ -330,7 +330,7 @@ function WithdrawSheet({
   const [review, setReview] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string; hash?: string; chainId?: number } | null>(null);
 
-  const chains = useMemo<WithdrawNetwork[]>(() => { const funded: WithdrawNetwork[] = (rows ?? []).filter(r => r.status === 'ok' && r.balance.amount > 0).map(r => r.chainKey); if (nearBalance > 0 && wallet.nearAddress) funded.push('near'); return [...new Set<WithdrawNetwork>(funded)]; }, [rows, nearBalance, wallet.nearAddress]);
+  // Mango parity: the withdrawal picker always shows every supported cash network, not only networks with a positive balance. The selected network then shows its live available balance (including 0), so users can still choose the network before funding it.\n  const chains = useMemo<WithdrawNetwork[]>(() => { const supported: WithdrawNetwork[] = [...CASH_CHAINS]; if (wallet.nearAddress && nearCashMoveChains().length > 0) supported.push('near'); return [...new Set<WithdrawNetwork>(supported)]; }, [wallet.nearAddress]);
   const row = chain && chain !== 'near' ? rows?.find(r => r.chainKey === chain) : null;
   const available = chain === 'near' ? nearBalance : (row?.status === 'ok' ? row.balance.amount : 0);
   const parsed = Number(amount);
@@ -443,7 +443,7 @@ This transfer cannot be reversed.`,
 
                 {!chain ? (
                   <ScrollView style={styles.networkList} nestedScrollEnabled showsVerticalScrollIndicator>
-                    {chains.length === 0 && <Text style={styles.note}>No network has a withdrawable USDC balance.</Text>}
+                    {!rows && <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginVertical: 12 }} />}
                     {chains.map(chainKey => {
                       const balanceRow = rows?.find(r => r.chainKey === chainKey);
                       const balance = chainKey === 'near' ? nearBalance : (balanceRow?.status === 'ok' ? balanceRow.balance.amount : 0);
