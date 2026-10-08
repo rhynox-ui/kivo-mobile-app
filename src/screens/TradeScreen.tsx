@@ -279,7 +279,14 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       </Pressable>
 
       {!selectedToken ? <Text style={styles.note}>Pick a token from Discover or Search to open a live trade ticket.</Text>
-        : !support?.ok ? <View style={styles.notice}><Text style={styles.noticeText}>{support?.reason}</Text></View>
+        : nearToken ? (
+          <NearTradePanel
+            token={nearToken}
+            wallet={wallet!}
+            initialSide={side}
+            onOpenHistory={onOpenHistory}
+          />
+        ) : !support?.ok ? <View style={styles.notice}><Text style={styles.noticeText}>{support?.reason}</Text></View>
         : (
           <>
             <TokenChartPanel token={token!} />
