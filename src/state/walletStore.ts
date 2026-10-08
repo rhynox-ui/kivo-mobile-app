@@ -8,8 +8,11 @@ import type { Keypair } from '@solana/web3.js';
 import { deriveSolanaKeypair } from '../wallet/solanaKeys';
 
 const SERVICE = 'com.kivo.chat.wallet';
+let cachedStorageOptions: Keychain.SetOptions | null = null;
+let loadingWallet: Promise<WalletSession | null> | null = null;
 
 async function walletStorageOptions() {
+  if (cachedStorageOptions) return cachedStorageOptions;
   const options: Keychain.SetOptions = {
     service: SERVICE,
     accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
@@ -28,6 +31,7 @@ async function walletStorageOptions() {
       // query is unavailable on this device.
     }
   }
+  cachedStorageOptions = options;
   return options;
 }
 
@@ -67,12 +71,19 @@ export async function importLocalWallet(mnemonic:string){
 }
 
 export async function loadWalletSession(){
-  const credentials=await Keychain.getGenericPassword({service:SERVICE});
-  if(!credentials) return null;
-  const account=mnemonicToAccount(credentials.password);
-  session={address:account.address,solanaAddress:solanaAddressFor(credentials.password),source:'local'};
-  emit();
-  return getWalletSession();
+  if (session) return getWalletSession();
+  if (loadingWallet) return loadingWallet;
+  loadingWallet = (async () => {
+    const credentials=await Keychain.getGenericPassword({service:SERVICE});
+    if(!credentials) return null;
+    const account=mnemonicToAccount(credentials.password);
+    // Derive Solana once per process. Mango Pro also derives account 0 only;
+    // repeated screen mounts must not repeat HD derivation.
+    session={address:account.address,solanaAddress:solanaAddressFor(credentials.password),source:'local'};
+    emit();
+    return getWalletSession();
+  })();
+  try { return await loadingWallet; } finally { loadingWallet = null; }
 }
 
 export function getWalletSession(){return session?{...session}:null;}
@@ -94,7 +105,7 @@ export async function clearLocalWallet(){
   await Keychain.resetGenericPassword({service:SERVICE});
   const remaining=await Keychain.getGenericPassword({service:SERVICE});
   if (remaining) throw new Error('Kivo could not verify secure wallet deletion.');
-  session=null;emit();
+  session=null;loadingWallet=null;emit();
 }
 
 export function isValidRecoveryWord(mnemonic:string,index:number,value:string){
