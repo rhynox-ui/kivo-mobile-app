@@ -17,6 +17,7 @@ import { updateSettings, useSettings } from '../state/settingsStore';
 import { TokenChartPanel } from '../components/TokenChartPanel';
 import { MAINNET_CHAIN_IDS } from '@kivo/trading/core/chainData';
 import { checkSolanaTokenSecurity, checkTokenSecurity } from '@kivo/trading/core/goplusTokenSecurity';
+import { NearTradePanel } from './NearTradePanel';
 
 type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
 type ExecResult = { tone: 'success' | 'pending' | 'error'; message: string; hashes: string[]; chainIds: number[]; requestId: string | null };
@@ -63,8 +64,9 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   useEffect(() => { setSide(initialSide); }, [initialSide]);
 
   const support = selectedToken ? tradeSupportFor(selectedToken, wallet ? { kind: walletKind(wallet)! } : null) : null;
-  const token = support?.ok && selectedToken ? { ...selectedToken, chainKey: support.chainKey } : null;
+  const token = support?.ok && selectedToken && selectedToken.chainKey !== 'near' ? { ...selectedToken, chainKey: support.chainKey } : null;
   const address = wallet?.address ?? null;
+  const nearToken = selectedToken?.chainKey === 'near' && wallet?.source === 'local' && wallet?.nearAddress ? selectedToken : null;
 
   // Reset the ticket whenever the token, side or wallet changes.
   useEffect(() => {
