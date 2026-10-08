@@ -1,7 +1,7 @@
 import * as bip39 from '@scure/bip39';
 import {Keypair} from '@solana/web3.js';
 import bs58 from 'bs58';
-import {derivePath} from './slip10Ed25519';
+import {derivePath} from './slip10Ed25519.ts';
 
 // The account shape Mango Pro's execution code expects. In Kivo it is built
 // only inside a device-unlock callback and never stored.
