@@ -11,7 +11,10 @@ class MainApplication : Application(), ReactApplication {
   override val reactHost: ReactHost by lazy {
     getDefaultReactHost(
       context = applicationContext,
-      packageList = PackageList(this).packages.apply { add(ScreenSecurityPackage()) },
+      packageList = PackageList(this).packages.apply {
+        add(Pbkdf2Package())
+        add(ScreenSecurityPackage())
+      },
     )
   }
   override fun onCreate() {
