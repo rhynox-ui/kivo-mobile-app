@@ -23,6 +23,7 @@ import {IntearRouteError, assertIntearRouteSafe, feeTransaction, fetchIntearRout
 import {classifySwapOutcomes, type SwapOutcomeStatus} from './nearOutcome.ts';
 import {nearRpc, nearView} from './nearRpc.ts';
 import {assertRelayGaslessEvmAvailable} from './relayGaslessEvm.ts';
+import {privateKeyToAccount} from 'viem/accounts';
 import {getViemChain} from './chainRegistry.ts';
 import {NearSendError, ensureNearAccount, sendSponsoredNearCalls, type NearCall, type NearRelayOutcome} from './nearSigning.ts';
 import type {DerivedAccounts} from '../wallet/keys';
@@ -143,7 +144,7 @@ export async function fundNearUsdcForTrade(
         fromAddress: sourceChain === 'solana' ? session.solana.address : session.evm.address,
         send: async (to, sendAmount) => {
           const {sendUsdc} = await import('../kivo/cash.ts');
-          return (await sendUsdc(sourceChain, {address: session.evm.address, type: 'local', source: 'privateKey'} as any, to, sendAmount)).hash;
+          return (await sendUsdc(sourceChain, privateKeyToAccount(session.evm.privateKey as `0x${string}`), to, sendAmount)).hash;
         },
         store,
         submitDepositTx: (txHash, depositAddress) => submitOneClickDepositTx(txHash, depositAddress, {baseUrl: ONE_CLICK_PROXY_BASE_URL}),
