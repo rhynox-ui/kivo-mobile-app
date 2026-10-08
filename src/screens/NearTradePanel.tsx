@@ -7,6 +7,8 @@ import {fetchNearTokenBalance, fetchNearTokenMeta, executeNearTrade, quoteNearTr
 import type {DerivedAccounts} from '@kivo/trading/wallet/keys';
 import type {KivoToken, TradeSide} from '@kivo/trading/kivo/tokens';
 import {withDeviceAccounts, type WalletSession} from '../state/walletStore';
+import {oneClickSwapStore} from '@kivo/trading/wallet/oneClickSwapStore';
+import {fundNearUsdcForTrade} from '@kivo/trading/core/nearTrade';
 
 function sessionFromAccounts(accounts: {evm: any; solana: any; near: {address: string; privateKey: string}}): DerivedAccounts {
   const evmKey = accounts.evm.getHdKey().privateKey;
@@ -33,6 +35,7 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
   const [quote, setQuote] = useState<NearTradeQuote|null>(null);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
+  const [funding, setFunding] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
@@ -76,6 +79,15 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
     try {
       await withDeviceAccounts(`Confirm NEAR ${side} ${token.symbol}`, async accounts => {
         const session = sessionFromAccounts(accounts);
+        const neededNearUsdc = quote.side === 'buy'
+          ? quote.payUnits
+          : 0n;
+        const currentNearUsdc = await fetchNearTokenBalance(NEAR_USDC, session.near!.address);
+        if (neededNearUsdc > currentNearUsdc) {
+          setFunding(true);
+          await fundNearUsdcForTrade(session, neededNearUsdc - currentNearUsdc, {store: oneClickSwapStore});
+          setFunding(false);
+        }
         const result = await executeNearTrade(session, quote, {requote: () => quoteNearTrade({
           side: quote.side, token: quote.token, payUnits: quote.payUnits, accountId: session.near!.address, slippageBps: quote.slippageBps,
         })});
@@ -85,11 +97,12 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
         onOpenHistory?.();
       });
     } catch (e) {
+      setFunding(false);
       setError(e instanceof Error ? e.message : 'NEAR trade failed. Nothing was signed.');
     } finally {setRunning(false);}
   };
 
-  const insufficient = valid && numeric > available;
+  const insufficient = valid && side === 'sell' && numeric > available;
   return (
     <View style={styles.container}>
       <View style={styles.header}><Text style={styles.title}>{token.symbol} · NEAR</Text><Text style={styles.account}>{wallet.nearAddress ? `${wallet.nearAddress.slice(0,8)}…${wallet.nearAddress.slice(-6)}` : 'NEAR account unavailable'}</Text></View>
@@ -107,7 +120,7 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
           {text:'Confirm',onPress:()=>{void execute();}},
         ]);
       }} style={[styles.button, (!quote || running || insufficient) && styles.disabled]}>
-        {running ? <ActivityIndicator color={c.backgroundDeep}/> : <Text style={styles.buttonText}>{side === 'buy' ? 'Buy' : 'Sell'} {token.symbol}</Text>}
+        {running ? <ActivityIndicator color={c.backgroundDeep}/> : <Text style={styles.buttonText}>{funding ? 'Funding from Kivo cash…' : side === 'buy' ? 'Buy' : 'Sell'} {token.symbol}</Text>}
       </Pressable>
     </View>
   );
