@@ -32,6 +32,7 @@ import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, type CashBalanc
 import { isValidRecipientAddress, withdrawUsdc } from '@kivo/trading/kivo/cash';
 import { fetchGaslessStatus, type GaslessStatus } from '@kivo/trading/kivo/gasless';
 import { formatAmount, formatUsd, shortAddress, USDC_CHAINS } from '@kivo/trading/kivo/tokens';
+import { NetworkIcon } from '../wallet/NetworkIcon';
 
 type Sheet = null | 'deposit' | 'withdraw';
 type DepositNetwork = ChainKey | 'near';
@@ -173,7 +174,7 @@ export function WalletSummaryScreen({
               <Text style={styles.note}>No USDC yet. Tap Deposit and send USDC on any supported network.</Text>
             ) : (
               <>
-              {nearBalance > 0 && wallet.nearAddress && <View key="near" style={styles.row}><View style={styles.rowLeft}><NetworkBadge network="near" /><Text style={styles.rowName}>USDC · NEAR</Text></View><Text style={styles.rowValue}>{mask(formatAmount(nearBalance, 2))}</Text></View>}
+              {nearBalance > 0 && wallet.nearAddress && <View key="near" style={styles.row}><View style={styles.rowLeft}><NetworkIcon chainKey="near" size={22} /><Text style={styles.rowName}>USDC · NEAR</Text></View><Text style={styles.rowValue}>{mask(formatAmount(nearBalance, 2))}</Text></View>}
               {funded.map(row => (
                 <View key={row.chainKey} style={styles.row}>
                   <View style={styles.rowLeft}>
@@ -277,7 +278,7 @@ function DepositSheet({
                 {DEPOSIT_CHAINS.map(chain => (
                   <Pressable key={chain} onPress={() => setNetwork(chain)} style={styles.networkRow}>
                     <View style={styles.rowLeft}>
-                      <NetworkBadge network={chain} />
+                      <NetworkIcon chainKey={chain} size={22} />
                       <Text style={styles.networkRowText}>{CHAIN_LABEL[chain]}</Text>
                     </View>
                     <Text style={styles.chevron}>›</Text>
@@ -311,7 +312,7 @@ function DepositSheet({
               <View style={styles.addressPanel}>
                 <View style={styles.addressPanelHeader}>
                   <Text style={styles.addressFull} selectable>{address || 'Address unavailable'}</Text>
-                  <NetworkBadge network={selected} />
+                  <NetworkIcon chainKey={selected} size={22} />
                 </View>
               </View>
 
@@ -607,26 +608,26 @@ const styles = StyleSheet.create({
   rowValue: { color: c.text, fontWeight: '800', fontSize: 13 },
   networkBadge: { width: 32, height: 32, borderRadius: 16, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' },
   networkGlyph: { color: c.cream, fontSize: 13, fontWeight: '900' },
-  backdrop: { flex: 1, backgroundColor: 'rgba(1,15,13,0.7)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: c.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 34, borderWidth: 1, borderColor: c.border, maxHeight: '92%' },
-  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  sheetTitle: { color: c.text, fontSize: 20, fontWeight: '800' },
-  networkList: { maxHeight: 430, marginBottom: 8 },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: '#1B1B1E', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 36, maxHeight: '92%' },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
+  sheetTitle: { color: '#F4F4F5', fontSize: 18, fontWeight: '800' },
+  networkList: { maxHeight: 520, flexShrink: 1, marginBottom: 0 },
   depositNetworkContent: { paddingBottom: 4 },
-  backText: { color: c.cream, fontSize: 14, fontWeight: '800' },
-  headerSpacer: { width: 48 },
-  addressSectionTitle: { color: c.textMuted, fontSize: 11, fontWeight: '900', letterSpacing: 1, marginTop: 4, textTransform: 'uppercase' },
-  networkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 7 },
-  networkRowActive: { borderColor: c.accent, backgroundColor: c.surfaceRaised },
+  backText: { color: '#F4F4F5', fontSize: 14, fontWeight: '700' },
+  headerSpacer: { width: 20 },
+  addressSectionTitle: { color: '#85858C', fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginTop: 0, textTransform: 'uppercase' },
+  networkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#242428', borderRadius: 16, paddingHorizontal: 16, paddingVertical: 15, marginBottom: 8 },
+  networkRowActive: { backgroundColor: '#2B2B2F' },
   disabledRow: { opacity: 0.45 },
-  networkRowText: { color: c.text, fontSize: 14, fontWeight: '700' },
-  networkRowBalance: { color: c.textMuted, fontSize: 13, fontWeight: '700' },
-  chevron: { color: c.textMuted, fontSize: 24, lineHeight: 24 },
-  sectionLabel: { color: c.textMuted, fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginTop: 8, marginBottom: 7, textTransform: 'uppercase' },
-  addressPanel: { backgroundColor: c.backgroundDeep, borderRadius: 16, borderWidth: 1, borderColor: c.border, padding: 14, marginTop: 8 },
+  networkRowText: { color: '#F4F4F5', fontSize: 15, fontWeight: '700' },
+  networkRowBalance: { color: '#85858C', fontSize: 13, fontWeight: '600' },
+  chevron: { color: '#85858C', fontSize: 20, lineHeight: 20 },
+  sectionLabel: { color: '#85858C', fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginTop: 8, marginBottom: 7, textTransform: 'uppercase' },
+  addressPanel: { backgroundColor: '#242428', borderRadius: 12, borderWidth: 1, borderColor: '#3A3A3F', padding: 14, marginTop: 8 },
   addressPanelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  addressLabel: { color: c.textMuted, fontSize: 11, fontWeight: '800' },
-  addressFull: { color: c.cream, fontSize: 13, fontWeight: '800', lineHeight: 20, marginTop: 7 },
+  addressLabel: { color: '#85858C', fontSize: 11, fontWeight: '700' },
+  addressFull: { color: '#F4F4F5', fontSize: 14, fontWeight: '600', lineHeight: 20, marginTop: 8 },
   label: { color: c.textMuted, fontSize: 11, fontWeight: '900', letterSpacing: 1, marginTop: 12, textTransform: 'uppercase' },
   input: { height: 48, borderRadius: 14, paddingHorizontal: 14, backgroundColor: c.surface, color: c.text, fontSize: 15, borderWidth: 1, borderColor: c.border, marginTop: 7 },
   amountRow: { flexDirection: 'row', gap: 8 },
