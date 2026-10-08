@@ -1,0 +1,1 @@
+import {NativeModules} from 'react-native';export async function setScreenSecure(secure:boolean):Promise<boolean>{try{const module=NativeModules.ScreenSecurityModule;if(!module?.setSecure)return false;return await module.setSecure(secure);}catch{return false;}}
