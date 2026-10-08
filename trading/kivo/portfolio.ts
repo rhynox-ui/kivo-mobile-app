@@ -10,7 +10,7 @@
 // discovered (no indexer), and the UI says so.
 
 import type {KeyValueStorage} from '../../shared/storage';
-import {CHAIN_LABEL, NATIVE_SYMBOL, NEAR_USDC, NEAR_USDC_DECIMALS, type ChainKey} from '../core/chainData';
+import {CHAIN_LABEL, NATIVE_SYMBOL, NEAR_USDC, NEAR_USDC_DECIMALS, type ChainKey, type TradeChain} from '../core/chainData';
 import {resolveDexScreenerPair} from '../core/dexScreener';
 import {fetchWalletPrices} from '../core/walletPrices';
 import {cashAssetSymbol, fetchCashBalances, readNativeBalance, readSolanaNativeBalance, readSolanaTokenBalance, readTokenBalance} from './balances';
@@ -22,7 +22,7 @@ import {fetchNearTokenBalance} from '../core/nearTrade';
 export type Holding = {
   key: string;
   kind: 'native' | 'cash' | 'token';
-  chainKey: ChainKey;
+  chainKey: TradeChain;
   address: string;
   symbol: string;
   name: string;
@@ -43,7 +43,7 @@ export type Portfolio = {
   fetchedAt: number;
 };
 
-export type ClosedPosition = {key: string; chainKey: ChainKey; address: string; symbol: string; imageUrl: string | null; lastTradeAt: number};
+export type ClosedPosition = {key: string; chainKey: TradeChain; address: string; symbol: string; imageUrl: string | null; lastTradeAt: number};
 
 const NATIVE_ADDRESS = '0x0000000000000000000000000000000000000000';
 const DUST_USD = 0.005;
@@ -68,13 +68,14 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
     Promise.allSettled(nativeChains.map(chain => readNativeBalance(chain, owner))),
     fetchCashBalances(owner, undefined, addresses?.solanaAddress ?? owner),
     addresses?.nearAddress ? fetchNearTokenBalance(NEAR_USDC, addresses.nearAddress).catch(() => 0n) : Promise.resolve(0n),
-    Promise.allSettled(tradedTokens(history).map(async token => {
+    Promise.allSettled(tradedTokens(history).filter(token => token.chainKey !== 'near').map(async token => {
       const [balance, pair] = await Promise.all([
         token.chainKey === 'solana' ? readSolanaTokenBalance(token.address, addresses?.solanaAddress ?? owner, token.symbol) : readTokenBalance(token.chainKey, token.address, owner, token.symbol),
         resolveDexScreenerPair({chainKey: token.chainKey, tokenAddress: token.address}),
       ]);
       return {token, balance, priceUsd: pair?.priceUsd ?? null};
     })),
+    addresses ? fetchWalletAssets(owner, addresses?.solanaAddress ?? owner, addresses?.nearAddress ?? null) : fetchWalletAssets(owner, owner, null),
   ]);
 
   const holdings: Holding[] = [];
@@ -154,7 +155,7 @@ export function openHoldings(portfolio: Portfolio): Holding[] {
 export function closedPositions(portfolio: Portfolio, history: TradeRecord[]): ClosedPosition[] {
   const held = new Map(portfolio.holdings.filter(h => h.kind === 'token').map(h => [h.key, h]));
   return tradedTokens(history)
-    .filter(t => t.chainKey !== 'solana')
+    .filter(t => t.chainKey !== 'solana' && t.chainKey !== 'near')
     .filter(t => {
       const h = held.get(`${t.chainKey}:${t.address.toLowerCase()}`);
       return h && (h.amount === 0 || (h.valueUsd != null && h.valueUsd < DUST_USD));
