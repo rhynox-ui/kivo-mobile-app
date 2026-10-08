@@ -1,7 +1,9 @@
 import React from 'react';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { kivoTheme } from '../theme/kivoTheme';
 import { updateSettings, useSettings } from '../state/settingsStore';
+import { enableBiometricUnlock } from '../state/walletStore';
+import { getTradeHistory } from '@kivo/trading/kivo/history';
 
 type SettingsItem = {
   label: string;
@@ -35,15 +37,28 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onLogout }
       case 'wallet': onOpenWallet?.(); return;
       case 'profile': onOpenProfile?.(); return;
       case 'haptics': updateSettings({haptics:!settings.haptics}); return;
-      case 'notifications': updateSettings({notifications:!settings.notifications}); return;
+      case 'notifications':
+        updateSettings({notifications:!settings.notifications});
+        Linking.openSettings().catch(()=>{});
+        return;
       case 'language': updateSettings({language:settings.language==='System'?'English':'System'}); return;
-      case 'security': Alert.alert('Security','Kivo keeps signing authority separate from your public profile. Production wallet secrets must stay in secure device storage.'); return;
-      case 'legal': Alert.alert('Legal and Privacy','Kivo is designed as a non-custodial wallet-native social app. Review the current Terms, Privacy and Security documents before using production trading.'); return;
-      case 'taxes': Alert.alert('Taxes','Kivo does not calculate or file taxes yet. Keep your own transaction records and consult a qualified tax professional for your jurisdiction.'); return;
-      case 'help': Alert.alert('Help and Support','For support, include the Kivo app version, device model and the exact error message. Never send a recovery phrase or private key.'); return;
+      case 'security':
+        Alert.alert('Security','Wallet keys stay in secure device storage. You can enable biometric unlock for faster access.',[
+          {text:'Cancel',style:'cancel'},
+          {text:'Enable biometrics',onPress:()=>enableBiometricUnlock().catch(error=>Alert.alert('Biometrics',error instanceof Error ? error.message : 'Unable to enable biometric unlock.'))},
+        ]); return;
+      case 'legal': Linking.openURL('https://kivo-web.pages.dev/docs/').catch(()=>Alert.alert('Legal and Privacy','Unable to open Kivo documentation right now.')); return;
+      case 'taxes': {
+        const rows = getTradeHistory();
+        if (!rows.length) { Alert.alert('Taxes','No signed trades are recorded on this device yet.'); return; }
+        const csv = ['Date,Side,Chain,Pay,Receive,Status,Transaction hash', ...rows.map(r => [new Date(r.createdAt).toISOString(),r.side,r.token.chainKey,`${r.pay.amount} ${r.pay.symbol}`,`${r.receive.amount ?? ''} ${r.receive.symbol}`,r.status,r.txHashes[0] ?? ''].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','))].join('\\n');
+        Share.share({message:csv,title:'Kivo trade history.csv'}).catch(()=>{});
+        return;
+      }
+      case 'help': Linking.openURL('mailto:support@kivotrade.site?subject=Kivo%20Support').catch(()=>Alert.alert('Help and Support','Unable to open your email app right now.')); return;
       case 'docs': Linking.openURL('https://kivo-web.pages.dev/docs/').catch(()=>Alert.alert('Documentation','Unable to open documentation right now.')); return;
       case 'x': Linking.openURL('https://x.com/Kivotrade').catch(()=>Alert.alert('Kivo on X','Unable to open X right now.')); return;
-      case 'telegram': Alert.alert('Kivo Telegram','The official community link will be connected here when the channel is configured.'); return;
+      case 'telegram': Linking.openURL('https://t.me/Kivotrade').catch(()=>Alert.alert('Kivo Telegram','Unable to open Telegram right now.')); return;
       case 'logout':
         Alert.alert('Log out','End the current Kivo session on this device?',[
           {text:'Cancel',style:'cancel'},
