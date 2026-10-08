@@ -9,7 +9,7 @@ import { api, storage, useSocialReady } from '../state/session';
 import { useChatState } from '../state/useChat';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import type { ProfileSocial } from '@kivo/shared/api/types';
-import { CHAIN_LABEL } from '@kivo/trading/core/chainData';
+import { CHAIN_LABEL, tradeChainLabel } from '@kivo/trading/core/chainData';
 import { subscribeToTradeHistory, type TradeRecord } from '@kivo/trading/kivo/history';
 import { closedPositions, computePortfolioChange, fetchPortfolio, filterHistoryByRange, getPortfolioHistory, openHoldings, recordPortfolioSnapshot, type Portfolio, type PortfolioRange, type PortfolioSnapshot } from '@kivo/trading/kivo/portfolio';
 import { formatAmount, formatUsd } from '@kivo/trading/kivo/tokens';
@@ -164,14 +164,14 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
           ? (visibleOpen.length ? visibleOpen.map(h => (
             <View key={h.key} style={styles.position}>
               <View style={styles.tokenIcon}>{h.imageUrl ? <Image source={{ uri: h.imageUrl }} style={styles.tokenImage} /> : <Text style={styles.tokenLetter}>{h.symbol.slice(0, 1)}</Text>}</View>
-              <View style={styles.flex}><Text style={styles.tokenName}>{h.symbol}</Text><Text style={styles.small}>{hidden ? '••••' : formatAmount(h.amount)} · {CHAIN_LABEL[h.chainKey]}</Text>{!hidden && h.entryPriceUsd != null && h.entryPriceUsd > 0 && h.priceUsd != null && h.priceUsd > 0 ? <Text style={[styles.small, h.priceUsd >= h.entryPriceUsd ? styles.up : styles.down]}>Entry {formatUsd(h.entryPriceUsd)} · {h.priceUsd >= h.entryPriceUsd ? '▲' : '▼'} {Math.abs((h.priceUsd / h.entryPriceUsd - 1) * 100).toFixed(2)}%</Text> : null}{!hidden && h.pnlUsd != null ? <Text style={[styles.small,h.pnlUsd>=0?styles.up:styles.down]}>PnL {h.pnlUsd>=0?'+':''}{formatUsd(h.pnlUsd)} {h.pnlPct!=null?`(${h.pnlPct>=0?'+':''}${h.pnlPct.toFixed(2)}%)`:''}</Text> : null}</View>
+              <View style={styles.flex}><Text style={styles.tokenName}>{h.symbol}</Text><Text style={styles.small}>{hidden ? '••••' : formatAmount(h.amount)} · {tradeChainLabel(h.chainKey)}</Text>{!hidden && h.entryPriceUsd != null && h.entryPriceUsd > 0 && h.priceUsd != null && h.priceUsd > 0 ? <Text style={[styles.small, h.priceUsd >= h.entryPriceUsd ? styles.up : styles.down]}>Entry {formatUsd(h.entryPriceUsd)} · {h.priceUsd >= h.entryPriceUsd ? '▲' : '▼'} {Math.abs((h.priceUsd / h.entryPriceUsd - 1) * 100).toFixed(2)}%</Text> : null}{!hidden && h.pnlUsd != null ? <Text style={[styles.small,h.pnlUsd>=0?styles.up:styles.down]}>PnL {h.pnlUsd>=0?'+':''}{formatUsd(h.pnlUsd)} {h.pnlPct!=null?`(${h.pnlPct>=0?'+':''}${h.pnlPct.toFixed(2)}%)`:''}</Text> : null}</View>
               <Text style={styles.positionValue}>{h.valueUsd == null ? 'No price' : money(h.valueUsd)}</Text>
             </View>
           )) : <Empty title="No positions yet" body="Your tokens and trading positions will appear here." />)
           : (closed.length ? closed.map(p => (
             <View key={p.key} style={styles.position}>
               <View style={styles.tokenIcon}><Text style={styles.tokenLetter}>{p.symbol.slice(0, 1)}</Text></View>
-              <View style={styles.flex}><Text style={styles.tokenName}>{p.symbol}</Text><Text style={styles.small}>{CHAIN_LABEL[p.chainKey]} · closed</Text></View>
+              <View style={styles.flex}><Text style={styles.tokenName}>{p.symbol}</Text><Text style={styles.small}>{tradeChainLabel(p.chainKey)} · closed</Text></View>
             </View>
           )) : <Empty title="No closed positions" body="Tokens you fully sell appear here." />)}
       <View style={styles.assetVisibilityRow}>
