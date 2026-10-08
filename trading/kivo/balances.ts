@@ -71,14 +71,18 @@ export async function readNativeBalance(chainKey: ChainKey, owner: string): Prom
 }
 
 /** USDC on one chain, with the chain's real on-chain decimals (BNB Chain USDC is 18, not 6). */
-export function cashAssetSymbol(chainKey: ChainKey): 'USDC' | 'USDG' { return chainKey === 'robinhood' ? 'USDG' : 'USDC'; }\n\nexport function cashAssetAddress(chainKey: ChainKey): string { const symbol = cashAssetSymbol(chainKey); const address = TOKEN_ADDRESSES[symbol]?.[chainKey]; if (!address) throw new Error(`No verified ${symbol} contract on ${chainKey}.`); return address; }\n\nexport async function readUsdcBalance(chainKey: ChainKey, owner: string): Promise<TokenBalance> {
-  const address = TOKEN_ADDRESSES.USDC?.[chainKey];
-  if (!address) throw new Error(`No verified USDC contract on ${chainKey}.`);
+export function cashAssetSymbol(chainKey: ChainKey): 'USDC' | 'USDG' { return chainKey === 'robinhood' ? 'USDG' : 'USDC'; }
+
+export function cashAssetAddress(chainKey: ChainKey): string { const symbol = cashAssetSymbol(chainKey); const address = TOKEN_ADDRESSES[symbol]?.[chainKey]; if (!address) throw new Error(`No verified ${symbol} contract on ${chainKey}.`); return address; }
+
+export async function readUsdcBalance(chainKey: ChainKey, owner: string): Promise<TokenBalance> {
+  const cashSymbol = cashAssetSymbol(chainKey);
+  const address = cashAssetAddress(chainKey);
   // Mango Pro keeps verified token decimals in chainData. Do the same here:
   // a USDC balance screen should not make a second RPC call per chain just to
   // read a static contract property.
-  const decimals = assetDecimalsForChain(chainKey, 'USDC') ?? 6;
-  return readTokenBalance(chainKey, address, owner, 'USDC', decimals);
+  const decimals = assetDecimalsForChain(chainKey, cashSymbol) ?? 6;
+  return readTokenBalance(chainKey, address, owner, cashSymbol, decimals);
 }
 export async function readSolanaUsdcBalance(owner: string): Promise<TokenBalance> {
   const mintAddress = TOKEN_ADDRESSES.USDC?.solana;
