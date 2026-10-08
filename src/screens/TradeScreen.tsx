@@ -41,6 +41,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const [wallet, setWallet] = useState<WalletSession | null>(getWalletSession());
   const [cash, setCash] = useState<CashBalanceRow[] | null>(null);
   const [tokenBalance, setTokenBalance] = useState<TokenBalance | null>(null);
+  const tokenDecimals = tokenBalance?.decimals ?? 18;
   const [balanceError, setBalanceError] = useState('');
   // Buy: a unified-cash plan (one or more legs). Sell: a single-leg plan.
   const [plan, setQuote] = useState<UnifiedPlan | null>(null);
@@ -70,7 +71,6 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
     ? { ...selectedToken, chainKey: support.chainKey as ChainKey }
     : null;
   const address = wallet?.address ?? null;
-  const tokenDecimals = tokenBalance?.decimals ?? 18;
   const nearToken = selectedToken?.chainKey === 'near' && wallet?.source === 'local' && wallet?.nearAddress
     ? (selectedToken as KivoToken & { chainKey: 'near' })
     : null;
