@@ -41,7 +41,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
    const amountBaseUnits=parseUnits(amount,decimals).toString();
    if(from==='near'||to==='near'){
      if(!wallet.nearAddress) throw new Error('NEAR account is unavailable.');
-     const publicSession={evm:{address:wallet.address,privateKey:''},solana:{address:wallet.solanaAddress??'',privateKey:''},near:{address:wallet.nearAddress,privateKey:''},authMethod:'seed'} as DerivedAccounts;
+     const publicSession: DerivedAccounts = {evm:{address:wallet.address,privateKey:''},solana:{address:wallet.solanaAddress??'',privateKey:''},near:{address:wallet.nearAddress,privateKey:''},authMethod:'seed'};
      const tokens=await cachedOneClickTokens();
      const move=nearCashMoveRequest({direction:from==='near'?'from-near':'to-near',chainKey:(from==='near'?to:from) as ChainKey,amountBaseUnits,session:publicSession,tokens,dry:true});
      const response=await requestOneClickQuote(move.request);
@@ -61,7 +61,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
        const move=nearCashMoveRequest({direction:from==='near'?'from-near':'to-near',chainKey:(from==='near'?to:from) as ChainKey,amountBaseUnits:parseUnits(amount,decimals).toString(),session,tokens,dry:false});
        const response=await requestOneClickQuote(move.request);
        const originDecimals=from==='near'?NEAR_USDC_DECIMALS:decimalsFor(from);
-       const fromAddress=from==='near'?session.near!.address:(from==='solana'?session.solana.address:session.evm.address);
+       const fromAddress=from==='near'?session.near!.address:(from==='solana'?wallet.solanaAddress!:wallet.address);
        const record=await fundOneClickQuote({response,expected:move.expected,originChainKey:from==='near'?'near':from as ChainKey,originSymbol:'USDC',originDecimals,fromAddress,store:oneClickSwapStore,submitDepositTx:(txHash,depositAddress)=>submitOneClickDepositTx(txHash,depositAddress),send:async(toAddress,sendAmount)=>{
          if(from==='near'){const call=await nearUsdcDepositCall(toAddress,parseUnits(sendAmount,NEAR_USDC_DECIMALS),nearView);const [outcome]=await import('@kivo/trading/core/nearSigning').then(m=>m.sendSponsoredNearCalls(session,[call]));return outcome.hash;}
          const {withdrawUsdc}=await import('@kivo/trading/kivo/cash'); return (await withdrawUsdc(from as ChainKey,accounts.evm,accounts.solana,toAddress,sendAmount)).hash;
