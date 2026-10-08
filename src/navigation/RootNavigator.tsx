@@ -19,7 +19,8 @@ import { MainShell } from '../screens/MainShell';
 import { kivoTheme } from '../theme/kivoTheme';
 import { loadWalletSession } from '../state/walletStore';
 import { api, startKivoSession } from '../state/session';
-import { clearLocalWallet, isBiometricUnlockEnabled } from '../state/walletStore';
+import { clearLocalWallet } from '../state/walletStore';
+import { isBiometricUnlockEnabled } from '../wallet/biometricAuth';
 
 export type RootStackParamList = {
   Splash: undefined;
