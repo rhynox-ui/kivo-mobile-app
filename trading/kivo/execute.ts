@@ -103,7 +103,7 @@ export async function fetchRelayStatus(requestId: string): Promise<RelayStatus> 
 }
 
 /** Every pre-sign check, with nothing signed. Throws on any problem; returns firewall warnings and the ordered calls. */
-export function preflightKivoQuote(kq: KivoQuote, signerAddress: string, now = Date.now()): {calls: EvmCall[]; warnings: string[]; requestId: string | null} {
+export function preflightKivoQuote(kq: KivoQuote, signerAddress: string, now = Date.now(), options: {allowSolana?: boolean} = {}): {calls: EvmCall[]; warnings: string[]; requestId: string | null} {
   const tagged = intentForQuote(kq.quote);
   if (!tagged) throw new KivoExecutionError('This quote has no recorded intent to check against — refusing to sign.');
   if (now - tagged.quotedAt > QUOTE_MAX_AGE_MS) throw new KivoExecutionError('This quote has expired. Refresh it before signing.');
@@ -119,9 +119,10 @@ export function preflightKivoQuote(kq: KivoQuote, signerAddress: string, now = D
     for (const item of step.items ?? []) if (item.status !== 'complete') pending.push(item);
   }
   if (pending.length === 0) throw new KivoExecutionError('The route returned no transactions to sign.');
-  if (pending.some(item => item.data?.instructions)) throw new KivoExecutionError('This route includes a Solana transaction. Kivo currently signs EVM transactions only.');
+  if (!options.allowSolana && pending.some(item => item.data?.instructions)) throw new KivoExecutionError('This route includes a Solana transaction. Kivo currently signs EVM transactions only.');
   const warnings = assertQuoteSafeToSign(kq.quote, tagged.intent, pending);
-  return {calls: pending.map(toCall), warnings, requestId};
+  // Solana-shaped items are signed separately (deviceExecute.ts); only EVM items become calls.
+  return {calls: pending.filter(item => !item.data?.instructions).map(toCall), warnings, requestId};
 }
 
 export async function executeKivoQuote(

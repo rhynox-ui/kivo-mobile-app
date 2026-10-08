@@ -31,6 +31,7 @@
 // why that fix made the whole cleanup path unnecessary going forward).
 
 import {privateKeyToAccount} from 'viem/accounts';
+import {Buffer} from 'buffer';
 import {viemChainForChainId} from './chainRegistry.ts';
 import {assertQuoteSafeToSign, type TransactionIntent} from './txIntentFirewall.ts';
 import {assertSolanaTransactionMatchesIntent} from './solanaTxIntent.ts';
@@ -66,8 +67,8 @@ const SOLANA_SIMULATION_RPC_URL = 'https://api.mainnet.solana.com';
 // never the other way around (Relay's own docs flag the reverse order
 // as exploitable for a same-chain Solana swap; Privy's own documented
 // pattern is this same safer order).
-const SOLANA_FEE_PAYER_URL: string | null = null;
-const SOLANA_SPONSOR_FEE_URL: string | null = null;
+const SOLANA_FEE_PAYER_URL: string | null = 'https://kivotrade.site/api/solana/fee-payer';
+const SOLANA_SPONSOR_FEE_URL: string | null = 'https://kivotrade.site/api/solana/sponsor-fee';
 
 const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
 const ASSOCIATED_TOKEN_PROGRAM_ID = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
@@ -112,7 +113,7 @@ export function solanaSpendIntentFor(intent: TransactionIntent): SolanaSpendInte
   return {spend: intent.originCurrency, maxSpend: intent.amount};
 }
 
-async function solanaOutputVerificationFor(quote: RelayQuote, intent: TransactionIntent, ownerAddress: string): Promise<Pick<SolanaSpendIntent, 'expectedOutputMint' | 'expectedOutputMinimum' | 'expectedOutputAccounts'>> {
+export async function solanaOutputVerificationFor(quote: RelayQuote, intent: TransactionIntent, ownerAddress: string): Promise<Pick<SolanaSpendIntent, 'expectedOutputMint' | 'expectedOutputMinimum' | 'expectedOutputAccounts'>> {
   if (intent.destinationChainId !== 792703809) return {};
   const output = quote.details?.currencyOut;
   const mint = output?.currency?.address;
@@ -141,7 +142,7 @@ async function pollRelayStatus(requestId: string, {intervalMs = 2000, timeoutMs 
       if (data.status === 'success') return;
       if (data.status === 'failure') throw new Error("Relay reported this trade failed — check the requestId on relay.link for details.");
     }
-    await new Promise(r => setTimeout(r, intervalMs));
+    await new Promise<void>(r => setTimeout(r, intervalMs));
   }
   throw new Error('Timed out waiting for Relay to confirm completion. Your transaction was broadcast — check status manually using the requestId before retrying.');
 }
@@ -206,7 +207,7 @@ async function confirmSolanaSignature(connection: InstanceType<typeof import('@s
       if (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized') return signature;
     }
     if (Date.now() >= deadline) throw new Error(`Timed out waiting for transaction ${signature} to confirm.`);
-    await new Promise(r => setTimeout(r, 1200));
+    await new Promise<void>(r => setTimeout(r, 1200));
   }
 }
 
@@ -552,7 +553,7 @@ export async function signAndSendSponsoredSolanaStep(
   return {signature: await confirmSolanaSignature(connection, signature), warnings};
 }
 
-async function signAndSendRelaySolanaStep(item: RelayTransactionStepItem, secretKeyBase58: string, spendIntent: SolanaSpendIntent): Promise<{signature: string; warnings: string[]}> {
+export async function signAndSendRelaySolanaStep(item: RelayTransactionStepItem, secretKeyBase58: string, spendIntent: SolanaSpendIntent): Promise<{signature: string; warnings: string[]}> {
   const [{Connection, Keypair, PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction}, bs58Module] = await Promise.all([import('@solana/web3.js'), import('bs58')]);
   const bs58 = bs58Module.default;
   const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
@@ -651,7 +652,7 @@ async function signAndSendRelaySolanaStep(item: RelayTransactionStepItem, secret
     }
     let landed = false;
     for (let attempt = 0; attempt < 3 && !landed; attempt++) {
-      if (attempt > 0) await new Promise(r => setTimeout(r, 700));
+      if (attempt > 0) await new Promise<void>(r => setTimeout(r, 700));
       const {value} = await connection.getSignatureStatuses([signature]).catch(() => ({value: [null]}));
       const status = value?.[0];
       if (status && status.err == null && (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized')) landed = true;
@@ -789,7 +790,7 @@ async function signAndSendRelaySolanaStepViaParticle(item: RelayTransactionStepI
       if (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized') return {signature, warnings: solanaWarnings};
     }
     if (Date.now() >= deadline) throw new Error(`Timed out waiting for transaction ${signature} to confirm.`);
-    await new Promise(r => setTimeout(r, 1200));
+    await new Promise<void>(r => setTimeout(r, 1200));
   }
 }
 
@@ -859,7 +860,7 @@ export async function preflightRelayQuoteExecution(quote: RelayQuote, session: D
     await preflightRelayGaslessEvm({
       chain: viemChain,
       fromAddress: owner.address,
-      privateKey: session.evm.privateKey as `0x${string}`,
+      account: owner,
     });
   }
 }
@@ -1037,7 +1038,7 @@ export async function executeRelayQuote(
       const relayResult = await sendEvmCallsViaRelayGasless({
         chain: viemChain,
         fromAddress: owner.address,
-        privateKey: session.evm.privateKey as `0x${string}`,
+        account: owner,
         calls,
         requestId,
       });

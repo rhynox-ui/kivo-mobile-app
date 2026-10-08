@@ -25,6 +25,8 @@
 // not checked; empty token accounts are not checked (there is nothing in
 // them to take).
 
+import {Buffer} from 'buffer';
+
 export const SOLANA_NATIVE_SPEND = 'SOL';
 /** Network fees plus rent for a handful of new token accounts (~0.002 SOL each). */
 export const SOLANA_OVERHEAD_LAMPORTS = 30_000_000n; // 0.03 SOL

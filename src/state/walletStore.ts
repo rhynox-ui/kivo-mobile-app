@@ -4,6 +4,8 @@ import { english, generateMnemonic, mnemonicToAccount, type HDAccount } from 'vi
 import { createWalletClient, getAddress, type Hex } from 'viem';
 import { transportFor, viemChainForChainId } from '@kivo/trading/core/chainRegistry';
 import type { EvmCall, KivoEvmSigner } from '@kivo/trading/kivo/execute';
+import type { Keypair } from '@solana/web3.js';
+import { deriveSolanaKeypair } from '../wallet/solanaKeys';
 
 const SERVICE = 'com.kivo.chat.wallet';
 
@@ -31,8 +33,14 @@ async function walletStorageOptions() {
 
 export type WalletSession = {
   address: string;
+  /** Same phrase, Solana path (Mango Pro's m/44'/501'/0'/0'). */
+  solanaAddress?: string;
   source: 'local' | 'external';
 };
+
+function solanaAddressFor(mnemonic: string): string | undefined {
+  try { return deriveSolanaKeypair(mnemonic).publicKey.toBase58(); } catch { return undefined; }
+}
 
 let session: WalletSession | null = null;
 const listeners = new Set<(value: WalletSession | null) => void>();
@@ -43,7 +51,7 @@ export async function createLocalWallet(){
   const mnemonic=generateMnemonic(english,128);
   const account=mnemonicToAccount(mnemonic);
   await Keychain.setGenericPassword('kivo',mnemonic,await walletStorageOptions());
-  session={address:account.address,source:'local'};
+  session={address:account.address,solanaAddress:solanaAddressFor(mnemonic),source:'local'};
   emit();
   return {mnemonic,address:account.address};
 }
@@ -53,7 +61,7 @@ export async function importLocalWallet(mnemonic:string){
   if(normalized.split(' ').length!==12&&normalized.split(' ').length!==24) throw new Error('Recovery phrase must contain 12 or 24 words.');
   const account=mnemonicToAccount(normalized);
   await Keychain.setGenericPassword('kivo',normalized,await walletStorageOptions());
-  session={address:account.address,source:'local'};
+  session={address:account.address,solanaAddress:solanaAddressFor(normalized),source:'local'};
   emit();
   return {address:account.address};
 }
@@ -62,7 +70,7 @@ export async function loadWalletSession(){
   const credentials=await Keychain.getGenericPassword({service:SERVICE});
   if(!credentials) return null;
   const account=mnemonicToAccount(credentials.password);
-  session={address:account.address,source:'local'};
+  session={address:account.address,solanaAddress:solanaAddressFor(credentials.password),source:'local'};
   emit();
   return getWalletSession();
 }
@@ -146,6 +154,21 @@ export async function withDeviceAccount<T>(title: string, action: (account: HDAc
   const account = mnemonicToAccount(credentials.password);
   if (account.address.toLowerCase() !== current.address.toLowerCase()) throw new Error('The unlocked wallet does not match the active session.');
   return action(account);
+}
+
+/**
+ * Like withDeviceAccount, but also hands over the Solana keypair from the
+ * same phrase, for routes with a Solana step (selling a Solana token). The
+ * keypair exists only for the duration of `action`.
+ */
+export async function withDeviceAccounts<T>(title: string, action: (accounts: { evm: HDAccount; solana: Keypair }) => Promise<T>): Promise<T> {
+  const current = getWalletSession();
+  if (!current || current.source !== 'local') throw new Error('Create or import a Kivo wallet on this device to trade.');
+  const credentials = await Keychain.getGenericPassword({ service: SERVICE, authenticationPrompt: { title } });
+  if (!credentials) throw new Error('The device wallet is locked or unavailable.');
+  const evm = mnemonicToAccount(credentials.password);
+  if (evm.address.toLowerCase() !== current.address.toLowerCase()) throw new Error('The unlocked wallet does not match the active session.');
+  return action({ evm, solana: deriveSolanaKeypair(credentials.password) });
 }
 
 /**
