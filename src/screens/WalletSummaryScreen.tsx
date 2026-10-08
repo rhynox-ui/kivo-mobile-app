@@ -443,24 +443,36 @@ This transfer cannot be reversed.`,
 
                 <Text style={styles.note}>Choose a network to withdraw from. Your balance is shown for every supported USDC network.</Text>
 
-                <ScrollView style={styles.networkList} nestedScrollEnabled showsVerticalScrollIndicator>
-                  {chains.map(chainKey => {
-                    const balanceRow = rows?.find(r => r.chainKey === chainKey);
-                    const balance = chainKey === 'near' ? nearBalance : (balanceRow?.status === 'ok' ? balanceRow.balance.amount : 0);
-                    return (
-                      <Pressable key={chainKey} onPress={() => { setChain(chainKey); setTo(''); setAmount(''); setResult(null); }} style={[styles.networkRow, chain === chainKey && styles.networkRowActive]}>
-                        <View style={styles.rowLeft}>
-                          <NetworkBadge network={chainKey} />
-                          <Text style={styles.networkRowText}>{chainKey === 'near' ? 'NEAR' : CHAIN_LABEL[chainKey]}</Text>
-                        </View>
-                        <Text style={styles.networkRowBalance}>${formatUsd(balance)}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-
-                {chain && (
+                {!chain ? (
+                  <ScrollView style={styles.networkList} nestedScrollEnabled showsVerticalScrollIndicator>
+                    {chains.map(chainKey => {
+                      const balanceRow = rows?.find(r => r.chainKey === chainKey);
+                      const balance = chainKey === 'near' ? nearBalance : (balanceRow?.status === 'ok' ? balanceRow.balance.amount : 0);
+                      return (
+                        <Pressable key={chainKey} onPress={() => { setChain(chainKey); setTo(''); setAmount(''); setResult(null); }} style={styles.networkRow}>
+                          <View style={styles.rowLeft}>
+                            <NetworkBadge network={chainKey} />
+                            <Text style={styles.networkRowText}>{chainKey === 'near' ? 'NEAR' : CHAIN_LABEL[chainKey]}</Text>
+                          </View>
+                          <Text style={styles.networkRowBalance}>{'$'}{formatUsd(balance)}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                ) : (
                   <>
+                    <View style={styles.selectedNetworkCard}>
+                      <View style={styles.rowLeft}>
+                        <NetworkBadge network={chain} />
+                        <View style={{flex:1}}>
+                          <Text style={styles.selectedNetworkTitle}>{chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}</Text>
+                          <Text style={styles.selectedNetworkBalance}>Available · {'$'}{formatUsd(available)}</Text>
+                        </View>
+                        <Pressable onPress={() => {setChain(null);setTo('');setAmount('');setResult(null);}} hitSlop={10}>
+                          <Text style={styles.changeText}>Change</Text>
+                        </Pressable>
+                      </View>
+                    </View>
                     {chain === 'near' && <>
                       <Text style={styles.label}>Destination network</Text>
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginTop: 7}}>
@@ -565,7 +577,7 @@ const styles = StyleSheet.create({
   actionIcon: { width: 54, height: 54, borderRadius: 18, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
   actionGlyph: { color: c.cream, fontSize: 22, fontWeight: '900' },
   actionLabel: { color: c.text, fontSize: 12, fontWeight: '700' },
-  gasBanner: { marginTop: 18, padding: 14, borderRadius: 16, backgroundColor: 'rgba(47,214,123,0.10)', borderWidth: 1, borderColor: 'rgba(47,214,123,0.35)' },
+  gasBanner: { marginTop: 18, padding: 14, borderRadius: 16, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border },
   gasBannerOff: { backgroundColor: c.surface, borderColor: c.border },
   gasTitle: { color: c.text, fontWeight: '800', fontSize: 14 },
   card: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 18, padding: 18, marginTop: 14 },
@@ -583,12 +595,16 @@ const styles = StyleSheet.create({
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
   sheetTitle: { color: c.text, fontSize: 18, fontWeight: '800' },
   networkList: { maxHeight: 520, flexShrink: 1, marginBottom: 0 },
+  selectedNetworkCard: { backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, borderRadius: 16, padding: 14, marginBottom: 4 },
+  selectedNetworkTitle: { color: c.text, fontSize: 16, fontWeight: '800' },
+  selectedNetworkBalance: { color: c.textMuted, fontSize: 12, marginTop: 3 },
+  changeText: { color: c.accent, fontSize: 12, fontWeight: '800' },
   depositNetworkContent: { paddingBottom: 4 },
   backText: { color: c.text, fontSize: 14, fontWeight: '700' },
   headerSpacer: { width: 20 },
   addressSectionTitle: { color: c.textMuted, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginTop: 0, textTransform: 'uppercase' },
   networkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.surfaceRaised, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 15, marginBottom: 8 },
-  networkRowActive: { backgroundColor: c.surfaceRaised },
+  networkRowActive: { backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.accent },
   disabledRow: { opacity: 0.45 },
   networkRowText: { color: c.text, fontSize: 15, fontWeight: '700' },
   networkRowBalance: { color: c.textMuted, fontSize: 13, fontWeight: '600' },
@@ -613,7 +629,7 @@ const styles = StyleSheet.create({
   reviewValue: { color: c.text, fontSize: 14, fontWeight: '800', maxWidth: '65%', textAlign: 'right' },
   reviewAddressBlock: { marginTop: 14 },
   reviewAddress: { color: c.text, fontSize: 13, fontWeight: '600', marginTop: 7, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 12 },
-  primary: { marginTop: 14, height: 52, borderRadius: 26, backgroundColor: '#2FD67B', alignItems: 'center', justifyContent: 'center' },
+  primary: { marginTop: 14, height: 52, borderRadius: 26, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center' },
   primaryText: { color: c.backgroundDeep, fontWeight: '900', fontSize: 15 },
   ghost: { height: 44, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   ghostText: { color: c.cream, fontWeight: '800' },
