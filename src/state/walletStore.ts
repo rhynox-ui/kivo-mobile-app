@@ -8,7 +8,7 @@ import type { EvmCall, KivoEvmSigner } from '@kivo/trading/kivo/execute';
 import type { Keypair } from '@solana/web3.js';
 import { deriveSolanaKeypair } from '../wallet/solanaKeys';
 import { deriveNearAccount } from '@kivo/trading/wallet/keys';
-import { clearBiometricUnlock, getBiometricPassword, isBiometricUnlockEnabled } from '../wallet/biometricAuth';
+import { clearBiometricUnlock, disableBiometricUnlock as disableProtectedBiometricUnlock, getBiometricPassword, isBiometricUnlockEnabled } from '../wallet/biometricAuth';
 
 const SERVICE = 'com.kivo.chat.wallet';
 let cachedStorageOptions: Keychain.SetOptions | null = null;
@@ -119,6 +119,14 @@ export async function enableBiometricUnlock(){
   if(!enabled) throw new Error('Unable to enable biometric wallet unlock.');
   await Keychain.resetGenericPassword({service:SERVICE});
   return await (await import('../wallet/biometricAuth')).getBiometryLabel();
+}
+
+
+export async function disableBiometricUnlock(): Promise<boolean> {
+  const mnemonic = await disableProtectedBiometricUnlock();
+  if (!mnemonic) return false;
+  await Keychain.setGenericPassword('kivo', mnemonic, await walletStorageOptions());
+  return true;
 }
 
 export async function clearLocalWallet(){
