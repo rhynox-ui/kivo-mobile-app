@@ -101,7 +101,7 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
           }
         }
         const fresh=await quoteNearTrade({side:quote.side,token:quote.token,payUnits:quote.payUnits,accountId:near.address,slippageBps:quote.slippageBps});
-        const entry=await executeNearTrade(session,fresh,{requote:()=>quoteNearTrade({side:fresh.side,token:fresh.token,payUnits:fresh.payUnits,accountId:session.near.address,slippageBps:fresh.slippageBps})});
+        const entry=await executeNearTrade(session,fresh,{requote:()=>quoteNearTrade({side:fresh.side,token:fresh.token,payUnits:fresh.payUnits,accountId:near.address,slippageBps:fresh.slippageBps})});
         const hashes=entry.hashes;
         const kind=entry.status;
         const message=kind==='ok'?'Trade complete.':kind==='partial'?'Only part of this trade filled; the rest was returned to you.':kind==='refunded'?'The exchange cancelled this trade and returned your funds.':kind==='failed'?'The NEAR trade failed. No trade was completed.':'The NEAR trade is still being confirmed.';
