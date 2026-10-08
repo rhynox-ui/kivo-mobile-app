@@ -12,8 +12,8 @@ const EVM_CASH_CHAINS = EVM_TRADE_CHAINS;
 
 const READ_TIMEOUT_MS = 8_000;
 const CASH_CACHE_TTL_MS = 30_000;
-let cashCache: {owner: string; rows: CashBalanceRow[]; at: number} | null = null;
-let cashInFlight: {owner: string; promise: Promise<CashBalanceRow[]>} | null = null;
+let cashCache: {key: string; rows: CashBalanceRow[]; at: number} | null = null;
+let cashInFlight: {key: string; promise: Promise<CashBalanceRow[]>} | null = null;
 
 function withTimeout<T>(promise: Promise<T>, ms = READ_TIMEOUT_MS): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -75,9 +75,9 @@ export async function readUsdcBalance(chainKey: ChainKey, owner: string): Promis
 
 /** USDC across every chain Kivo can pay from. Each chain fails independently. */
 export async function fetchCashBalances(owner: string, chains: ChainKey[] = USDC_CHAINS): Promise<CashBalanceRow[]> {
-  const key = owner.toLowerCase();
-  if (cashCache && cashCache.owner === key && Date.now() - cashCache.at < CASH_CACHE_TTL_MS) return cashCache.rows;
-  if (cashInFlight?.owner === key) return cashInFlight.promise;
+  const key = `${owner.toLowerCase()}:${chains.join(',')}`;
+  if (cashCache && cashCache.key === key && Date.now() - cashCache.at < CASH_CACHE_TTL_MS) return cashCache.rows;
+  if (cashInFlight?.key === key) return cashInFlight.promise;
   const promise = (async () => {
     const settled = await Promise.allSettled(chains.map(chainKey => readUsdcBalance(chainKey, owner)));
     const rows = settled.map((outcome, index): CashBalanceRow => {
@@ -86,10 +86,10 @@ export async function fetchCashBalances(owner: string, chains: ChainKey[] = USDC
         ? {chainKey, status: 'ok', balance: outcome.value}
         : {chainKey, status: 'error', error: outcome.reason instanceof Error ? outcome.reason.message : 'Balance unavailable.'};
     });
-    cashCache = {owner: key, rows, at: Date.now()};
+    cashCache = {key, rows, at: Date.now()};
     return rows;
   })();
-  cashInFlight = {owner: key, promise};
+  cashInFlight = {key, promise};
   try { return await promise; }
   finally { if (cashInFlight?.promise === promise) cashInFlight = null; }
 }
