@@ -44,5 +44,5 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: kivo-android-release-apk
-          path: android/app/build/outputs/apk/release/app-release.apk
+          path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
