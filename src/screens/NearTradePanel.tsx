@@ -58,6 +58,8 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
 
   const numeric = Number(amount);
   const valid = Number.isFinite(numeric) && numeric > 0;
+  const inputUnits = (() => { try { return valid ? parseUnits(amount, side === 'buy' ? NEAR_USDC_DECIMALS : decimals) : 0n; } catch { return 0n; } })();
+  const availableUnits = side === 'buy' ? usdcBalance : tokenBalance;
   const available = side === 'buy' ? Number(usdcBalance) / 10 ** NEAR_USDC_DECIMALS : Number(tokenBalance) / 10 ** decimals;
 
   useEffect(() => {
