@@ -15,6 +15,15 @@ import {
   View,
 } from 'react-native';
 import { kivoTheme } from '../theme/kivoTheme';
+import { parseUnits } from 'viem';
+import { NEAR_USDC, NEAR_USDC_DECIMALS } from '@kivo/trading/core/chainData';
+import { fetchNearTokenBalance } from '@kivo/trading/core/nearTrade';
+import { nearCashMoveChains, nearCashMoveRequest, nearUsdcDepositCall } from '@kivo/trading/core/nearCashMoves';
+import { fetchOneClickTokens, requestOneClickQuote, submitOneClickDepositTx } from '@kivo/trading/core/oneClick';
+import { fundOneClickQuote } from '@kivo/trading/core/oneClickDeposits';
+import { oneClickSwapStore } from '@kivo/trading/wallet/oneClickSwapStore';
+import { nearView } from '@kivo/trading/core/nearRpc';
+
 import { getWalletSession, loadWalletSession, subscribeToWallet, withDeviceAccounts, type WalletSession } from '../state/walletStore';
 import { useSettings } from '../state/settingsStore';
 import { addNotification } from '../state/notificationStore';
@@ -26,6 +35,7 @@ import { formatAmount, formatUsd, shortAddress, USDC_CHAINS } from '@kivo/tradin
 
 type Sheet = null | 'deposit' | 'withdraw';
 type DepositNetwork = ChainKey | 'near';
+type WithdrawNetwork = ChainKey | 'near';
 
 const DEPOSIT_CHAINS: ChainKey[] = [
   'ethereum', 'base', 'avalanche', 'arbitrum', 'unichain',
@@ -84,12 +94,14 @@ export function WalletSummaryScreen({
   const [rows, setRows] = useState<CashBalanceRow[] | null>(null);
   const [sheet, setSheet] = useState<Sheet>(initialAction ?? null);
   const [gasless, setGasless] = useState<GaslessStatus | null>(null);
+  const [nearBalance, setNearBalance] = useState(0);
   const settings = useSettings();
 
   const load = () => {
     if (!wallet) return;
     setRows(null);
     fetchCashBalances(wallet.address, USDC_CHAINS.includes('solana') ? USDC_CHAINS : [...USDC_CHAINS, 'solana']).then(setRows);
+    if (wallet.nearAddress) fetchNearTokenBalance(NEAR_USDC, wallet.nearAddress).then(v => setNearBalance(Number(v) / 10 ** NEAR_USDC_DECIMALS)).catch(() => setNearBalance(0));
   };
 
   useEffect(() => {
@@ -103,9 +115,11 @@ export function WalletSummaryScreen({
     if (!wallet) return;
     setRows(null);
     fetchCashBalances(wallet.address, [...USDC_CHAINS, 'solana']).then(setRows);
+    if (wallet.nearAddress) fetchNearTokenBalance(NEAR_USDC, wallet.nearAddress).then(v => setNearBalance(Number(v) / 10 ** NEAR_USDC_DECIMALS)).catch(() => setNearBalance(0));
   }, [wallet?.address]);
 
   const total = rows ? totalCashUsd(rows) : null;
+  const displayTotal = total ? total.total + nearBalance : null;
   const funded = rows?.filter(r => r.status === 'ok' && r.balance.amount > 0) ?? [];
   const mask = (value: string) => (settings.hideBalances ? '••••' : value);
 
@@ -123,7 +137,7 @@ export function WalletSummaryScreen({
         </View>
       ) : (
         <>
-          <Text style={styles.balance}>{total == null ? '…' : mask(formatUsd(total.total))}</Text>
+          <Text style={styles.balance}>{displayTotal == null ? '…' : mask(formatUsd(displayTotal))}</Text>
           <Text style={styles.sub}>
             {total == null
               ? 'Reading USDC on supported networks…'
@@ -157,7 +171,9 @@ export function WalletSummaryScreen({
             ) : funded.length === 0 ? (
               <Text style={styles.note}>No USDC yet. Tap Deposit and send USDC on any supported network.</Text>
             ) : (
-              funded.map(row => (
+              <>
+              {nearBalance > 0 && wallet.nearAddress && <View key="near" style={styles.row}><View style={styles.rowLeft}><NetworkBadge network="near" /><Text style={styles.rowName}>USDC · NEAR</Text></View><Text style={styles.rowValue}>{mask(formatAmount(nearBalance, 2))}</Text></View>}
+              {funded.map(row => (
                 <View key={row.chainKey} style={styles.row}>
                   <View style={styles.rowLeft}>
                     <NetworkBadge network={row.chainKey} />
@@ -165,7 +181,8 @@ export function WalletSummaryScreen({
                   </View>
                   <Text style={styles.rowValue}>{row.status === 'ok' ? mask(formatAmount(row.balance.amount, 2)) : 'Unavailable'}</Text>
                 </View>
-              ))
+              ))}
+              </>
             )}
           </View>
 
@@ -188,6 +205,7 @@ export function WalletSummaryScreen({
         <WithdrawSheet
           visible={sheet === 'withdraw'}
           rows={rows}
+          nearBalance={nearBalance}
           gasless={gasless}
           wallet={wallet}
           onClose={() => setSheet(null)}
@@ -298,6 +316,7 @@ function DepositSheet({
 function WithdrawSheet({
   visible,
   rows,
+  nearBalance,
   gasless,
   wallet,
   onClose,
@@ -305,27 +324,30 @@ function WithdrawSheet({
 }: {
   visible: boolean;
   rows: CashBalanceRow[] | null;
+  nearBalance: number;
   gasless: GaslessStatus | null;
   wallet: WalletSession;
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [chain, setChain] = useState<ChainKey | null>(null);
+  const [chain, setChain] = useState<WithdrawNetwork | null>(null);
+  const [destination, setDestination] = useState<ChainKey>('base');
   const [to, setTo] = useState('');
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
   const [review, setReview] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string; hash?: string; chainId?: number } | null>(null);
 
-  const chains = useMemo(() => rows?.map(r => r.chainKey) ?? DEPOSIT_CHAINS, [rows]);
-  const row = rows?.find(r => r.chainKey === chain);
-  const available = row?.status === 'ok' ? row.balance.amount : 0;
+  const chains = useMemo<WithdrawNetwork[]>(() => [...(rows?.map(r => r.chainKey) ?? DEPOSIT_CHAINS), ...(nearBalance > 0 && wallet.nearAddress ? ['near' as const] : [])], [rows, nearBalance, wallet.nearAddress]);
+  const row = chain && chain !== 'near' ? rows?.find(r => r.chainKey === chain) : null;
+  const available = chain === 'near' ? nearBalance : (row?.status === 'ok' ? row.balance.amount : 0);
   const parsed = Number(amount);
-  const addressValid = chain ? isValidRecipientAddress(chain, to.trim()) : false;
+  const addressValid = chain ? (chain === 'near' ? isValidRecipientAddress(destination, to.trim()) : isValidRecipientAddress(chain, to.trim())) : false;
   const amountValid = Number.isFinite(parsed) && parsed > 0 && parsed <= available + 1e-9;
-  const sponsorshipNeeded = chain !== 'solana';
+  const sponsorshipNeeded = chain !== 'solana' && chain !== 'near';
+  const nearDestinationReady = chain !== 'near' || nearCashMoveChains().includes(destination);
   const sponsorshipReady = !sponsorshipNeeded || gasless?.available === true;
-  const canReview = Boolean(chain && addressValid && amountValid && sponsorshipReady && !busy);
+  const canReview = Boolean(chain && addressValid && amountValid && sponsorshipReady && nearDestinationReady && !busy);
 
   useEffect(() => {
     if (!visible) return;
@@ -333,7 +355,9 @@ function WithdrawSheet({
     setReview(false);
     setTo('');
     setAmount('');
-    setChain(current => current ?? rows?.find(r => r.status === 'ok' && r.balance.amount > 0)?.chainKey ?? rows?.[0]?.chainKey ?? DEPOSIT_CHAINS[0]);
+    setChain(current => current ?? rows?.find(r => r.status === 'ok' && r.balance.amount > 0)?.chainKey ?? (nearBalance > 0 ? 'near' : rows?.[0]?.chainKey ?? DEPOSIT_CHAINS[0]));
+    const nearChains = nearCashMoveChains();
+    setDestination(current => nearChains.includes(current) ? current : (nearChains[0] ?? 'base'));
   }, [visible, rows?.length]);
 
   const problem = !chain
@@ -347,7 +371,7 @@ function WithdrawSheet({
           : !Number.isFinite(parsed) || parsed <= 0
             ? 'Enter an amount greater than zero.'
             : parsed > available + 1e-9
-              ? `More than the ${formatAmount(available, 2)} USDC available on ${CHAIN_LABEL[chain]}.`
+              ? `More than the ${formatAmount(available, 2)} USDC available on ${chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}.`
               : sponsorshipNeeded && gasless?.available === false
                 ? gasless.reason ?? 'Gasless EVM withdrawals are not configured yet.'
                 : null;
@@ -357,13 +381,27 @@ function WithdrawSheet({
     setBusy(true);
     setResult(null);
     try {
-      const outcome = await withDeviceAccounts(`Send ${amount} USDC`, async accounts =>
-        withdrawUsdc(chain, accounts.evm, accounts.solana, to.trim(), amount),
-      );
+      const outcome = await withDeviceAccounts(`Send ${amount} USDC`, async accounts => {
+        if (chain !== 'near') return withdrawUsdc(chain, accounts.evm, accounts.solana, to.trim(), amount);
+        const tokens = await fetchOneClickTokens();
+        const move = nearCashMoveRequest({direction: 'from-near', chainKey: destination, amountBaseUnits: parseUnits(amount, NEAR_USDC_DECIMALS).toString(), session: accounts.relay, tokens, dry: false});
+        const response = await requestOneClickQuote(move.request);
+        const record = await fundOneClickQuote({
+          response, expected: move.expected, originChainKey: 'near', originSymbol: 'USDC', originDecimals: NEAR_USDC_DECIMALS,
+          fromAddress: accounts.near.address, store: oneClickSwapStore,
+          submitDepositTx: (txHash, depositAddress) => submitOneClickDepositTx(txHash, depositAddress),
+          send: async (depositAddress, sendAmount) => {
+            const call = await nearUsdcDepositCall(depositAddress, parseUnits(sendAmount, NEAR_USDC_DECIMALS), nearView);
+            const [sent] = await import('@kivo/trading/core/nearSigning').then(m => m.sendSponsoredNearCalls(accounts.relay, [call]));
+            return sent.hash;
+          },
+        });
+        return {hash: record.depositTxHash ?? ''};
+      });
       clearCashBalanceCache();
       setResult({
         ok: true,
-        message: `Sent ${amount} USDC on ${CHAIN_LABEL[chain]}.`,
+        message: chain === 'near' ? `Sent ${amount} USDC from NEAR to ${CHAIN_LABEL[destination]}.` : `Sent ${amount} USDC on ${CHAIN_LABEL[chain]}.`,
         hash: outcome.hash,
       });
       addNotification('Withdrawal sent', `${amount} USDC to ${shortAddress(to.trim())}`);
@@ -412,7 +450,7 @@ function WithdrawSheet({
                       <Pressable key={chainKey} onPress={() => { setChain(chainKey); setTo(''); setAmount(''); setResult(null); }} style={[styles.networkRow, chain === chainKey && styles.networkRowActive]}>
                         <View style={styles.rowLeft}>
                           <NetworkBadge network={chainKey} />
-                          <Text style={styles.networkRowText}>{CHAIN_LABEL[chainKey]}</Text>
+                          <Text style={styles.networkRowText}>{chainKey === 'near' ? 'NEAR' : CHAIN_LABEL[chainKey]}</Text>
                         </View>
                         <Text style={styles.networkRowBalance}>${formatUsd(balance)}</Text>
                       </Pressable>
@@ -422,11 +460,17 @@ function WithdrawSheet({
 
                 {chain && (
                   <>
+                    {chain === 'near' && <>
+                      <Text style={styles.label}>Destination network</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginTop: 7}}>
+                        {nearCashMoveChains().map(target => <Pressable key={target} onPress={() => {setDestination(target);setTo('');setResult(null);}} style={[styles.networkRow, {marginRight: 7, paddingVertical: 9}, destination === target && styles.networkRowActive]}><Text style={styles.networkRowText}>{CHAIN_LABEL[target]}</Text></Pressable>)}
+                      </ScrollView>
+                    </>}
                     <Text style={styles.label}>Recipient address</Text>
                     <TextInput
                       value={to}
                       onChangeText={setTo}
-                      placeholder={chain === 'solana' ? 'Solana address' : '0x…'}
+                      placeholder={chain === 'solana' || (chain === 'near' && destination === 'solana') ? 'Solana address' : '0x…'}
                       placeholderTextColor={kivoTheme.colors.textMuted}
                       autoCapitalize="none"
                       autoCorrect={false}
@@ -448,11 +492,13 @@ function WithdrawSheet({
                       </Pressable>
                     </View>
 
-                    <Text style={styles.available}>Available on {CHAIN_LABEL[chain]}: ${formatUsd(available)}</Text>
+                    <Text style={styles.available}>Available on {chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}: ${formatUsd(available)}</Text>
                     {problem && <Text style={styles.warn}>{problem}</Text>}
-                    {chain === 'solana'
-                      ? <Text style={styles.note}>Solana withdrawals use Kivo’s existing fee-sponsor path when your wallet does not have enough SOL for network fees.</Text>
-                      : <Text style={styles.note}>EVM withdrawals require Kivo Relay sponsorship. Kivo never silently switches to a user-paid gas transfer.</Text>}
+                    {chain === 'near'
+                      ? <Text style={styles.note}>NEAR withdrawals use NEAR Intents. Kivo pays NEAR transaction gas through the existing sponsored call path.</Text>
+                      : chain === 'solana'
+                        ? <Text style={styles.note}>Solana withdrawals use Kivo’s existing fee-sponsor path when your wallet does not have enough SOL for network fees.</Text>
+                        : <Text style={styles.note}>EVM withdrawals require Kivo Relay sponsorship. Kivo never silently switches to a user-paid gas transfer.</Text>}
                     {result && <Text style={result.ok ? styles.ok : styles.warn}>{result.message}</Text>}
 
                     <Pressable disabled={!canReview} onPress={() => setReview(true)} style={[styles.primary, !canReview && styles.disabled]}>
@@ -471,7 +517,7 @@ function WithdrawSheet({
                   <View style={{ width: 40 }} />
                 </View>
 
-                <ReviewRow label="Network" value={chain ? CHAIN_LABEL[chain] : '—'} />
+                <ReviewRow label="Network" value={chain === 'near' ? `NEAR → ${CHAIN_LABEL[destination]}` : chain ? CHAIN_LABEL[chain] : '—'} />
                 <ReviewRow label="Asset" value="USDC" />
                 <ReviewRow label="Amount" value={`${amount} USDC`} />
                 <View style={styles.reviewAddressBlock}>
