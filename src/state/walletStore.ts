@@ -1,5 +1,6 @@
 import * as Keychain from 'react-native-keychain';
 import { Platform } from 'react-native';
+import bs58 from 'bs58';
 import { english, generateMnemonic, mnemonicToAccount, type HDAccount } from 'viem/accounts';
 import { createWalletClient, getAddress, type Hex } from 'viem';
 import { transportFor, viemChainForChainId } from '@kivo/trading/core/chainRegistry';
@@ -178,14 +179,19 @@ export async function withDeviceAccount<T>(title: string, action: (account: HDAc
  * same phrase, for routes with a Solana step (selling a Solana token). The
  * keypair exists only for the duration of `action`.
  */
-export async function withDeviceAccounts<T>(title: string, action: (accounts: { evm: HDAccount; solana: Keypair; near: {address: string; privateKey: string} }) => Promise<T>): Promise<T> {
+export async function withDeviceAccounts<T>(title: string, action: (accounts: { evm: HDAccount; solana: Keypair; near: {address: string; privateKey: string}; relay: import('@kivo/trading/wallet/keys').DerivedAccounts }) => Promise<T>): Promise<T> {
   const current = getWalletSession();
   if (!current || current.source !== 'local') throw new Error('Create or import a Kivo wallet on this device to trade.');
   const credentials = await Keychain.getGenericPassword({ service: SERVICE, authenticationPrompt: { title } });
   if (!credentials) throw new Error('The device wallet is locked or unavailable.');
   const evm = mnemonicToAccount(credentials.password);
   if (evm.address.toLowerCase() !== current.address.toLowerCase()) throw new Error('The unlocked wallet does not match the active session.');
-  return action({ evm, solana: deriveSolanaKeypair(credentials.password), near: deriveNearAccount(credentials.password) });
+  const solana = deriveSolanaKeypair(credentials.password);
+  const evmPrivateKey = evm.getHdKey().privateKey;
+  if (!evmPrivateKey) throw new Error('The device wallet key is unavailable.');
+  const near = deriveNearAccount(credentials.password);
+  const relay = {evm: {address: evm.address, privateKey: evmPrivateKey}, solana: {address: solana.publicKey.toBase58(), privateKey: bs58.encode(solana.secretKey)}, near};
+  return action({evm, solana, near, relay});
 }
 
 /**
