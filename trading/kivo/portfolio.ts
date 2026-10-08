@@ -13,7 +13,7 @@ import type {KeyValueStorage} from '../../shared/storage';
 import {CHAIN_LABEL, NATIVE_SYMBOL, type ChainKey} from '../core/chainData';
 import {resolveDexScreenerPair} from '../core/dexScreener';
 import {fetchWalletPrices} from '../core/walletPrices';
-import {fetchCashBalances, readNativeBalance, readTokenBalance} from './balances';
+import {cashAssetSymbol, fetchCashBalances, readNativeBalance, readSolanaTokenBalance, readTokenBalance} from './balances';
 import type {TradeRecord} from './history';
 import {EVM_TRADE_CHAINS} from './tokens';
 import {fetchWalletAssets} from './walletAssets';
@@ -66,9 +66,9 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
   const [natives, cash, tokens, indexedAssets] = await Promise.all([
     Promise.allSettled(nativeChains.map(chain => readNativeBalance(chain, owner))),
     fetchCashBalances(owner),
-    Promise.allSettled(tradedTokens(history).filter(t => t.chainKey !== 'solana').map(async token => {
+    Promise.allSettled(tradedTokens(history).map(async token => {
       const [balance, pair] = await Promise.all([
-        readTokenBalance(token.chainKey, token.address, owner, token.symbol),
+        token.chainKey === 'solana' ? readSolanaTokenBalance(token.address, owner, token.symbol) : readTokenBalance(token.chainKey, token.address, owner, token.symbol),
         resolveDexScreenerPair({chainKey: token.chainKey, tokenAddress: token.address}),
       ]);
       return {token, balance, priceUsd: pair?.priceUsd ?? null};
@@ -87,7 +87,7 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
   for (const row of cash) {
     if (row.status !== 'ok') { complete = false; continue; }
     cashUsd += row.balance.amount;
-    holdings.push({key: `${row.chainKey}:usdc`, kind: 'cash', chainKey: row.chainKey, address: row.balance.tokenAddress, symbol: 'USDC', name: `USDC · ${CHAIN_LABEL[row.chainKey]}`, amount: row.balance.amount, priceUsd: 1, valueUsd: row.balance.amount, imageUrl: null});
+    holdings.push({key: `${row.chainKey}:${cashAssetSymbol(row.chainKey).toLowerCase()}`, kind: 'cash', chainKey: row.chainKey, address: row.balance.tokenAddress, symbol: cashAssetSymbol(row.chainKey), name: `${cashAssetSymbol(row.chainKey)} · ${CHAIN_LABEL[row.chainKey]}`, amount: row.balance.amount, priceUsd: 1, valueUsd: row.balance.amount, imageUrl: null});
   }
   if (indexedAssets.status === 'fulfilled' && indexedAssets.value) {
     if (!indexedAssets.value.complete) complete = false;
