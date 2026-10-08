@@ -1,5 +1,5 @@
 import React, {useEffect, useMemo, useState} from 'react';
-import {ActivityIndicator, Image, Modal, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
+import {ActivityIndicator, Image, Linking, Modal, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import {parseUnits} from 'viem';
 import bs58 from 'bs58';
 import {kivoTheme} from '../theme/kivoTheme';
@@ -165,7 +165,7 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
         <View style={[styles.resultIcon, result?.kind==='failed'||result?.kind==='refunded'?styles.resultBad:styles.resultGood]}><Text style={styles.resultIconText}>{result?.kind==='failed'?'!':result?.kind==='refunded'?'↩':'✓'}</Text></View>
         <Text style={styles.resultTitle}>{result?.kind==='success'?side==='buy'?`Bought ${token.symbol}`:`Sold ${token.symbol}`:result?.kind==='partial'?'Trade partially filled':result?.kind==='refunded'?'Trade refunded':'Trade failed'}</Text>
         <Text style={styles.resultMessage}>{result?.message}</Text>
-        {result?.hashes.map((hash,i)=><Pressable key={hash} onPress={()=>{}}><Text style={styles.hash}>{result.hashes.length>1?`Transaction ${i+1}: `:''}{hash.slice(0,10)}…{hash.slice(-6)}</Text></Pressable>)}
+        {result?.hashes.map((hash,i)=><Pressable key={hash} onPress={()=>Linking.openURL(`https://nearblocks.io/txns/${hash}`)}><Text style={styles.hash}>{result.hashes.length>1?`Transaction ${i+1}: `:''}{hash.slice(0,10)}…{hash.slice(-6)}</Text></Pressable>)}
         <Pressable onPress={()=>{closeResult();onOpenHistory?.();}} style={styles.done}><Text style={styles.doneText}>Done</Text></Pressable>
       </View></View>
     </Modal>
