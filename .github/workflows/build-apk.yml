@@ -2,6 +2,17 @@ name: Kivo Android APK Build
 
 on:
   workflow_dispatch:
+    inputs:
+      version_name:
+        description: "App version"
+        required: true
+        default: "0.1.0"
+        type: string
+      version_code:
+        description: "Android version code"
+        required: true
+        default: "1"
+        type: string
   push:
     branches:
       - main
@@ -56,7 +67,7 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: ./gradlew assembleRelease --no-daemon
+        run: ./gradlew assembleRelease --no-daemon -PVERSION_NAME="${{ inputs.version_name || '0.1.0' }}" -PVERSION_CODE="${{ inputs.version_code || '1' }}"
 
       - name: Upload APK
         uses: actions/upload-artifact@v6
