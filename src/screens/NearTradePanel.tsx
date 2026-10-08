@@ -63,18 +63,18 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
   const available = side === 'buy' ? Number(usdcBalance) / 10 ** NEAR_USDC_DECIMALS : Number(tokenBalance) / 10 ** decimals;
 
   useEffect(() => {
-    if (!valid || numeric > available || !wallet.nearAddress) {setQuote(null); return;}
+    if (!valid || inputUnits <= 0n || inputUnits > availableUnits || !wallet.nearAddress) {setQuote(null); return;}
     let cancelled = false;
     const timer = setTimeout(() => {
       setLoading(true); setError('');
-      const payUnits = BigInt(Math.floor(numeric * 10 ** (side === 'buy' ? NEAR_USDC_DECIMALS : decimals)));
+      const payUnits = inputUnits;
       quoteNearTrade({side, token: token.tokenAddress, payUnits, accountId: wallet.nearAddress!, slippageBps: 100})
         .then(q => {if (!cancelled) setQuote(q);})
         .catch(e => {if (!cancelled) {setQuote(null); setError(e instanceof Error ? e.message : 'No NEAR route is available.');}})
         .finally(() => {if (!cancelled) setLoading(false);});
     }, 500);
     return () => {cancelled = true; clearTimeout(timer);};
-  }, [amount, side, available, decimals, token.tokenAddress, wallet.nearAddress, valid, numeric]);
+  }, [amount, side, inputUnits, availableUnits, decimals, token.tokenAddress, wallet.nearAddress, valid, numeric]);
 
   const execute = async () => {
     if (!quote || running) return;
@@ -105,7 +105,7 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
     } finally {setRunning(false);}
   };
 
-  const insufficient = valid && side === 'sell' && numeric > available;
+  const insufficient = valid && inputUnits > availableUnits;
   return (
     <View style={styles.container}>
       <View style={styles.header}><Text style={styles.title}>{token.symbol} · NEAR</Text><Text style={styles.account}>{wallet.nearAddress ? `${wallet.nearAddress.slice(0,8)}…${wallet.nearAddress.slice(-6)}` : 'NEAR account unavailable'}</Text></View>
