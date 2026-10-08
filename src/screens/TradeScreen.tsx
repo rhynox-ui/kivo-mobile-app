@@ -15,6 +15,8 @@ import { getWalletSession, subscribeToWallet, walletKind, withDeviceAccounts, ty
 import { addNotification } from '../state/notificationStore';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { TokenChartPanel } from '../components/TokenChartPanel';
+import { MAINNET_CHAIN_IDS } from '@kivo/trading/core/chainData';
+import { checkSolanaTokenSecurity, checkTokenSecurity } from '@kivo/trading/core/goplusTokenSecurity';
 
 type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
 type ExecResult = { tone: 'success' | 'pending' | 'error'; message: string; hashes: string[]; chainIds: number[]; requestId: string | null };
@@ -158,6 +160,18 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
     const view = plan.view;
     const tokenInfo = { chainKey: token.chainKey, address: token.tokenAddress, symbol: token.symbol, name: token.name, imageUrl: token.imageUrl };
     try {
+      // Re-check live token security immediately before the signing prompt.
+      // A transient/unavailable GoPlus response is inconclusive and does not
+      // block a trade; an explicit honeypot flag blocks buys.
+      if (side === 'buy') {
+        const security = token.chainKey === 'solana'
+          ? await checkSolanaTokenSecurity(token.tokenAddress)
+          : token.chainKey === 'near'
+            ? null
+            : await checkTokenSecurity(MAINNET_CHAIN_IDS[token.chainKey], token.tokenAddress);
+        if (security?.isHoneypot) throw new KivoExecutionError('GoPlus flagged this token as a possible honeypot. Kivo blocked the buy before signing.');
+      }
+
       // Unlock once. Before ANY broadcast, validate every leg's intent and
       // gasless sponsorship capability. This prevents leg 1 from succeeding
       // and leg 2 failing because sponsorship/route safety was only checked later.
