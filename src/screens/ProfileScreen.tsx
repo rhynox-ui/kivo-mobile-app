@@ -13,6 +13,7 @@ import { CHAIN_LABEL } from '@kivo/trading/core/chainData';
 import { subscribeToTradeHistory, type TradeRecord } from '@kivo/trading/kivo/history';
 import { closedPositions, computePortfolioChange, fetchPortfolio, filterHistoryByRange, getPortfolioHistory, openHoldings, recordPortfolioSnapshot, type Portfolio, type PortfolioRange, type PortfolioSnapshot } from '@kivo/trading/kivo/portfolio';
 import { formatAmount, formatUsd } from '@kivo/trading/kivo/tokens';
+import { ConvertCashSheet } from '../components/ConvertCashSheet';
 
 const RANGES: PortfolioRange[] = ['24h', '7d', '30d', 'All'];
 type PositionTab = 'open' | 'closed';
@@ -43,6 +44,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const [loading, setLoading] = useState(false);
   const [range, setRange] = useState<PortfolioRange>('24h');
   const [positionTab, setPositionTab] = useState<PositionTab>('open');
+  const [convertOpen, setConvertOpen] = useState(false);
   const [filter, setFilter] = useState<PositionFilter>('all');
   useEffect(() => subscribeToWallet(setWallet), []);
   useEffect(() => subscribeToTradeHistory(setTrades), []);
@@ -138,7 +140,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
         <View style={styles.cashActions}>
           <Square label="Deposit" glyph="↓" onPress={() => onOpenWallet('deposit')} />
           <Square label="Withdraw" glyph="↑" onPress={() => onOpenWallet('withdraw')} />
-          <Square label="Swap" glyph="⇄" onPress={onOpenTrade ?? (() => onOpenWallet())} />
+          <Square label="Swap" glyph="⇄" onPress={() => setConvertOpen(true)} />
         </View>
       </View>
 
@@ -181,7 +183,8 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
               <Text style={styles.small}>{g.kind === 'channel' ? 'Channel' : 'Group'} · {g.myRole === 'owner' ? 'Owner' : g.myRole === 'admin' ? 'Admin' : 'Member'}</Text>
             </Pressable>
           ))}
-        </ScrollView>
+          <ConvertCashSheet visible={convertOpen} onClose={() => setConvertOpen(false)} onConverted={load} />
+      </ScrollView>
       ) : <Empty title="No groups yet" body={socialReady ? 'Join communities to make your profile social, not just financial.' : 'Turn on chats to join groups and channels.'} />}
     </ScrollView>
   );
