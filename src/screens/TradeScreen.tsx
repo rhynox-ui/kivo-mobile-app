@@ -5,7 +5,7 @@ import { CHAIN_LABEL, TOKEN_ADDRESSES, type ChainKey } from '@kivo/trading/core/
 import { fetchCashBalances, totalCashUsd, readTokenBalance, type CashBalanceRow, type TokenBalance } from '@kivo/trading/kivo/balances';
 import { planUnifiedBuy, totalSpendableCash, type UnifiedPlan } from '@kivo/trading/kivo/unified';
 import { explorerTxUrl, KivoExecutionError, preflightKivoQuote, relayRequestUrl, type ExecutionUpdate } from '@kivo/trading/kivo/execute';
-import { executeKivoQuoteGasless, fetchGaslessStatus, type GaslessStatus } from '@kivo/trading/kivo/gasless';
+import { executeKivoQuoteGasless, fetchGaslessStatus, preflightGaslessQuote, type GaslessStatus } from '@kivo/trading/kivo/gasless';
 import { recordTrade } from '@kivo/trading/kivo/history';
 import { describeQuoteError, isQuoteExpired, parseAmountInput, requestKivoQuote } from '@kivo/trading/kivo/quote';
 import { chainLabel, formatAmount, formatUsd, nativeSymbol, shortAddress, tradeSupportFor, type KivoToken, type TradeSide } from '@kivo/trading/kivo/tokens';
@@ -156,8 +156,11 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
     const view = plan.view;
     const tokenInfo = { chainKey: token.chainKey, address: token.tokenAddress, symbol: token.symbol, name: token.name, imageUrl: token.imageUrl };
     try {
-      // One unlock, then each leg in turn (mango-pro executes unified-cash legs sequentially).
+      // Unlock once. Before ANY broadcast, validate every leg's intent and
+      // gasless sponsorship capability. This prevents leg 1 from succeeding
+      // and leg 2 failing because sponsorship/route safety was only checked later.
       const outcome = await withDeviceAccount(`Confirm ${side} ${token.symbol}`, async account => {
+        await Promise.all(plan.legs.map(leg => preflightGaslessQuote(leg.quote, account)));
         const done = { status: 'success' as 'success' | 'pending' | 'refunded', txHashes: [] as string[], chainIds: [] as number[], requestId: null as string | null };
         for (let index = 0; index < plan.legs.length; index++) {
           const leg = plan.legs[index];
