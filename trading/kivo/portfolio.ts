@@ -13,7 +13,7 @@ import type {KeyValueStorage} from '../../shared/storage';
 import {CHAIN_LABEL, NATIVE_SYMBOL, type ChainKey} from '../core/chainData';
 import {resolveDexScreenerPair} from '../core/dexScreener';
 import {fetchWalletPrices} from '../core/walletPrices';
-import {cashAssetSymbol, fetchCashBalances, readNativeBalance, readSolanaTokenBalance, readTokenBalance} from './balances';
+import {cashAssetSymbol, fetchCashBalances, readNativeBalance, readSolanaNativeBalance, readSolanaTokenBalance, readTokenBalance} from './balances';
 import type {TradeRecord} from './history';
 import {EVM_TRADE_CHAINS} from './tokens';
 import {fetchWalletAssets} from './walletAssets';
@@ -65,7 +65,7 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
   const nativeChains = EVM_TRADE_CHAINS.filter(chain => chain !== 'arc');
   const [natives, cash, tokens, indexedAssets] = await Promise.all([
     Promise.allSettled(nativeChains.map(chain => readNativeBalance(chain, owner))),
-    fetchCashBalances(owner),
+    fetchCashBalances(owner, undefined, addresses?.solanaAddress ?? owner),
     Promise.allSettled(tradedTokens(history).map(async token => {
       const [balance, pair] = await Promise.all([
         token.chainKey === 'solana' ? readSolanaTokenBalance(token.address, owner, token.symbol) : readTokenBalance(token.chainKey, token.address, owner, token.symbol),
@@ -83,6 +83,15 @@ export async function fetchPortfolio(owner: string, history: TradeRecord[], addr
     const priceUsd = prices[symbol] ?? null;
     holdings.push({key: `${chainKey}:native`, kind: 'native', chainKey, address: NATIVE_ADDRESS, symbol, name: `${symbol} · ${CHAIN_LABEL[chainKey]}`, amount: outcome.value.amount, priceUsd, valueUsd: priceUsd == null ? null : outcome.value.amount * priceUsd, imageUrl: null});
   });
+  if (addresses?.solanaAddress) {
+    try {
+      const sol = await readSolanaNativeBalance(addresses.solanaAddress);
+      const priceUsd = prices.SOL ?? null;
+      holdings.push({key: 'solana:native', kind: 'native', chainKey: 'solana', address: sol.tokenAddress, symbol: 'SOL', name: 'SOL · Solana', amount: sol.amount, priceUsd, valueUsd: priceUsd == null ? null : sol.amount * priceUsd, imageUrl: null});
+    } catch {
+      complete = false;
+    }
+  }
   let cashUsd = 0;
   for (const row of cash) {
     if (row.status !== 'ok') { complete = false; continue; }
