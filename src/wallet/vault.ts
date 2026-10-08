@@ -11,5 +11,5 @@ export async function hasVault(){return Boolean(await loadVault());}
 export async function clearVault(){await Keychain.resetGenericPassword({service:SERVICE});}
 export async function unlockVaultMnemonic(vault:StoredVault,password:string){const st=await getLockoutStatus();if(st.locked)throw new VaultLockedError(st.remainingMs);try{const mnemonic=await decryptSecret(vault.mnemonicRecord,password);await recordSuccessfulUnlock();return mnemonic;}catch(e){await recordFailedAttempt();throw e;}}
 
-export async function getLegacyMnemonic():Promise<string|null>{try{const c=await Keychain.getGenericPassword({service:LEGACY_SERVICE});return c?.password??null;}catch{return null;}}
+export async function getLegacyMnemonic():Promise<string|null>{try{const c=await Keychain.getGenericPassword({service:LEGACY_SERVICE});if(!c)return null;return c.password;}catch{return null;}}
 export async function clearLegacyWallet(){await Keychain.resetGenericPassword({service:LEGACY_SERVICE}).catch(()=>{});}
