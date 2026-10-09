@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import type { ApiConversation, ApiProfile } from '@kivo/shared/api/types';
+import { isOfficialKivoChannel, type ApiConversation, type ApiProfile } from '@kivo/shared/api/types';
 import { displayName, myUserId, openDirectMessage, rememberProfiles, unreadCount } from '@kivo/shared/chat/store';
 import { KivoMark } from '../components/KivoMark';
 import { kivoTheme } from '../theme/kivoTheme';
@@ -78,7 +78,7 @@ function Row({ conversation: c, onPress }: { conversation: ApiConversation; onPr
       <Avatar name={c.title} uri={c.avatarUrl} size={52} />
       <View style={styles.rowMain}>
         <View style={styles.rowTop}>
-          <Text style={styles.rowTitle} numberOfLines={1}>{c.kind === 'channel' ? '📢 ' : c.kind === 'group' ? '👥 ' : ''}{c.title}</Text>
+          <View style={styles.rowTitleLine}><Text style={styles.rowTitle} numberOfLines={1}>{c.kind === 'channel' ? '📢 ' : c.kind === 'group' ? '👥 ' : ''}{c.title}</Text>{c.kind === 'channel' && isOfficialKivoChannel(c.id) ? <Text accessibilityLabel="Verified official Kivo channel" style={styles.verifiedBadge}>✓</Text> : null}</View>
           <Text style={[styles.time, unread > 0 && styles.timeUnread]}>{timeLabel(c.lastActivityAt)}</Text>
         </View>
         <View style={styles.rowTop}>
@@ -173,7 +173,9 @@ const styles = StyleSheet.create({
   pressed: { backgroundColor: c.surface },
   rowMain: { flex: 1, minWidth: 0, gap: 4, borderBottomWidth: 1, borderBottomColor: c.border, paddingBottom: 10 },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-  rowTitle: { color: c.text, fontSize: 16, fontWeight: '700', flex: 1 },
+  rowTitleLine: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  rowTitle: { color: c.text, fontSize: 16, fontWeight: '700', flexShrink: 1 },
+  verifiedBadge: { overflow: 'hidden', color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 11, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 17, height: 17, borderRadius: 9 },
   time: { color: c.textMuted, fontSize: 11.5 },
   timeUnread: { color: '#2FD67B', fontWeight: '700' },
   preview: { color: c.textMuted, fontSize: 13.5, flex: 1 },
