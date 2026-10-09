@@ -300,8 +300,8 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
           </View>
         ) : (
           <View style={styles.card}>
-            <Text style={styles.successTitle}>★ Blue Star activated</Text>
-            <Text style={styles.description}>Your payment is confirmed and your badge is active.</Text>
+            <Text style={styles.successTitle}>{alreadyVerified ? '★ Blue Star activated' : 'Blue Star payment receipt'}</Text>
+            <Text style={styles.description}>{alreadyVerified ? 'Your subscription is currently active. Keep this receipt for your records.' : 'This receipt records the confirmed payment. Your verification is not currently active; renew to restore the badge.'}</Text>
             <ReceiptRow label="Subject" value={subjectName}/>
             <ReceiptRow label="Plan" value={`${receipt.plan === 'annual' ? 'Annual' : 'Monthly'} · ${receipt.amount} USDC`}/>
             <ReceiptRow label="Network" value={receipt.chain}/>
