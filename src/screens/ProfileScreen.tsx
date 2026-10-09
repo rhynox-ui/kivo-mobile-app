@@ -62,6 +62,8 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const [verificationWalletReady, setVerificationWalletReady] = useState(false);
   const [verificationConfirming, setVerificationConfirming] = useState(false);
   const [verificationPendingPayment, setVerificationPendingPayment] = useState<{txHash:string; chain:'ethereum'|'base'|'arbitrum'|'solana'; plan:'monthly'|'annual'} | null>(null);
+  const [verificationPendingLoaded, setVerificationPendingLoaded] = useState(false);
+  const verificationPendingKey = `kivo:verification-pending:profile:${profile.userId}`;
   const [verificationProgress, setVerificationProgress] = useState<'idle' | 'waiting' | 'checking'>('idle');
   useEffect(() => subscribeToWallet(setWallet), []);
   useEffect(() => subscribeToTradeHistory(setTrades), []);
@@ -75,6 +77,35 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
     const timer = setInterval(loadVerification, 60_000);
     return () => clearInterval(timer);
   }, [loadVerification]);
+
+  useEffect(() => {
+    let active = true;
+    void storage.getItem(verificationPendingKey).then(raw => {
+      if (!active || !raw) return;
+      const parsed = JSON.parse(raw) as {txHash?: unknown; chain?: unknown; plan?: unknown};
+      if (typeof parsed.txHash !== 'string' ||
+          !(parsed.chain === 'ethereum' || parsed.chain === 'base' || parsed.chain === 'arbitrum' || parsed.chain === 'solana') ||
+          !(parsed.plan === 'monthly' || parsed.plan === 'annual') ||
+          !(parsed.chain === 'solana' ? /^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(parsed.txHash) : /^0x[0-9a-fA-F]{64}$/.test(parsed.txHash))) {
+        void storage.removeItem(verificationPendingKey);
+        return;
+      }
+      const pending = {txHash: parsed.txHash, chain: parsed.chain, plan: parsed.plan} as {txHash:string; chain:'ethereum'|'base'|'arbitrum'|'solana'; plan:'monthly'|'annual'};
+      setVerificationPendingPayment(pending);
+      setVerificationPlan(pending.plan);
+      setVerificationChain(pending.chain);
+      setVerificationWalletReady(true);
+      setVerificationConfirming(true);
+      setShowVerification(true);
+    }).catch(() => {}).finally(() => { if (active) setVerificationPendingLoaded(true); });
+    return () => { active = false; };
+  }, [verificationPendingKey]);
+  useEffect(() => {
+    if (verificationStatus?.isVerified) {
+      setVerificationPendingPayment(null);
+      void storage.removeItem(verificationPendingKey).catch(() => {});
+    }
+  }, [verificationStatus?.isVerified, verificationPendingKey]);
 
   const load = useCallback(async (forceFresh = false) => {
     if (!wallet) return;
@@ -152,7 +183,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
                   setVerificationWalletReady(true);
                 }}><Text style={styles.verifyConnectText}>Use Kivo wallet</Text></Pressable>
               : <Text style={styles.verifyWalletReady}>✓ Kivo wallet ready</Text>}
-            {verificationWalletReady && <Pressable disabled={verificationBusy} style={styles.verificationButton} onPress={() => setVerificationConfirming(true)}><Text style={styles.verificationButtonText}>Continue</Text></Pressable>}
+            {verificationWalletReady && <Pressable disabled={verificationBusy} style={styles.verificationButton} disabled={verificationBusy || !verificationPendingLoaded} onPress={() => setVerificationConfirming(true)}><Text style={styles.verificationButtonText}>Continue</Text></Pressable>}
           </>}
           {verificationConfirming && <View style={styles.verifyConfirm}>
             <Text style={styles.verificationTitle}>Confirm payment</Text>
@@ -189,6 +220,8 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
                   const signature = await connection.sendTransaction(transaction, [solana], {skipPreflight: false, preflightCommitment: 'confirmed'});
                   pendingPaymentForAttempt = {txHash: signature, chain:selectedChain, plan:selectedPlan};
                   setVerificationPendingPayment(pendingPaymentForAttempt);
+                void storage.setItem(verificationPendingKey, JSON.stringify(pendingPaymentForAttempt)).catch(() => {});
+                  void storage.setItem(verificationPendingKey, JSON.stringify(pendingPaymentForAttempt)).catch(() => {});
                   await connection.confirmTransaction({signature, blockhash, lastValidBlockHeight}, 'confirmed');
                   return signature;
                 });
@@ -216,6 +249,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
                 }
               }
               setVerificationPendingPayment(null);
+              void storage.removeItem(verificationPendingKey).catch(() => {});
               setVerificationReceipt(receipt);
               await loadVerification();
               setShowVerification(false);
