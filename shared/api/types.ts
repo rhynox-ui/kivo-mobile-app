@@ -83,6 +83,7 @@ export type ApiMessage = {
   createdAt: number;
   deleted: boolean;
   editedAt?: number | null;
+  forwardedFrom?: string | null;
 };
 
 export type SyncResponse = {messages: ApiMessage[]; cursor: number; more: boolean};
