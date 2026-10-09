@@ -71,6 +71,17 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const previousMessageCount = useRef(messages.length);
   const [unseenMessages, setUnseenMessages] = useState(0);
   const me = myUserId();
+  const [peerVerified, setPeerVerified] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setPeerVerified(false);
+    if (conversation?.kind === 'dm' && conversation.peer?.userId) {
+      api.verificationStatus('profile', conversation.peer.userId)
+        .then(status => { if (active) setPeerVerified(status.isVerified === true); })
+        .catch(() => { if (active) setPeerVerified(false); });
+    }
+    return () => { active = false; };
+  }, [conversation?.kind, conversation?.peer?.userId]);
   const isChannel = conversation?.kind === 'channel';
   const canPost = !isChannel || conversation?.myRole === 'owner' || conversation?.myRole === 'admin';
   const canModerate = conversation?.myRole === 'owner' || conversation?.myRole === 'admin';
@@ -155,7 +166,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
       <View style={styles.header}>
         <Pressable onPress={onBack} hitSlop={10} accessibilityLabel="Back"><Text style={styles.back}>‹</Text></Pressable>
         <Pressable onPress={() => conversation?.kind === 'dm' && conversation.peer?.userId ? onOpenPerson?.(conversation.peer.userId) : conversation && conversation.kind !== 'dm' ? onOpenInfo?.(id, conversation.kind) : undefined} accessibilityLabel={conversation?.kind === 'dm' ? 'View user profile' : 'Open conversation info'}>
-          <Avatar name={title} uri={conversation?.avatarUrl} size={40} />
+          <Avatar name={title} uri={conversation?.avatarUrl} size={40} verified={conversation?.kind === 'channel' ? (conversation.isVerified === true || isOfficialKivoChannel(conversation.id)) : conversation?.kind === 'dm' ? peerVerified : false} />
         </Pressable>
         <Pressable style={styles.headerCopy} disabled={!conversation} onPress={() => conversation?.kind === 'dm' && conversation.peer?.userId ? onOpenPerson?.(conversation.peer.userId) : conversation && conversation.kind !== 'dm' ? onOpenInfo?.(id, conversation.kind) : undefined}>
           <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{title}</Text>{conversation?.kind === 'channel' && (conversation.isVerified || isOfficialKivoChannel(conversation.id)) ? <Text accessibilityLabel="Verified channel" style={styles.verifiedBadge}>★</Text> : null}</View>
