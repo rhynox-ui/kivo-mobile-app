@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 import { api, storage, useSocialReady } from '../state/session';
 import { getWalletSession, localEvmSigner, withDeviceAccounts } from '../state/walletStore';
 import { encodeFunctionData, parseUnits } from 'viem';
@@ -88,8 +89,19 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   const [receipt, setReceipt] = useState<any>(null);
   const [alreadyVerified, setAlreadyVerified] = useState(false);
   const [pendingPersistenceWarning, setPendingPersistenceWarning] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const receiptStorageKey = `kivo:verification-receipt:${subjectType}:${subjectId}`;
   const storageKey = `kivo:verification-pending:${subjectType}:${subjectId}`;
   const keychainService = `${PENDING_KEYCHAIN_SERVICE}.${subjectType}.${encodeURIComponent(subjectId)}`;
+
+  useEffect(() => {
+    let active = true;
+    void storage.getItem(receiptStorageKey).then(raw => {
+      if (!active || !raw) return;
+      try { setReceipt(JSON.parse(raw)); setAlreadyVerified(true); } catch { void storage.removeItem(receiptStorageKey).catch(() => {}); }
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [receiptStorageKey]);
 
   useEffect(() => {
     let active = true;
@@ -124,6 +136,9 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         setStatus(current.permanent ? 'Blue Star verification is active.' : `Verified until ${current.expiresAt ? new Date(current.expiresAt).toLocaleDateString() : 'expiry unavailable'}.`);
         setPending(null);
         void clearPendingRecord(storageKey, keychainService);
+      } else {
+        // A locally saved receipt is history, not proof that a subscription is still active.
+        setAlreadyVerified(false);
       }
     }).catch(() => {});
     return () => { active = false; };
@@ -188,6 +203,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         setPendingPersistenceWarning(!saved);
       }
       setStatus('Waiting for blockchain confirmation…');
+      setStatus('Verifying payment with Kivo…');
       let result: any;
       for (let attempt = 0; ; attempt++) {
         try {
@@ -203,6 +219,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
       await clearPendingRecord(storageKey, keychainService);
       setPendingPersistenceWarning(false);
       setReceipt(result);
+      await storage.setItem(receiptStorageKey, JSON.stringify(result)).catch(() => {});
       setAlreadyVerified(true);
       setStatus('Payment confirmed. Blue Star verification is active.');
       Alert.alert('Blue Star activated', 'Payment confirmed. Your verification receipt is ready.');
@@ -210,7 +227,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
       const message = error instanceof Error ? error.message : 'Could not verify payment.';
       if (pendingForAttempt) {
         setPending(pendingForAttempt);
-        setStatus(`${pendingPersistenceFailedForAttempt ? 'Recovery storage could not be saved. Keep this screen open and share the transaction hash. ' : ''}Payment submitted. Retry verification; do not pay again. ${message}`);
+        setStatus(`${pendingPersistenceFailedForAttempt ? 'Recovery storage could not be saved. Keep this screen open and retry verification before leaving. ' : ''}Payment submitted. Retry verification; do not pay again. ${message}`);
         Alert.alert('Payment submitted', 'Retry verification for the existing transaction. Do not pay again.');
       } else {
         setStatus(message);
@@ -222,6 +239,8 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   };
 
   const connected = Boolean(getWalletSession());
+  const receiptRecipient = receipt?.recipient ?? (receipt?.chain === 'solana' ? SOLANA_RECIPIENT : EVM_RECIPIENT);
+  const receiptPayer = receipt?.payer ?? receipt?.payer_address ?? 'Shown on verified payment record';
   return (
     <View style={styles.root}>
       <View style={styles.header}>
@@ -229,7 +248,18 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         <View style={styles.headerCopy}><Text style={styles.title}>Blue Star verification</Text><Text style={styles.subtitle}>{subjectName}</Text></View>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
-        {alreadyVerified && !receipt ? (
+        {busy || pending ? (
+          <View style={styles.card}>
+            <Text style={styles.successTitle}>Payment progress</Text>
+            {(['Wallet transaction submitted', 'Blockchain confirmation', 'Kivo verification', 'Blue Star activation'] as const).map((step, index) => {
+              const activeIndex = /Payment confirmed|Blue Star verification is active/i.test(status) ? 4 : /Verifying payment with Kivo/i.test(status) ? 2 : /Waiting for blockchain|Waiting for Solana/i.test(status) ? 1 : /submitted|Retry verification|temporarily unavailable|confirm/i.test(status) ? 2 : busy ? 0 : 1;
+              const done = index < activeIndex || (alreadyVerified && Boolean(receipt));
+              return <View key={step} style={styles.progressRow}><View style={[styles.progressDot, done && styles.progressDotDone, index === activeIndex && styles.progressDotActive]}><Text style={styles.progressDotText}>{done ? '✓' : String(index + 1)}</Text></View><Text style={[styles.progressLabel, (done || index === activeIndex) && styles.progressLabelActive]}>{step}</Text></View>;
+            })}
+            <Text style={styles.status} accessibilityLiveRegion="polite">{status}</Text>
+            {pending ? <Pressable style={styles.secondaryButton} onPress={() => void pay()}><Text style={styles.secondaryText}>Retry verification (no new payment)</Text></Pressable> : null}
+          </View>
+        ) : alreadyVerified && !receipt ? (
           <View style={styles.card}>
             <Text style={styles.successTitle}>★ Blue Star already active</Text>
             <Text style={styles.description}>{status}</Text>
@@ -261,7 +291,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
               </Pressable>
             </Modal>
             <View style={styles.walletState}><View style={styles.dot}/><Text style={styles.walletText}>{connected ? 'Kivo wallet connected' : 'Unlock Kivo wallet to continue'}</Text></View>
-            <Pressable disabled={busy || !pendingLoaded || !connected || !socialReady} onPress={() => void pay()} style={[styles.payButton, (busy || !pendingLoaded || !connected || !socialReady) && styles.buttonDisabled]}>
+            <Pressable disabled={busy || !pendingLoaded || !connected || !socialReady} onPress={() => pending ? void pay() : setConfirmOpen(true)} style={[styles.payButton, (busy || !pendingLoaded || !connected || !socialReady) && styles.buttonDisabled]}>
               {busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep}/> : <Text style={styles.payText}>{pending ? 'Retry verification' : `Pay ${plan === 'annual' ? '$5' : '$1'} USDC`}</Text>}
             </Pressable>
             <Text style={styles.status} accessibilityLiveRegion="polite">{status}</Text>
@@ -276,13 +306,35 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
             <ReceiptRow label="Plan" value={`${receipt.plan === 'annual' ? 'Annual' : 'Monthly'} · ${receipt.amount} USDC`}/>
             <ReceiptRow label="Network" value={receipt.chain}/>
             <ReceiptRow label="Transaction" value={receipt.txHash}/>
+            <ReceiptRow label="Payer" value={receiptPayer}/>
+            <ReceiptRow label="Recipient" value={receiptRecipient}/>
+            <View style={styles.qrWrap}><QRCode value={receipt.explorerUrl || receipt.txHash} size={128} backgroundColor="#FFFFFF" color="#062F2C"/><Text style={styles.qrCaption}>Scan to view transaction</Text></View>
             <ReceiptRow label="Paid" value={new Date(receipt.paidAt).toLocaleString()}/>
+            <ReceiptRow label="Receipt ID" value={receipt.id ?? 'Verified payment'}/>
+            <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: `Kivo Blue Star receipt\nPayer: ${receiptPayer}\nRecipient: ${receiptRecipient}` })}><Text style={styles.secondaryText}>Share payer and recipient</Text></Pressable>
             <ReceiptRow label="Valid until" value={new Date(receipt.expiresAt).toLocaleDateString()}/>
             <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: `Kivo Blue Star receipt\nStatus: Paid & Verified\nPlan: ${receipt.plan}\nAmount: ${receipt.amount} USDC\nNetwork: ${receipt.chain}\nTransaction: ${receipt.txHash}\nExplorer: ${receipt.explorerUrl}` })}><Text style={styles.secondaryText}>Share receipt</Text></Pressable>
-            <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: receipt.explorerUrl })}><Text style={styles.secondaryText}>View transaction</Text></Pressable>
+            <Pressable style={styles.secondaryButton} onPress={() => Linking.openURL(receipt.explorerUrl).catch(() => Alert.alert('Kivo', 'Could not open the transaction explorer.'))}><Text style={styles.secondaryText}>View transaction</Text></Pressable>
+            {Number(receipt.expiresAt) <= Date.now() ? <Pressable style={styles.payButton} onPress={() => { setReceipt(null); setAlreadyVerified(false); setStatus('Your previous verification has expired. Choose a plan to renew.'); }}><Text style={styles.payText}>Renew Blue Star</Text></Pressable> : null}
             <Pressable style={styles.payButton} onPress={onBack}><Text style={styles.payText}>Done</Text></Pressable>
           </View>
         )}
+      <Modal visible={confirmOpen} transparent animationType="fade" onRequestClose={() => setConfirmOpen(false)}>
+        <View style={styles.confirmBackdrop}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.successTitle}>Confirm payment</Text>
+            <Text style={styles.description}>Review these details before your wallet opens. No funds move until you approve in your wallet.</Text>
+            <ReceiptRow label="Plan" value={plan === 'annual' ? 'Annual · 365 days' : 'Monthly · 30 days'}/>
+            <ReceiptRow label="Amount" value={`${plan === 'annual' ? '$5' : '$1'} USDC`}/>
+            <ReceiptRow label="Network" value={CHAIN_META[chain].label}/>
+            <ReceiptRow label="Recipient" value={chain === 'solana' ? SOLANA_RECIPIENT : EVM_RECIPIENT}/>
+            <View style={styles.confirmActions}>
+              <Pressable style={styles.secondaryButton} onPress={() => setConfirmOpen(false)}><Text style={styles.secondaryText}>Cancel</Text></Pressable>
+              <Pressable style={styles.payButton} onPress={() => { setConfirmOpen(false); void pay(); }}><Text style={styles.payText}>Confirm and pay</Text></Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
       </ScrollView>
     </View>
   );
@@ -306,6 +358,18 @@ function NetworkLogo({ chain }: { chain: Chain }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: kivoTheme.colors.background },
+  confirmBackdrop: { flex: 1, backgroundColor: 'rgba(0, 15, 13, 0.78)', justifyContent: 'center', padding: 18 },
+  confirmCard: { borderWidth: 1, borderColor: kivoTheme.colors.border, borderRadius: 20, padding: 18, gap: 12, backgroundColor: kivoTheme.colors.surface },
+  confirmActions: { flexDirection: 'row', gap: 10, marginTop: 6 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 38 },
+  progressDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 1, borderColor: kivoTheme.colors.border, alignItems: 'center', justifyContent: 'center' },
+  progressDotDone: { backgroundColor: kivoTheme.colors.accent, borderColor: kivoTheme.colors.accent },
+  progressDotActive: { borderColor: kivoTheme.colors.accent, borderWidth: 2 },
+  progressDotText: { color: kivoTheme.colors.text, fontSize: 11, fontWeight: '900' },
+  progressLabel: { color: kivoTheme.colors.textMuted, fontSize: 13 },
+  progressLabelActive: { color: kivoTheme.colors.text, fontWeight: '800' },
+  qrWrap: { alignItems: 'center', gap: 8, padding: 14, backgroundColor: '#FFFFFF', borderRadius: 12, alignSelf: 'center' },
+  qrCaption: { color: '#062F2C', fontSize: 11, fontWeight: '700' },
   header: { minHeight: 68, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: kivoTheme.colors.border, backgroundColor: kivoTheme.colors.backgroundDeep },
   back: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: kivoTheme.colors.surface, marginRight: 12 },
   backText: { color: kivoTheme.colors.text, fontSize: 28, lineHeight: 30 },
