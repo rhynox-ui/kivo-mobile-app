@@ -120,6 +120,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
     }
     setBusy(true);
     let pendingForAttempt = pending;
+    let pendingPersistenceFailedForAttempt = false;
     try {
       const selectedPlan = pending?.plan ?? plan;
       const selectedChain = pending?.chain ?? chain;
@@ -142,7 +143,9 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
           pendingForAttempt = { txHash: signature, chain: selectedChain, plan: selectedPlan };
           setPending(pendingForAttempt);
           const saved = await savePendingRecord(storageKey, keychainService, JSON.stringify(pendingForAttempt));
-          setPendingPersistenceWarning(!saved);
+          pendingPersistenceFailedForAttempt = !saved;
+          pendingPersistenceFailedForAttempt = !saved;
+        setPendingPersistenceWarning(!saved);
           await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
           return signature;
         });
@@ -186,7 +189,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
       const message = error instanceof Error ? error.message : 'Could not verify payment.';
       if (pendingForAttempt) {
         setPending(pendingForAttempt);
-        setStatus(`${pendingPersistenceWarning ? 'Recovery storage could not be saved. Keep this screen open and share the transaction hash. ' : ''}Payment submitted. Retry verification; do not pay again. ${message}`);
+        setStatus(`${pendingPersistenceFailedForAttempt ? 'Recovery storage could not be saved. Keep this screen open and share the transaction hash. ' : ''}Payment submitted. Retry verification; do not pay again. ${message}`);
         Alert.alert('Payment submitted', 'Retry verification for the existing transaction. Do not pay again.');
       } else {
         setStatus(message);
