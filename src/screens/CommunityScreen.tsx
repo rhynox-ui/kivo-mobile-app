@@ -149,8 +149,8 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
                   const signature = await connection.sendTransaction(transaction, [solana], {skipPreflight: false, preflightCommitment: 'confirmed'});
                   pendingPaymentForAttempt = {txHash: signature, chain:selectedChain, plan:selectedPlan};
                   setVerificationPendingPayment(pendingPaymentForAttempt);
-                void storage.setItem(verificationPendingKey, JSON.stringify(pendingPaymentForAttempt)).catch(() => {});
-                  void storage.setItem(verificationPendingKey, JSON.stringify(pendingPaymentForAttempt)).catch(() => {});
+                await storage.setItem(verificationPendingKey, JSON.stringify(pendingPaymentForAttempt)).catch(() => {});
+                  await storage.setItem(verificationPendingKey, JSON.stringify(pendingPaymentForAttempt)).catch(() => {});
                   await connection.confirmTransaction({signature, blockhash, lastValidBlockHeight}, 'confirmed');
                   return signature;
                 });
