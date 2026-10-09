@@ -12,12 +12,15 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
   const [stats, setStats] = useState<ProfileSocial | null>(null);
   const [groups, setGroups] = useState<PublicCommunityCard[]>([]);
   const [blocked, setBlocked] = useState(false);
+  const [verificationStatus, setVerificationStatus] = useState<{isVerified: boolean; expiresAt: number | null; permanent: boolean} | null>(null);
   const address = userId.replace(/^kivo:/, '');
   useEffect(() => {
     api.profiles([userId]).then(found => { rememberProfiles(found); setPerson(found[0] ?? null); }).catch(() => {});
     api.social(userId).then(setStats).catch(() => {});
     api.publicCommunitiesOf(userId).then(setGroups).catch(() => {});
     api.blockedUsers().then(ids => setBlocked(ids.includes(userId))).catch(() => {});
+    // Badge state comes from the server's verified record, never profile metadata.
+    api.verificationStatus('profile', userId).then(setVerificationStatus).catch(() => setVerificationStatus(null));
   }, [userId]);
   const guard = async (fn: () => Promise<void>) => {
     if (!socialReady()) { Alert.alert('Kivo', 'Turn on chats first (Chats tab).'); return; }
@@ -30,6 +33,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
       <ScrollView contentContainerStyle={styles.body}>
         <Avatar name={name} uri={person?.avatarUrl} size={96} />
         <Text style={styles.name}>{name}</Text>
+        {verificationStatus?.isVerified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verificationBadge}>★ Blue Star Verified · {verificationStatus.permanent || !verificationStatus.expiresAt ? 'permanent' : `valid until ${new Date(verificationStatus.expiresAt).toLocaleDateString()}`}</Text> : null}
         {person?.bio ? <Text style={styles.bio}>{person.bio}</Text> : null}
         <Text style={styles.address}>{address.slice(0, 10)}…{address.slice(-8)}</Text>
         <View style={styles.stats}>
@@ -71,6 +75,7 @@ const styles = StyleSheet.create({
   headerTitle: { color: c.text, fontSize: 17, fontWeight: '800' },
   body: { padding: 20, alignItems: 'center', gap: 10, paddingBottom: 40 },
   name: { color: c.text, fontSize: 26, fontWeight: '800' },
+  verificationBadge: { color: '#C9F7A6', fontSize: 12, fontWeight: '900', textAlign: 'center', backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: '#C9F7A6', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
   bio: { color: c.text, fontSize: 14, textAlign: 'center' },
   address: { color: c.textMuted, fontSize: 12 },
   stats: { flexDirection: 'row', alignSelf: 'stretch', backgroundColor: c.surface, borderRadius: 16, borderWidth: 1, borderColor: c.border, paddingVertical: 12, marginTop: 6 },
