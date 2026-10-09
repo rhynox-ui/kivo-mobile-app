@@ -42,6 +42,9 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const messages = state.messages[id] ?? [];
   const [draft, setDraft] = useState('');
   const list = useRef<FlatList<Item>>(null);
+  const atBottom = useRef(true);
+  const previousMessageCount = useRef(messages.length);
+  const [unseenMessages, setUnseenMessages] = useState(0);
   const me = myUserId();
   const isChannel = conversation?.kind === 'channel';
   const canPost = !isChannel || conversation?.myRole === 'owner' || conversation?.myRole === 'admin';
@@ -103,12 +106,29 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
         </Pressable>
         {conversation && conversation.kind !== 'dm' && <Pressable onPress={() => onOpenInfo?.(id, conversation.kind as 'group' | 'channel')} hitSlop={10}><Text style={styles.info}>ⓘ</Text></Pressable>}
       </View>
+      <View style={styles.listWrap}>
       <FlatList
         ref={list}
         data={items}
         keyExtractor={item => item.key}
         contentContainerStyle={styles.messages}
-        onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })}
+        onContentSizeChange={() => {
+          const added = Math.max(0, messages.length - previousMessageCount.current);
+          previousMessageCount.current = messages.length;
+          if (atBottom.current) {
+            list.current?.scrollToEnd({ animated: false });
+            setUnseenMessages(0);
+          } else if (added > 0) {
+            setUnseenMessages(count => count + added);
+          }
+        }}
+        onScroll={event => {
+          const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+          const nearBottom = contentSize.height - contentOffset.y - layoutMeasurement.height < 80;
+          atBottom.current = nearBottom;
+          if (nearBottom) setUnseenMessages(0);
+        }}
+        scrollEventThrottle={100}
         ListEmptyComponent={<Text style={styles.emptyText}>{isChannel ? 'No posts yet.' : 'No messages yet. Say hello 👋'}</Text>}
         renderItem={({ item }) => {
           if (item.type === 'day') return <View style={styles.day}><Text style={styles.dayText}>{item.label}</Text></View>;
@@ -129,6 +149,14 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
           );
         }}
       />
+
+        {unseenMessages > 0 && (
+          <Pressable style={styles.jumpLatest} onPress={() => { list.current?.scrollToEnd({ animated: true }); atBottom.current = true; setUnseenMessages(0); }} accessibilityLabel="Jump to latest messages">
+            <View style={styles.jumpCount}><Text style={styles.jumpCountText}>{unseenMessages > 999 ? '999+' : unseenMessages}</Text></View>
+            <Text style={styles.jumpArrow}>⌄</Text>
+          </Pressable>
+        )}
+      </View>
       {canPost ? (
         <View style={styles.composer}>
           <Pressable onPress={attach} hitSlop={8} style={styles.attach} accessibilityLabel="Attach photo"><Text style={styles.attachText}>＋</Text></Pressable>
@@ -151,7 +179,12 @@ const styles = StyleSheet.create({
   name: { color: c.text, fontSize: 16, fontWeight: '800' },
   status: { color: c.textMuted, fontSize: 11.5, marginTop: 2 },
   info: { color: c.cream, fontSize: 20, paddingHorizontal: 6 },
+  listWrap: { flex: 1, position: 'relative' },
   messages: { padding: 10, paddingBottom: 16, gap: 3 },
+  jumpLatest: { position: 'absolute', right: 12, bottom: 18, minWidth: 44, height: 44, borderRadius: 22, paddingHorizontal: 5, backgroundColor: '#24394B', alignItems: 'center', justifyContent: 'center', elevation: 5, flexDirection: 'row', gap: 3 },
+  jumpCount: { minWidth: 25, height: 25, borderRadius: 13, paddingHorizontal: 5, backgroundColor: '#55B7F3', alignItems: 'center', justifyContent: 'center' },
+  jumpCountText: { color: '#FFFFFF', fontSize: 11.5, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  jumpArrow: { color: '#EAF4FF', fontSize: 19, fontWeight: '900' },
   emptyText: { color: c.textMuted, textAlign: 'center', marginTop: 40 },
   day: { alignItems: 'center', marginVertical: 10 },
   dayText: { color: c.textMuted, fontSize: 11.5, backgroundColor: c.surface, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999, overflow: 'hidden' },
