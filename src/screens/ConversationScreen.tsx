@@ -6,6 +6,7 @@ import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMes
 import { kivoTheme } from '../theme/kivoTheme';
 import { useActiveConversation, useChatState } from '../state/useChat';
 import { Avatar } from './ChatListScreen';
+import { api } from '../state/session';
 
 type Item = { type: 'day'; key: string; label: string } | { type: 'message'; key: string; message: LocalMessage; showName: boolean };
 
@@ -98,6 +99,28 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => deleteForEveryone(id, message.id).catch(error => Alert.alert('Delete', error instanceof Error ? error.message : 'Could not delete.')) },
       ]) }] : []),
+      ...(conversation?.kind === 'dm' && message.senderId !== me && conversation.peer?.userId === message.senderId ? [{
+        text: 'Block / unblock user',
+        onPress: () => { void api.blockedUsers().then(blocked => {
+          const isBlocked = blocked.includes(message.senderId);
+          Alert.alert(isBlocked ? 'Unblock user?' : 'Block user?', isBlocked ? 'They will be able to message you again.' : 'They will no longer be able to send you direct messages. You can unblock them later.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: isBlocked ? 'Unblock' : 'Block', style: isBlocked ? 'default' as const : 'destructive' as const, onPress: () => (isBlocked ? api.unblockUser(message.senderId) : api.blockUser(message.senderId)).then(() => Alert.alert('Privacy', isBlocked ? 'User unblocked.' : 'User blocked.')).catch(error => Alert.alert('Privacy', error instanceof Error ? error.message : 'Action failed.')) },
+          ]);
+        }).catch(error => Alert.alert('Privacy', error instanceof Error ? error.message : 'Could not load block status.')); },
+      }] : []),
+      ...(canModerate && conversation?.kind === 'group' && message.senderId !== me ? [{
+        text: 'Restrict / restore posting',
+        onPress: () => { void api.community(id).then(detail => {
+          const member = detail.members.find(item => item.userId === message.senderId);
+          if (!member || member.role !== 'member') { Alert.alert('Moderation', 'Only regular members can be restricted.'); return; }
+          const restricted = Boolean(member.restricted);
+          Alert.alert(restricted ? 'Restore posting?' : 'Restrict posting?', restricted ? 'Allow this member to send messages again.' : 'This member will not be able to send messages in this group.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: restricted ? 'Restore' : 'Restrict', style: restricted ? 'default' as const : 'destructive' as const, onPress: () => api.setMemberRestricted(id, message.senderId, !restricted).then(() => Alert.alert('Moderation', restricted ? 'Posting restored.' : 'Member restricted.')).catch(error => Alert.alert('Moderation', error instanceof Error ? error.message : 'Action failed.')) },
+          ]);
+        }).catch(error => Alert.alert('Moderation', error instanceof Error ? error.message : 'Could not load member.')); },
+      }] : []),
       { text: 'Cancel', style: 'cancel' },
     ]);
   };
