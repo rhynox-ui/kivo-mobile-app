@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { API_LIMITS } from '@kivo/shared/api/types';
+import { API_LIMITS, isOfficialKivoChannel } from '@kivo/shared/api/types';
 import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useActiveConversation, useChatState } from '../state/useChat';
@@ -272,6 +272,8 @@ const styles = StyleSheet.create({
   header: { minHeight: 64, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.background },
   back: { color: c.cream, fontSize: 36, width: 24 },
   headerCopy: { flex: 1, minWidth: 0 },
+  nameLine: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+  verifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 11, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 17, height: 17, borderRadius: 9, overflow: 'hidden' },
   name: { color: c.text, fontSize: 16, fontWeight: '800' },
   status: { color: c.textMuted, fontSize: 11.5, marginTop: 2 },
   info: { color: c.cream, fontSize: 20, paddingHorizontal: 6 },

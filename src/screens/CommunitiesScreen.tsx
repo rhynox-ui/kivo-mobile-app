@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { launchImageLibrary, type ImagePickerAsset } from 'react-native-image-picker';
+import { launchImageLibrary, type Asset } from 'react-native-image-picker';
 import type { ApiCommunity, CommunityKind } from '@kivo/shared/api/types';
 import { API_LIMITS } from '@kivo/shared/api/types';
 import { refreshConversations } from '@kivo/shared/chat/store';
@@ -89,7 +89,7 @@ function CreateForm({ kind, onCreated }: { kind: CommunityKind; onCreated: (c: A
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
-  const [photo, setPhoto] = useState<ImagePickerAsset | null>(null);
+  const [photo, setPhoto] = useState<Asset | null>(null);
   const [busy, setBusy] = useState(false);
   const pickPhoto = async () => {
     try {
@@ -97,7 +97,7 @@ function CreateForm({ kind, onCreated }: { kind: CommunityKind; onCreated: (c: A
       // let the native picker re-encode to JPEG at moderate quality.
       const result = await launchImageLibrary({
         mediaType: 'photo', selectionLimit: 1, maxWidth: API_LIMITS.avatarEdge,
-        maxHeight: API_LIMITS.avatarEdge, quality: 0.65, assetRepresentationMode: 'compatible',
+        maxHeight: API_LIMITS.avatarEdge, quality: 0.6, assetRepresentationMode: 'compatible',
       });
       if (result.didCancel) return;
       if (result.errorCode) throw new Error(result.errorMessage || 'Could not open your photos.');

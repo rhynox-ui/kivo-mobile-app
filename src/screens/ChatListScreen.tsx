@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { isOfficialKivoChannel, type ApiConversation, type ApiProfile } from '@kivo/shared/api/types';
+import { isOfficialKivoChannel, type ApiCommunity, type ApiConversation, type ApiProfile } from '@kivo/shared/api/types';
 import { displayName, myUserId, openDirectMessage, rememberProfiles, unreadCount } from '@kivo/shared/chat/store';
 import { KivoMark } from '../components/KivoMark';
 import { kivoTheme } from '../theme/kivoTheme';
@@ -87,7 +87,7 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
         data={list}
         keyExtractor={item => item.id}
         renderItem={({ item }) => <Row conversation={item} onPress={() => onOpenChat(item.id)} />}
-        ListEmptyComponent={filter === 'channel' && publicChannels.length ? null : <View style={styles.empty}><Text style={styles.emptyTitle}>{filter === 'channel' ? 'No channels yet' : 'No chats yet'}</Text><Text style={styles.muted}>Discover public channels or join communities to see them here.</Text></View>}
+        ListEmptyComponent={filter === 'channel' && publicChannels.length ? undefined : <View style={styles.empty}><Text style={styles.emptyTitle}>{filter === 'channel' ? 'No channels yet' : 'No chats yet'}</Text><Text style={styles.muted}>Discover public channels or join communities to see them here.</Text></View>}
         ListFooterComponent={filter === 'channel' && publicChannels.length ? <View style={styles.discoverSection}>
           {publicChannels.map(c => <Pressable key={c.id} style={styles.row} onPress={async () => {
             try { await api.join(c.id); await refreshConversations().catch(() => {}); onOpenChat(c.id); }
@@ -96,7 +96,7 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
             <Avatar name={c.name} uri={c.avatarUrl} size={52} />
             <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>📢 {c.name}{(c.isVerified || isOfficialKivoChannel(c.id)) ? ' ★' : ''}</Text></View><Text style={styles.preview}>Public channel · Tap to subscribe</Text></View>
           </Pressable>)}
-        </View> : null}
+        </View> : undefined}
         contentContainerStyle={styles.listContent}
       />
     </View>
