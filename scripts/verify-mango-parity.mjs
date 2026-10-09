@@ -78,11 +78,12 @@ check('Fee rate and cap', () => {
   assert.ok(s.includes('DEV_FEE_MAX_USD = 50'));
 });
 check('Recovery phrase whitespace parsing', () => {
-  const s = read('src/state/walletStore.ts');
-  assert.ok(s.includes(String.raw`replace(/\s+/g,' ')`));
+  const s = read('src/wallet/recoveryPhrase.ts');
+  assert.ok(s.includes(String.raw`replace(/\s+/g, ' ')`));
   assert.ok(s.includes(String.raw`split(/\s+/)`));
   assert.ok(!s.includes(String.raw`replace(/\\s+/g`));
   assert.ok(!s.includes(String.raw`split(/\\s+/)`));
+  assert.ok(read('src/state/walletStore.ts').includes('normalizeRecoveryPhrase(mnemonic)'));
 });
 check('Sensitive recovery inputs protected', () => {
   for (const p of ['src/screens/ImportWalletScreen.tsx','src/screens/VerifyRecoveryScreen.tsx','src/screens/ProfileSetupScreen.tsx']) {
