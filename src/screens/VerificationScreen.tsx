@@ -93,6 +93,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   const receiptStorageKey = `kivo:verification-receipt:${subjectType}:${subjectId}`;
   const storageKey = `kivo:verification-pending:${subjectType}:${subjectId}`;
   const keychainService = `${PENDING_KEYCHAIN_SERVICE}.${subjectType}.${encodeURIComponent(subjectId)}`;
+  const pendingRecovery = pending as PendingPayment | null;
 
   useEffect(() => {
     let active = true;
@@ -317,7 +318,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
               {busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep}/> : <Text style={styles.payText}>{pending ? 'Retry verification' : `Pay ${plan === 'annual' ? '$5' : '$1'} USDC`}</Text>}
             </Pressable>
             <Text style={styles.status} accessibilityLiveRegion="polite">{status}</Text>
-            {pending ? <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: `Kivo Blue Star payment recovery\\nSubject: ${subjectType} ${subjectId}\\nNetwork: ${pending.chain}\\nPlan: ${pending.plan}\\nTransaction: ${pending.txHash}\\nRetry verification in Kivo; do not pay again.` })}><Text style={styles.secondaryText}>Share transaction recovery details</Text></Pressable> : null}
+            {pendingRecovery ? <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: `Kivo Blue Star payment recovery\\nSubject: ${subjectType} ${subjectId}\\nNetwork: ${pendingRecovery.chain}\\nPlan: ${pendingRecovery.plan}\\nTransaction: ${pendingRecovery.txHash}\\nRetry verification in Kivo; do not pay again.` })}><Text style={styles.secondaryText}>Share transaction recovery details</Text></Pressable> : null}
             <Text style={styles.finePrint}>No funds move until you approve the transaction in your wallet.</Text>
           </View>
         ) : (
