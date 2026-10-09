@@ -19,6 +19,7 @@ const EVM_RECIPIENT = '0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5';
 const SOLANA_RECIPIENT = '2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGZwyTDt1v';
 
+// Local stores only help recover a submitted hash; the server must still verify it on-chain.
 const PENDING_KEYCHAIN_SERVICE = 'com.kivo.verification-pending';
 
 async function readPendingRecord(key: string, service: string): Promise<string | null> {
