@@ -71,6 +71,17 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const previousMessageCount = useRef(messages.length);
   const [unseenMessages, setUnseenMessages] = useState(0);
   const me = myUserId();
+  const [peerVerified, setPeerVerified] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setPeerVerified(false);
+    if (conversation?.kind === 'dm' && conversation.peer?.userId) {
+      api.verificationStatus('profile', conversation.peer.userId)
+        .then(status => { if (active) setPeerVerified(status.isVerified === true); })
+        .catch(() => { if (active) setPeerVerified(false); });
+    }
+    return () => { active = false; };
+  }, [conversation?.kind, conversation?.peer?.userId]);
   const isChannel = conversation?.kind === 'channel';
   const canPost = !isChannel || conversation?.myRole === 'owner' || conversation?.myRole === 'admin';
   const canModerate = conversation?.myRole === 'owner' || conversation?.myRole === 'admin';
