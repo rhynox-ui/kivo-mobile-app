@@ -6,7 +6,7 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { useProfile } from '../state/profileStore';
 import { getWalletSession, subscribeToWallet, type WalletSession, localEvmSigner, withDeviceAccounts } from '../state/walletStore';
 import { encodeFunctionData, parseUnits } from 'viem';
-import { Connection, PublicKey, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import { createAssociatedTokenAccountInstruction, createTransferCheckedInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
 import { api, storage, useSocialReady } from '../state/session';
 import { useChatState } from '../state/useChat';
@@ -225,7 +225,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
                 ? `Payment submitted (${pendingPaymentForAttempt.txHash}). Retry verification; do not pay again. ${e instanceof Error ? e.message : ''}`
                 : (e instanceof Error ? e.message : 'Could not verify payment.'));
             } finally { setVerificationBusy(false); }
-          }}><Text style={styles.verificationButtonText}{verificationBusy ? 'Paying securely…' : verificationPendingPayment ? 'Retry verification' : `Pay ${verificationPlan === 'annual' ? '5' : '1'} USDC & verify`}</Text></Pressable>}
+          }}><Text style={styles.verificationButtonText}>{verificationBusy ? 'Paying securely…' : verificationPendingPayment ? 'Retry verification' : `Pay ${verificationPlan === 'annual' ? '5' : '1'} USDC & verify`}</Text></Pressable>}
           {verificationBusy && <View style={styles.verifyProgress}><ActivityIndicator size="small" color={kivoTheme.colors.accent} /><Text style={styles.small}>{verificationProgress === 'checking' ? 'Waiting for blockchain verification…' : 'Waiting for wallet approval and transaction confirmation…'}</Text></View>}
         </View>}
         {verificationReceipt && <View style={styles.verificationPanel}>
