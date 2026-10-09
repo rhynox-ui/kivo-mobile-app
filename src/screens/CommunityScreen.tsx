@@ -20,6 +20,22 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
   const [data, setData] = useState<{ community: ApiCommunity; members: ApiMember[] } | null>(null);
   const [error, setError] = useState('');
   const [address, setAddress] = useState('');
+  const [verifiedMembers, setVerifiedMembers] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    let active = true;
+    const ids = (data?.members ?? []).map(member => member.userId);
+    if (!ids.length) { setVerifiedMembers(new Set()); return () => { active = false; }; }
+    void Promise.all(ids.map(async userId => {
+      try {
+        const status = await api.verificationStatus('profile', userId);
+        return status.isVerified ? userId : null;
+      } catch { return null; }
+    })).then(results => {
+      if (active) setVerifiedMembers(new Set(results.filter((id): id is string => Boolean(id))));
+    });
+    return () => { active = false; };
+  }, [data?.members]);
 
   const load = useCallback(() => api.community(id).then(setData).catch(e => setError(e instanceof Error ? e.message : 'Not available.')), [id]);
   useEffect(() => {
@@ -79,7 +95,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
             return (
               <View key={target} style={styles.memberRow}>
                 <Pressable onPress={() => onOpenPerson?.(target)} style={styles.memberMain}>
-                  <Avatar name={memberName(member)} uri={member.profile?.avatarUrl} size={38} />
+                  <Avatar name={memberName(member)} uri={member.profile?.avatarUrl} size={38} verified={verifiedMembers.has(target)} />
                   <View style={styles.flex}><Text style={styles.memberName}>{memberName(member)}</Text><Text style={styles.small}>{member.role === 'owner' ? 'Owner · protected' : member.role === 'admin' ? 'Admin' : 'Member'}</Text></View>
                 </Pressable>
                 {me && canPromoteGroupAdmin(me, target, group) && <Pressable onPress={run(() => api.setAdmin(c.id, target, true))} style={styles.chip}><Text style={styles.chipText}>Make admin</Text></Pressable>}
