@@ -114,7 +114,6 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         amount: serverReceipt.amount,
         txHash: serverReceipt.txHash,
         payer: serverReceipt.payer,
-        recipient: serverReceipt.recipient,
         paidAt: serverReceipt.paidAt,
         expiresAt: serverReceipt.expiresAt,
         explorerUrl: serverReceipt.explorerUrl,
@@ -262,7 +261,6 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   };
 
   const connected = Boolean(getWalletSession());
-  const receiptRecipient = receipt?.recipient ?? (receipt?.chain === 'solana' ? SOLANA_RECIPIENT : EVM_RECIPIENT);
   const receiptPayer = receipt?.payer ?? receipt?.payer_address ?? 'Shown on verified payment record';
   return (
     <View style={styles.root}>
@@ -330,13 +328,11 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
             <ReceiptRow label="Network" value={receipt.chain}/>
             <ReceiptRow label="Transaction" value={receipt.txHash}/>
             <ReceiptRow label="Payer" value={receiptPayer}/>
-            <ReceiptRow label="Recipient" value={receiptRecipient}/>
             <View style={styles.qrWrap}><QRCode value={receipt.explorerUrl || receipt.txHash} size={128} backgroundColor="#FFFFFF" color="#062F2C"/><Text style={styles.qrCaption}>Scan to view transaction</Text></View>
             <ReceiptRow label="Paid" value={new Date(receipt.paidAt).toLocaleString()}/>
             <ReceiptRow label="Receipt ID" value={receipt.id ?? 'Verified payment'}/>
-            <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: `Kivo Blue Star receipt\nPayer: ${receiptPayer}\nRecipient: ${receiptRecipient}` })}><Text style={styles.secondaryText}>Share payer and recipient</Text></Pressable>
             <ReceiptRow label="Valid until" value={new Date(receipt.expiresAt).toLocaleDateString()}/>
-            <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: `Kivo Blue Star payment receipt\nSubject: ${subjectType} — ${subjectName}\nCurrent verification: ${alreadyVerified ? 'Active' : 'Inactive / expired'}\nPlan: ${receipt.plan === 'annual' ? 'Annual (365 days)' : 'Monthly (30 days)'}\nAmount: ${receipt.amount} USDC\nNetwork: ${receipt.chain}\nTransaction: ${receipt.txHash}\nPayer: ${receiptPayer}\nRecipient: ${receiptRecipient}\nPaid: ${new Date(receipt.paidAt).toLocaleString()}\nValid until: ${new Date(receipt.expiresAt).toLocaleString()}\nReceipt ID: ${receipt.id ?? 'Unavailable'}\nExplorer: ${receipt.explorerUrl}` })}><Text style={styles.secondaryText}>Share complete receipt</Text></Pressable>
+            <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: `Kivo Blue Star payment receipt\nSubject: ${subjectType} — ${subjectName}\nCurrent verification: ${alreadyVerified ? 'Active' : 'Inactive / expired'}\nPlan: ${receipt.plan === 'annual' ? 'Annual (365 days)' : 'Monthly (30 days)'}\nAmount: ${receipt.amount} USDC\nNetwork: ${receipt.chain}\nTransaction: ${receipt.txHash}\nPayer: ${receiptPayer}\nPaid: ${new Date(receipt.paidAt).toLocaleString()}\nValid until: ${new Date(receipt.expiresAt).toLocaleString()}\nReceipt ID: ${receipt.id ?? 'Unavailable'}\nExplorer: ${receipt.explorerUrl}` })}><Text style={styles.secondaryText}>Share complete receipt</Text></Pressable>
             <Pressable style={styles.secondaryButton} onPress={() => Linking.openURL(receipt.explorerUrl).catch(() => Alert.alert('Kivo', 'Could not open the transaction explorer.'))}><Text style={styles.secondaryText}>View transaction</Text></Pressable>
             {Number(receipt.expiresAt) <= Date.now() ? <Pressable style={styles.payButton} onPress={() => { setReceipt(null); setAlreadyVerified(false); setStatus('Your previous verification has expired. Choose a plan to renew.'); }}><Text style={styles.payText}>Renew Blue Star</Text></Pressable> : null}
             <Pressable style={styles.payButton} onPress={onBack}><Text style={styles.payText}>Done</Text></Pressable>
@@ -350,7 +346,6 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
             <ReceiptRow label="Plan" value={plan === 'annual' ? 'Annual · 365 days' : 'Monthly · 30 days'}/>
             <ReceiptRow label="Amount" value={`${plan === 'annual' ? '$5' : '$1'} USDC`}/>
             <ReceiptRow label="Network" value={CHAIN_META[chain].label}/>
-            <ReceiptRow label="Recipient" value={chain === 'solana' ? SOLANA_RECIPIENT : EVM_RECIPIENT}/>
             <View style={styles.confirmActions}>
               <Pressable style={styles.secondaryButton} onPress={() => setConfirmOpen(false)}><Text style={styles.secondaryText}>Cancel</Text></Pressable>
               <Pressable style={styles.payButton} onPress={() => { setConfirmOpen(false); void pay(); }}><Text style={styles.payText}>Confirm and pay</Text></Pressable>
@@ -399,10 +394,10 @@ const styles = StyleSheet.create({
   headerCopy: { flex: 1, gap: 2 },
   title: { color: kivoTheme.colors.text, fontSize: 20, fontWeight: '800' },
   subtitle: { color: kivoTheme.colors.textMuted, fontSize: 13 },
-  content: { padding: 18, paddingBottom: 32, gap: 12 },
-  card: { padding: 18, borderRadius: 18, borderWidth: 1, borderColor: kivoTheme.colors.border, backgroundColor: kivoTheme.colors.surface, gap: 12 },
-  description: { color: kivoTheme.colors.textMuted, fontSize: 14, lineHeight: 21 },
-  label: { color: kivoTheme.colors.text, fontSize: 13, fontWeight: '800', marginTop: 4 },
+  content: { padding: 12, paddingBottom: 20, gap: 8 },
+  card: { padding: 10, borderRadius: 14, borderWidth: 1, borderColor: kivoTheme.colors.border, backgroundColor: kivoTheme.colors.surface, gap: 7 },
+  description: { color: kivoTheme.colors.textMuted, fontSize: 12, lineHeight: 16 },
+  label: { color: kivoTheme.colors.text, fontSize: 12, fontWeight: '800', marginTop: 1 },
   options: { flexDirection: 'column', gap: 9 },
   networkSelector: { minHeight: 62, borderWidth: 1, borderColor: kivoTheme.colors.border, borderRadius: 14, paddingHorizontal: 13, paddingVertical: 10, backgroundColor: kivoTheme.colors.backgroundDeep, flexDirection: 'row', alignItems: 'center', gap: 12 },
   networkMark: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
