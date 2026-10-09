@@ -132,11 +132,23 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.header}>
         <Pressable onPress={onBack} hitSlop={10} accessibilityLabel="Back"><Text style={styles.back}>‹</Text></Pressable>
-        <Avatar name={title} uri={conversation?.avatarUrl} size={40} />
-        <Pressable style={styles.headerCopy} disabled={!conversation || conversation.kind === 'dm'} onPress={() => conversation && conversation.kind !== 'dm' && onOpenInfo?.(id, conversation.kind)}>
+        <Pressable onPress={() => conversation?.kind === 'dm' && conversation.peer?.userId ? onOpenPerson?.(conversation.peer.userId) : conversation && conversation.kind !== 'dm' ? onOpenInfo?.(id, conversation.kind) : undefined} accessibilityLabel={conversation?.kind === 'dm' ? 'View user profile' : 'Open conversation info'}>
+          <Avatar name={title} uri={conversation?.avatarUrl} size={40} />
+        </Pressable>
+        <Pressable style={styles.headerCopy} disabled={!conversation} onPress={() => conversation?.kind === 'dm' && conversation.peer?.userId ? onOpenPerson?.(conversation.peer.userId) : conversation && conversation.kind !== 'dm' ? onOpenInfo?.(id, conversation.kind) : undefined}>
           <Text style={styles.name} numberOfLines={1}>{title}</Text>
           <Text style={styles.status}>{subtitle}</Text>
         </Pressable>
+        {conversation?.kind === 'dm' && conversation.peer?.userId && <Pressable onPress={() => {
+          const peerId = conversation.peer!.userId;
+          void api.blockedUsers().then(blocked => {
+            const isBlocked = blocked.includes(peerId);
+            Alert.alert(isBlocked ? 'Unblock user?' : 'Block user?', isBlocked ? 'They will be able to message you again.' : 'They will no longer be able to send you direct messages.', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: isBlocked ? 'Unblock' : 'Block', style: isBlocked ? 'default' as const : 'destructive' as const, onPress: () => (isBlocked ? api.unblockUser(peerId) : api.blockUser(peerId)).then(() => Alert.alert('Privacy', isBlocked ? 'User unblocked.' : 'User blocked.')).catch(error => Alert.alert('Privacy', error instanceof Error ? error.message : 'Action failed.')) },
+            ]);
+          }).catch(error => Alert.alert('Privacy', error instanceof Error ? error.message : 'Could not load privacy settings.'));
+        }} hitSlop={10} accessibilityLabel="Privacy and blocking"><Text style={styles.info}>⊘</Text></Pressable>}
         {conversation && conversation.kind !== 'dm' && <Pressable onPress={() => onOpenInfo?.(id, conversation.kind as 'group' | 'channel')} hitSlop={10}><Text style={styles.info}>ⓘ</Text></Pressable>}
       </View>
       <View style={styles.listWrap}>
