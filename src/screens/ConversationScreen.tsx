@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Image, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { API_LIMITS } from '@kivo/shared/api/types';
 import { deleteForEveryone, discardMessage, displayName, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
@@ -8,6 +8,33 @@ import { useActiveConversation, useChatState } from '../state/useChat';
 import { Avatar } from './ChatListScreen';
 
 type Item = { type: 'day'; key: string; label: string } | { type: 'message'; key: string; message: LocalMessage; showName: boolean };
+
+function renderLinkedText(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const pattern = /https?:\/\/[^\s<>"']+/g;
+  let cursor = 0;
+  let key = 0;
+  for (const match of text.matchAll(pattern)) {
+    const raw = match[0];
+    const start = match.index ?? 0;
+    const url = raw.replace(/[),.!?;:]+$/, '');
+    if (!url) continue;
+    if (start > cursor) nodes.push(text.slice(cursor, start));
+    nodes.push(
+      <Text
+        key={\`link-\${key++}\`}
+        accessibilityRole="link"
+        onPress={() => Linking.openURL(url).catch(() => Alert.alert('Link', 'Could not open this link.'))}
+        style={styles.messageLink}
+      >{url}</Text>
+    );
+    const trailing = raw.slice(url.length);
+    if (trailing) nodes.push(trailing);
+    cursor = start + raw.length;
+  }
+  if (cursor < text.length) nodes.push(text.slice(cursor));
+  return nodes.length ? nodes : [text];
+}
 
 /**
  * Photos are compressed by the picker itself (downscaled to 1280px and
@@ -109,7 +136,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
               <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted]}>
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><Text style={styles.sender}>{displayName(message.senderId)}</Text></Pressable>}
                 {message.media && <Image source={{ uri: message.media.url }} style={[styles.photo, message.media.width && message.media.height ? { aspectRatio: message.media.width / message.media.height } : null]} resizeMode="cover" />}
-                {message.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : message.text ? <Text style={styles.text}>{message.text}</Text> : null}
+                {message.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : message.text ? <Text style={styles.text}>{renderLinkedText(message.text)}</Text> : null}
                 <Text style={styles.meta}>
                   {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   {mine ? message.status === 'pending' ? '  ◷' : message.status === 'failed' ? '  ⚠ tap & hold' : '  ✓' : ''}
@@ -154,6 +181,7 @@ const styles = StyleSheet.create({
   sender: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
   photo: { width: 240, maxWidth: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: c.background },
   text: { color: c.text, fontSize: 15, lineHeight: 20 },
+  messageLink: { color: c.accent, textDecorationLine: 'underline', backgroundColor: 'rgba(244,240,199,0.10)', borderRadius: 3, overflow: 'hidden' },
   deletedText: { color: c.textMuted, fontStyle: 'italic', fontSize: 13 },
   meta: { color: 'rgba(247,245,223,0.6)', fontSize: 10.5, alignSelf: 'flex-end' },
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background },
