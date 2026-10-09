@@ -28,7 +28,9 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
   const [verificationChain, setVerificationChain] = useState<'ethereum' | 'base' | 'arbitrum' | 'solana'>('base');
   const [verificationHash, setVerificationHash] = useState('');
   const [verificationReceipt, setVerificationReceipt] = useState<any>(null);
-  const [verificationBusy, setVerificationBusy] = useState(false);\n  const [verificationWalletReady, setVerificationWalletReady] = useState(false);\n  const [verificationProgress, setVerificationProgress] = useState<'idle' | 'waiting' | 'checking' | 'success'>('idle');
+  const [verificationBusy, setVerificationBusy] = useState(false);
+  const [verificationWalletReady, setVerificationWalletReady] = useState(false);
+  const [verificationProgress, setVerificationProgress] = useState<'idle' | 'waiting' | 'checking' | 'success'>('idle');
   const load = useCallback(() => api.community(id).then(setData).catch(e => setError(e instanceof Error ? e.message : 'Not available.')), [id]);
   useEffect(() => {
     void load();
