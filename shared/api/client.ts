@@ -73,8 +73,7 @@ export class KivoApi {
     if (!this.session || this.session.expiresAt <= Date.now()) return {};
     if (url) {
       try {
-        const fallbackOrigin = typeof globalThis.location !== 'undefined' ? globalThis.location.origin : 'https://kivo-web.pages.dev';
-        const base = new URL(this.baseUrl || fallbackOrigin, fallbackOrigin);
+        const base = new URL(this.baseUrl || 'https://kivo-web.pages.dev');
         const target = new URL(url, base);
         if (target.origin !== base.origin || !target.pathname.startsWith('/api/media/')) return {};
       } catch { return {}; }
@@ -84,8 +83,7 @@ export class KivoApi {
 
   /** Fetch private media with the current session; never send a bearer token off-origin. */
   async fetchMedia(url: string): Promise<Blob> {
-    const fallbackOrigin = typeof globalThis.location !== 'undefined' ? globalThis.location.origin : 'https://kivo-web.pages.dev';
-    const base = new URL(this.baseUrl || fallbackOrigin, fallbackOrigin);
+    const base = new URL(this.baseUrl || 'https://kivo-web.pages.dev');
     const target = new URL(url, base);
     if (target.origin !== base.origin || !target.pathname.startsWith('/api/media/')) {
       throw new ApiError(400, 'Invalid media URL.');
