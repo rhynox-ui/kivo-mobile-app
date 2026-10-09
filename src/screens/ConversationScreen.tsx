@@ -93,7 +93,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
     }
     if (message.status !== 'sent' || message.deleted) return;
     Alert.alert('Message options', undefined, [
-      ...(message.senderId === me ? [{ text: 'Edit', onPress: () => { setEditingMessageId(message.id); setDraft(message.text); }] } : []),
+      ...(message.senderId === me ? [{ text: 'Edit', onPress: () => { setEditingMessageId(message.id); setDraft(message.text); } }] : []),
       { text: 'Forward', onPress: () => setForwardingMessage(message) },
       ...(message.senderId === me || canModerate ? [{ text: 'Delete', style: 'destructive' as const, onPress: () => Alert.alert('Delete message', 'Delete this message for everyone?', [
         { text: 'Cancel', style: 'cancel' },
