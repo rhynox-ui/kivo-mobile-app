@@ -7,6 +7,7 @@ import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import * as Keychain from 'react-native-keychain';
 import { createAssociatedTokenAccountInstruction, createTransferCheckedInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
 import { kivoTheme } from '../theme/kivoTheme';
+import Svg, { Path, Polygon, Circle } from 'react-native-svg';
 
 type Chain = 'ethereum' | 'base' | 'arbitrum' | 'solana';
 type Plan = 'monthly' | 'annual';
@@ -15,11 +16,11 @@ type PendingPayment = { txHash: string; chain: Chain; plan: Plan };
 
 const CHAINS: Chain[] = ['base', 'ethereum', 'arbitrum', 'solana'];
 const PLANS: Plan[] = ['monthly', 'annual'];
-const CHAIN_META: Record<Chain, { label: string; mark: string; color: string; subtitle: string }> = {
-  ethereum: { label: 'Ethereum', mark: '◆', color: '#8B9CFF', subtitle: 'Ethereum Mainnet' },
-  base: { label: 'Base', mark: '▰', color: '#4C7DFF', subtitle: 'Base Mainnet' },
-  arbitrum: { label: 'Arbitrum One', mark: '◈', color: '#8AB4F8', subtitle: 'Arbitrum One' },
-  solana: { label: 'Solana', mark: '≋', color: '#8BDFC5', subtitle: 'Solana Mainnet' },
+const CHAIN_META: Record<Chain, { label: string; color: string; subtitle: string }> = {
+  ethereum: { label: 'Ethereum', color: '#8B9CFF', subtitle: 'Ethereum Mainnet' },
+  base: { label: 'Base', color: '#4C7DFF', subtitle: 'Base Mainnet' },
+  arbitrum: { label: 'Arbitrum One', color: '#8AB4F8', subtitle: 'Arbitrum One' },
+  solana: { label: 'Solana', color: '#8BDFC5', subtitle: 'Solana Mainnet' },
 };
 const EVM_RECIPIENT = '0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5';
 const SOLANA_RECIPIENT = '2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki';
@@ -241,7 +242,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
             <View style={styles.options}>{PLANS.map(item => <Pressable key={item} disabled={busy || Boolean(pending)} onPress={() => setPlan(item)} style={[styles.option, plan === item && styles.optionActive, Boolean(pending) && styles.optionDisabled]}><Text style={[styles.optionText, plan === item && styles.optionTextActive]}>{item === 'annual' ? '$5 USDC / year' : '$1 USDC / month'}</Text></Pressable>)}</View>
             <Text style={styles.label}>Network</Text>
             <Pressable accessibilityRole="button" accessibilityLabel={`Choose network. Selected: ${CHAIN_META[chain].label}`} disabled={busy || Boolean(pending)} onPress={() => setNetworkPickerOpen(true)} style={[styles.networkSelector, Boolean(pending) && styles.optionDisabled]}>
-              <View style={[styles.networkMark, { backgroundColor: CHAIN_META[chain].color + '22' }]}><Text style={[styles.networkMarkText, { color: CHAIN_META[chain].color }]}>{CHAIN_META[chain].mark}</Text></View>
+              <NetworkLogo chain={chain} />
               <View style={styles.networkCopy}><Text style={styles.networkName}>{CHAIN_META[chain].label}</Text><Text style={styles.networkSubtitle}>{CHAIN_META[chain].subtitle}</Text></View>
               <Text style={styles.networkChevron}>⌄</Text>
             </Pressable>
@@ -251,7 +252,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
                   <View style={styles.pickerHandle} />
                   <View style={styles.pickerHeader}><View><Text style={styles.pickerTitle}>Choose network</Text><Text style={styles.pickerSubtitle}>Pay with USDC on your selected network</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Close network picker" onPress={() => setNetworkPickerOpen(false)} style={styles.pickerClose}><Text style={styles.pickerCloseText}>×</Text></Pressable></View>
                   {CHAINS.map(item => <Pressable key={item} accessibilityRole="button" onPress={() => { setChain(item); setNetworkPickerOpen(false); }} style={[styles.networkOption, chain === item && styles.networkOptionActive]}>
-                    <View style={[styles.networkMark, { backgroundColor: CHAIN_META[item].color + '22' }]}><Text style={[styles.networkMarkText, { color: CHAIN_META[item].color }]}>{CHAIN_META[item].mark}</Text></View>
+                    <NetworkLogo chain={item} />
                     <View style={styles.networkCopy}><Text style={styles.networkName}>{CHAIN_META[item].label}</Text><Text style={styles.networkSubtitle}>{CHAIN_META[item].subtitle}</Text></View>
                     {chain === item ? <Text style={styles.selectedMark}>✓</Text> : <Text style={styles.networkChevron}>›</Text>}
                   </Pressable>)}
@@ -291,6 +292,14 @@ function ReceiptRow({ label, value }: { label: string; value: string }) {
   return <View style={styles.receiptRow}><Text style={styles.receiptLabel}>{label}</Text><Text selectable style={styles.receiptValue}>{value}</Text></View>;
 }
 
+function NetworkLogo({ chain }: { chain: Chain }) {
+  const size = 38;
+  if (chain === 'ethereum') return <View style={[styles.networkMark, { backgroundColor: '#627EEA18' }]}><Svg width={25} height={30} viewBox="0 0 256 417"><Polygon points="127.9,0 0,211.9 127.9,154.4" fill="#8C9EFF"/><Polygon points="127.9,0 255.8,211.9 127.9,154.4" fill="#62688F"/><Polygon points="0,236.2 127.9,417 127.9,281.8" fill="#8C9EFF"/><Polygon points="255.8,236.2 127.9,417 127.9,281.8" fill="#62688F"/><Polygon points="0,211.9 127.9,281.8 127.9,154.4" fill="#62688F"/><Polygon points="255.8,211.9 127.9,281.8 127.9,154.4" fill="#454A75"/></Svg></View>;
+  if (chain === 'base') return <View style={[styles.networkMark, { backgroundColor: '#0052FF18' }]}><Svg width={27} height={27} viewBox="0 0 100 100"><Circle cx="50" cy="50" r="50" fill="#0052FF"/><Path d="M50 22a28 28 0 1 0 27.2 34H50V44h27.2A28 28 0 0 0 50 22Z" fill="#FFFFFF"/></Svg></View>;
+  if (chain === 'arbitrum') return <View style={[styles.networkMark, { backgroundColor: '#21314718' }]}><Svg width={29} height={29} viewBox="0 0 100 100"><Path d="M50 3 91 27v46L50 97 9 73V27Z" fill="#213147"/><Path d="M47 19 26 58l8 14 25-45Z" fill="#28A0F0"/><Path d="m60 37 16 28-8 14-21-37Z" fill="#FFFFFF"/><Path d="M39 70 50 50l11 19-7 12H46Z" fill="#28A0F0"/></Svg></View>;
+  return <View style={[styles.networkMark, { backgroundColor: '#9945FF18' }]}><Svg width={29} height={29} viewBox="0 0 100 100"><Path d="M22 32c2-2 4-3 7-3h48c5 0 7 6 3 9L69 48c-2 2-4 3-7 3H14c-5 0-7-6-3-9Z" fill="#9945FF"/><Path d="M22 52c2-2 4-3 7-3h48c5 0 7 6 3 9L69 68c-2 2-4 3-7 3H14c-5 0-7-6-3-9Z" fill="#14F195"/><Path d="M22 72c2-2 4-3 7-3h25c5 0 7 6 3 9l-7 7c-2 2-4 3-7 3H14c-5 0-7-6-3-9Z" fill="#9945FF"/></Svg></View>;
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: kivoTheme.colors.background },
   header: { minHeight: 68, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: kivoTheme.colors.border, backgroundColor: kivoTheme.colors.backgroundDeep },
@@ -306,7 +315,6 @@ const styles = StyleSheet.create({
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   networkSelector: { minHeight: 62, borderWidth: 1, borderColor: kivoTheme.colors.border, borderRadius: 14, paddingHorizontal: 13, paddingVertical: 10, backgroundColor: kivoTheme.colors.backgroundDeep, flexDirection: 'row', alignItems: 'center', gap: 12 },
   networkMark: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  networkMarkText: { fontSize: 23, fontWeight: '900' },
   networkCopy: { flex: 1, gap: 3 },
   networkName: { color: kivoTheme.colors.text, fontSize: 14, fontWeight: '800' },
   networkSubtitle: { color: kivoTheme.colors.textMuted, fontSize: 11 },
