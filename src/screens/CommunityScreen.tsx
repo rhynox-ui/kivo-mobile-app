@@ -51,7 +51,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
       <Header title={c.name} verified={Boolean(c.isVerified) || isOfficialKivoChannel(c.id)} onBack={onBack} onShare={() => Share.share({ message: `Join ${c.name} on Kivo: https://kivotrade.site/${c.kind}/${c.id}` })} />
       <ScrollView contentContainerStyle={styles.body}>
         <View style={styles.hero}>
-          <Avatar name={c.name} uri={c.avatarUrl} size={88} />
+          <Avatar name={c.name} uri={c.avatarUrl} size={88} verified={isChannel && (c.isVerified === true || isOfficialKivoChannel(c.id))} />
           <View style={styles.titleLine}><Text style={styles.title}>{c.name}</Text>{isChannel && (c.isVerified || c.id === 'ch_671d27c151fefc25c8e5') ? <Text accessibilityLabel="Verified channel" style={styles.verifiedBadge}>★</Text> : null}</View>
           <Text style={styles.muted}>{c.visibility === 'private' ? 'Private' : 'Public'} {isChannel ? 'channel' : 'group'} · {c.memberCount} {isChannel ? 'subscribers' : 'members'} · {c.postCount} {isChannel ? 'posts' : 'messages'}</Text>
           {c.description ? <Text style={styles.description}>{c.description}</Text> : null}
