@@ -98,10 +98,32 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
     let active = true;
     void storage.getItem(receiptStorageKey).then(raw => {
       if (!active || !raw) return;
-      try { setReceipt(JSON.parse(raw)); setAlreadyVerified(true); } catch { void storage.removeItem(receiptStorageKey).catch(() => {}); }
+      try { setReceipt(JSON.parse(raw)); } catch { void storage.removeItem(receiptStorageKey).catch(() => {}); }
+    }).catch(() => {});
+
+    // Recover the server-confirmed receipt after reinstall or on another device.
+    // A historical receipt never activates a badge; verificationStatus remains authoritative.
+    void api.latestVerificationReceipt(subjectType, subjectId).then(serverReceipt => {
+      if (!active || !serverReceipt) return;
+      const recovered = {
+        id: serverReceipt.id,
+        plan: serverReceipt.plan,
+        chain: serverReceipt.chain,
+        token: 'USDC',
+        amount: serverReceipt.amount,
+        txHash: serverReceipt.txHash,
+        payer: serverReceipt.payer,
+        recipient: serverReceipt.recipient,
+        paidAt: serverReceipt.paidAt,
+        expiresAt: serverReceipt.expiresAt,
+        explorerUrl: serverReceipt.explorerUrl,
+        status: serverReceipt.status,
+      };
+      setReceipt(recovered);
+      void storage.setItem(receiptStorageKey, JSON.stringify(recovered)).catch(() => {});
     }).catch(() => {});
     return () => { active = false; };
-  }, [receiptStorageKey]);
+  }, [receiptStorageKey, subjectType, subjectId]);
 
   useEffect(() => {
     let active = true;
