@@ -26,8 +26,18 @@ export class KivoApi {
   private async writeSessionStorage(generation: number, value: string | null): Promise<boolean> {
     const operation = this.sessionWriteQueue.then(async () => {
       if (generation !== this.sessionGeneration) return false;
-      if (value === null) await this.sessionStorage.removeItem?.(SESSION_KEY);
-      else await this.sessionStorage.setItem(SESSION_KEY, value);
+      if (value === null) {
+        await this.sessionStorage.removeItem?.(SESSION_KEY);
+      } else {
+        await this.sessionStorage.setItem(SESSION_KEY, value);
+        // Storage writes cannot be cancelled. If the wallet changed while
+        // setItem was pending, remove the stale value before the next queued
+        // write/restore is allowed to proceed.
+        if (generation !== this.sessionGeneration) {
+          await this.sessionStorage.removeItem?.(SESSION_KEY);
+          return false;
+        }
+      }
       return generation === this.sessionGeneration;
     });
     this.sessionWriteQueue = operation.then(() => undefined, () => undefined);
