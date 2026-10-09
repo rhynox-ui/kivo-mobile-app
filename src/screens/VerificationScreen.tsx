@@ -271,7 +271,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
     if (!pending || !pendingLoaded || busy || !socialReady || !getWalletSession() || autoRecoveryBlocked || alreadyVerified) return;
     const timer = setTimeout(() => { void pay(true); }, 2_500);
     return () => clearTimeout(timer);
-  }, [pending, pendingLoaded, busy, socialReady, autoRecoveryBlocked, alreadyVerified]);
+  }, [pending, pendingLoaded, busy, socialReady, autoRecoveryBlocked, alreadyVerified, pay]);
 
   const connected = Boolean(getWalletSession());
   const receiptPayer = receipt?.payer ?? receipt?.payer_address ?? 'Shown on verified payment record';
