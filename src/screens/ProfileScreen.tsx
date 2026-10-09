@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { KivoMark } from '../components/KivoMark';
 import { LineChart } from '../components/LineChart';
 import { kivoTheme } from '../theme/kivoTheme';
@@ -50,9 +50,25 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const [positionTab, setPositionTab] = useState<PositionTab>('open');
   const [convertOpen, setConvertOpen] = useState(false);
   const [filter, setFilter] = useState<PositionFilter>('all');
+  const [showVerification, setShowVerification] = useState(false);
+  const [verificationPlan, setVerificationPlan] = useState<'monthly' | 'annual'>('annual');
+  const [verificationChain, setVerificationChain] = useState<'ethereum' | 'base' | 'arbitrum' | 'solana'>('base');
+  const [verificationHash, setVerificationHash] = useState('');
+  const [verificationStatus, setVerificationStatus] = useState<{isVerified: boolean; expiresAt: number | null; permanent: boolean} | null>(null);
+  const [verificationReceipt, setVerificationReceipt] = useState<any>(null);
+  const [verificationBusy, setVerificationBusy] = useState(false);
   useEffect(() => subscribeToWallet(setWallet), []);
   useEffect(() => subscribeToTradeHistory(setTrades), []);
   useEffect(() => { if (socialReady) api.social(profile.userId).then(setSocial).catch(() => {}); }, [socialReady, profile.userId]);
+  const loadVerification = useCallback(() => {
+    if (!socialReady) return;
+    api.verificationStatus('profile', profile.userId).then(setVerificationStatus).catch(() => {});
+  }, [socialReady, profile.userId]);
+  useEffect(() => {
+    loadVerification();
+    const timer = setInterval(loadVerification, 60_000);
+    return () => clearInterval(timer);
+  }, [loadVerification]);
 
   const load = useCallback(async (forceFresh = false) => {
     if (!wallet) return;
@@ -111,6 +127,41 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
           <Pressable onPress={onOpenHistory}><Text style={styles.socialItem}>⇄ {plural(trades.length, 'trade', 'trades')}</Text></Pressable>
           <Text style={styles.socialItem}>▣ Joined {new Date(profile.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</Text>
         </View>
+      </View>
+      <View style={styles.verificationEntry}>
+        {verificationStatus?.isVerified
+          ? <Text style={styles.verificationActive}>★ Blue Star Verified · valid until {verificationStatus.expiresAt ? new Date(verificationStatus.expiresAt).toLocaleDateString() : 'permanent'}</Text>
+          : <Pressable style={styles.verificationButton} onPress={() => setShowVerification(v => !v)}><Text style={styles.verificationButtonText}>★ Get Verified</Text></Pressable>}
+        {showVerification && !verificationStatus?.isVerified && <View style={styles.verificationPanel}>
+          <Text style={styles.verificationTitle}>Blue Star verification</Text>
+          <Text style={styles.small}>$1 USDC for 30 days or $5 USDC for 365 days. Send the exact amount, then submit the transaction hash.</Text>
+          <Text style={styles.small}>EVM: 0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5</Text>
+          <Text style={styles.small}>Solana: 2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki</Text>
+          <View style={styles.verifyChoices}>{(['monthly', 'annual'] as const).map(p => <Pressable key={p} onPress={() => setVerificationPlan(p)} style={[styles.verifyChoice, verificationPlan === p && styles.verifyChoiceActive]}><Text style={styles.verifyChoiceText}>{p === 'monthly' ? '$1 / month' : '$5 / year'}</Text></Pressable>)}</View>
+          <View style={styles.verifyChoices}>{(['base', 'ethereum', 'arbitrum', 'solana'] as const).map(n => <Pressable key={n} onPress={() => setVerificationChain(n)} style={[styles.verifyChoice, verificationChain === n && styles.verifyChoiceActive]}><Text style={styles.verifyChoiceText}>{n === 'base' ? 'Base' : n === 'ethereum' ? 'Ethereum' : n === 'arbitrum' ? 'Arbitrum' : 'Solana'}</Text></Pressable>)}</View>
+          <TextInput value={verificationHash} onChangeText={setVerificationHash} autoCapitalize="none" autoCorrect={false} placeholder="Paste transaction hash" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.verifyInput} />
+          <Pressable disabled={verificationBusy} style={styles.verificationButton} onPress={async () => {
+            if (!verificationHash.trim()) { Alert.alert('Verification', 'Paste the transaction hash first.'); return; }
+            setVerificationBusy(true);
+            try {
+              const receipt = await api.purchaseVerification({subjectType: 'profile', subjectId: profile.userId, plan: verificationPlan, chain: verificationChain, txHash: verificationHash.trim()});
+              setVerificationReceipt(receipt);
+              await loadVerification();
+              setShowVerification(false);
+              Alert.alert('Payment confirmed', 'Your Blue Star verification is active.');
+            } catch (e) { Alert.alert('Payment not confirmed', e instanceof Error ? e.message : 'Could not verify payment.'); }
+            finally { setVerificationBusy(false); }
+          }}><Text style={styles.verificationButtonText}>{verificationBusy ? 'Checking blockchain…' : 'Verify payment & activate'}</Text></Pressable>
+        </View>}
+        {verificationReceipt && <View style={styles.verificationPanel}>
+          <Text style={styles.verificationTitle}>★ Payment receipt — Paid & Verified</Text>
+          <Text style={styles.small}>Profile: @{profile.username}</Text><Text style={styles.small}>Plan: {verificationReceipt.plan} · {verificationReceipt.amount} USDC</Text>
+          <Text style={styles.small}>Network: {verificationReceipt.chain}</Text><Text style={styles.small}>Transaction: {verificationReceipt.txHash}</Text>
+          <Text style={styles.small}>Payer: {verificationReceipt.payer || 'Not provided by verifier'}</Text><Text style={styles.small}>Recipient: {verificationReceipt.recipient}</Text>
+          <Text style={styles.small}>Paid: {new Date(verificationReceipt.paidAt).toLocaleString()}</Text><Text style={styles.small}>Valid until: {new Date(verificationReceipt.expiresAt).toLocaleDateString()}</Text>
+          <Pressable style={styles.verifyChoice} onPress={() => Share.share({message: `Kivo Verification Receipt\nStatus: Paid & Verified\nProfile: @${profile.username}\nPlan: ${verificationReceipt.plan}\nAmount: ${verificationReceipt.amount} USDC\nNetwork: ${verificationReceipt.chain}\nTransaction: ${verificationReceipt.txHash}\nPayer: ${verificationReceipt.payer || 'Not provided'}\nRecipient: ${verificationReceipt.recipient}\nPaid: ${new Date(verificationReceipt.paidAt).toISOString()}\nValid until: ${new Date(verificationReceipt.expiresAt).toISOString()}\nExplorer: ${verificationReceipt.explorerUrl}`})}><Text style={styles.verifyChoiceText}>Share receipt</Text></Pressable>
+          <Pressable style={styles.verifyChoice} onPress={() => Share.share({message: verificationReceipt.txHash})}><Text style={styles.verifyChoiceText}>Share transaction hash</Text></Pressable>
+        </View>}
       </View>
       <View style={styles.divider} />
 
@@ -258,6 +309,18 @@ const styles = StyleSheet.create({
   chartEmptyBox: { height: 64 },
   chartEmpty: { color: c.textMuted, fontSize: 12.5, textAlign: 'center', paddingHorizontal: 20 },
   small: { color: c.textMuted, fontSize: 11.5 },
+  verificationEntry: { marginHorizontal: 20, marginTop: 14, gap: 10 },
+  verificationButton: { backgroundColor: MINT, borderRadius: 14, paddingVertical: 13, paddingHorizontal: 16, alignItems: 'center' },
+  verificationButtonText: { color: '#10301F', fontWeight: '900', fontSize: 14 },
+  verificationActive: { color: MINT, fontWeight: '800', paddingVertical: 10 },
+  verificationPanel: { padding: 14, borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, gap: 10 },
+  verificationTitle: { color: c.text, fontWeight: '900', fontSize: 17 },
+  verifyChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  verifyChoice: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.backgroundDeep },
+  verifyChoiceActive: { borderColor: MINT, backgroundColor: c.surfaceRaised },
+  verifyChoiceText: { color: c.text, fontWeight: '800', fontSize: 12 },
+  verifyInput: { color: c.text, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
+
   assetVisibilityRow: { marginHorizontal: 20, marginTop: 16, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   assetVisibilityCopy: { flex: 1, paddingRight: 14 },
   assetVisibilityTitle: { color: c.text, fontSize: 13, fontWeight: '800' },
