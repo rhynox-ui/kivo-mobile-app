@@ -20,6 +20,11 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
   const [data, setData] = useState<{ community: ApiCommunity; members: ApiMember[] } | null>(null);
   const [error, setError] = useState('');
   const [address, setAddress] = useState('');
+  const [verificationPlan, setVerificationPlan] = useState<'monthly' | 'annual'>('annual');
+  const [verificationChain, setVerificationChain] = useState<'ethereum' | 'base' | 'arbitrum' | 'solana'>('base');
+  const [verificationHash, setVerificationHash] = useState('');
+  const [verificationReceipt, setVerificationReceipt] = useState<any>(null);
+  const [verificationBusy, setVerificationBusy] = useState(false);
   const load = useCallback(() => api.community(id).then(setData).catch(e => setError(e instanceof Error ? e.message : 'Not available.')), [id]);
   useEffect(() => { void load(); }, [load]);
 
@@ -53,6 +58,38 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
             : <Pressable onPress={run(() => api.join(c.id), () => onOpenChat(c.id))} style={styles.primary}><Text style={styles.primaryText}>{c.visibility === 'private' ? 'Private' : isChannel ? 'Subscribe' : 'Join group'}</Text></Pressable>}
         </View>
 
+        {isChannel && c.myRole === 'owner' && c.id !== 'ch_671d27c151fefc25c8e5' && <View style={styles.card}>
+          <Text style={styles.cardTitle}>★ Blue Star verification</Text>
+          <Text style={styles.muted}>$1 USDC / month or $5 USDC / year. Send exact USDC first, then submit the transaction hash.</Text>
+          <Text style={styles.muted}>EVM: 0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5</Text>
+          <Text style={styles.muted}>Solana: 2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki</Text>
+          <View style={styles.verifyChoices}>{(['monthly', 'annual'] as const).map(p => <Pressable key={p} onPress={() => setVerificationPlan(p)} style={[styles.verifyChoice, verificationPlan === p && styles.verifyChoiceActive]}><Text style={styles.verifyChoiceText}>{p === 'monthly' ? '$1 / month' : '$5 / year'}</Text></Pressable>)}</View>
+          <View style={styles.verifyChoices}>{(['base', 'ethereum', 'arbitrum', 'solana'] as const).map(n => <Pressable key={n} onPress={() => setVerificationChain(n)} style={[styles.verifyChoice, verificationChain === n && styles.verifyChoiceActive]}><Text style={styles.verifyChoiceText}>{n === 'base' ? 'Base' : n === 'ethereum' ? 'Ethereum' : n === 'arbitrum' ? 'Arbitrum' : 'Solana'}</Text></Pressable>)}</View>
+          <TextInput value={verificationHash} onChangeText={setVerificationHash} autoCapitalize="none" autoCorrect={false} placeholder="Paste transaction hash" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.input} />
+          <Pressable disabled={verificationBusy} onPress={async () => {
+            if (!verificationHash.trim()) { Alert.alert('Verification', 'Paste the transaction hash first.'); return; }
+            setVerificationBusy(true);
+            try {
+              const receipt = await api.purchaseVerification({subjectType: 'channel', subjectId: c.id, plan: verificationPlan, chain: verificationChain, txHash: verificationHash.trim()});
+              setVerificationReceipt(receipt);
+              Alert.alert('Payment confirmed', 'Blue Star verification is active. Your receipt is ready below.');
+              void load();
+            } catch (e) { Alert.alert('Payment not confirmed', e instanceof Error ? e.message : 'Could not verify payment.'); }
+            finally { setVerificationBusy(false); }
+          }} style={styles.primary}><Text style={styles.primaryText}>{verificationBusy ? 'Checking blockchain…' : 'Verify payment & activate'}</Text></Pressable>
+          {verificationReceipt && <View style={styles.receipt}>
+            <Text style={styles.cardTitle}>★ Kivo payment receipt</Text>
+            <Text style={styles.receiptText}>Status: Paid & Verified</Text>
+            <Text style={styles.receiptText}>Plan: {verificationReceipt.plan} · {verificationReceipt.amount} USDC</Text>
+            <Text style={styles.receiptText}>Network: {verificationReceipt.chain}</Text>
+            <Text style={styles.receiptText}>Transaction hash: {verificationReceipt.txHash}</Text>
+            <Text style={styles.receiptText}>Paid to: {verificationReceipt.recipient}</Text>
+            <Text style={styles.receiptText}>Paid: {new Date(verificationReceipt.paidAt).toLocaleString()}</Text>
+            <Text style={styles.receiptText}>Valid until: {new Date(verificationReceipt.expiresAt).toLocaleDateString()}</Text>
+            <Pressable style={styles.secondary} onPress={() => Share.share({message: `Kivo Verification Receipt\nStatus: Paid & Verified\nPlan: ${verificationReceipt.plan}\nAmount: ${verificationReceipt.amount} USDC\nNetwork: ${verificationReceipt.chain}\nTransaction: ${verificationReceipt.txHash}\nRecipient: ${verificationReceipt.recipient}\nValid until: ${new Date(verificationReceipt.expiresAt).toISOString()}\nExplorer: ${verificationReceipt.explorerUrl}`})}><Text style={styles.secondaryText}>Share receipt</Text></Pressable>
+            <Pressable style={styles.secondary} onPress={() => Share.share({message: verificationReceipt.explorerUrl})}><Text style={styles.secondaryText}>View transaction: {verificationReceipt.explorerUrl}</Text></Pressable>
+          </View>}
+        </View>}
         {manager && <View style={styles.card}>
           <Text style={styles.cardTitle}>Add member</Text>
           <TextInput value={address} onChangeText={setAddress} autoCapitalize="none" autoCorrect={false} placeholder="0x… wallet address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.input} />
@@ -94,6 +131,13 @@ function Header({ title, verified = false, onBack, onShare }: { title: string; v
 
 const c = kivoTheme.colors;
 const styles = StyleSheet.create({
+  verifyChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10, marginBottom: 6 },
+  verifyChoice: { borderWidth: 1, borderColor: kivoTheme.colors.border, borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12 },
+  verifyChoiceActive: { borderColor: kivoTheme.colors.accent, backgroundColor: kivoTheme.colors.surfaceElevated },
+  verifyChoiceText: { color: kivoTheme.colors.text, fontSize: 13, fontWeight: '600' },
+  receipt: { marginTop: 14, padding: 12, borderRadius: 12, backgroundColor: kivoTheme.colors.surface },
+  receiptText: { color: kivoTheme.colors.text, fontSize: 12, marginTop: 5 },
+
   root: { flex: 1, backgroundColor: c.background },
   header: { minHeight: 60, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: c.border },
   back: { color: c.cream, fontSize: 36, width: 24 },
