@@ -31,7 +31,7 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [composing, setComposing] = useState(false);
-  const [publicChannels, setPublicChannels] = useState<ApiCommunity[]>([]);
+  const [publicCommunities, setPublicCommunities] = useState<ApiCommunity[]>([]);
 
   // Subscription expiry is time-based, so refresh server-authoritative badge
   // status periodically while the chat list is open and when the app resumes.
@@ -51,13 +51,15 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
   }, [state.conversations, filter, query]);
 
   useEffect(() => {
-    if (filter !== 'channel' || !ready) { setPublicChannels([]); return; }
+    if (!ready || filter === 'dm') { setPublicCommunities([]); return; }
     let active = true;
-    api.discover('channel', query.trim()).then(found => {
+    const kinds: Array<'group' | 'channel'> = filter === 'group' ? ['group'] : filter === 'channel' ? ['channel'] : ['group', 'channel'];
+    void Promise.all(kinds.map(kind => api.discover(kind, query.trim()).catch(() => [] as ApiCommunity[]))).then(results => {
       if (!active) return;
-      const joined = new Set(state.conversations.filter(c => c.kind === 'channel').map(c => c.id));
-      setPublicChannels(found.filter(c => !joined.has(c.id)));
-    }).catch(() => { if (active) setPublicChannels([]); });
+      const joined = new Set(state.conversations.map(c => c.id));
+      const found = results.flat().filter(c => c.visibility === 'public' && !joined.has(c.id));
+      setPublicCommunities(found.filter((c, index, all) => all.findIndex(other => other.id === c.id) === index));
+    });
     return () => { active = false; };
   }, [filter, query, ready, state.conversations]);
 
@@ -87,14 +89,14 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
         data={list}
         keyExtractor={item => item.id}
         renderItem={({ item }) => <Row conversation={item} onPress={() => onOpenChat(item.id)} />}
-        ListEmptyComponent={filter === 'channel' && publicChannels.length ? undefined : <View style={styles.empty}><Text style={styles.emptyTitle}>{filter === 'channel' ? 'No channels yet' : 'No chats yet'}</Text><Text style={styles.muted}>Discover public channels or join communities to see them here.</Text></View>}
+        ListEmptyComponent={publicCommunities.length ? undefined : <View style={styles.empty}><Text style={styles.emptyTitle}>{filter === 'channel' ? 'No public channels found' : filter === 'group' ? 'No public groups found' : filter === 'dm' ? 'No chats yet' : 'No chats or public communities yet'}</Text><Text style={styles.muted}>Public groups and channels appear here so you can discover and join them.</Text></View>}
         ListFooterComponent={filter === 'channel' && publicChannels.length ? <View style={styles.discoverSection}>
           {publicChannels.map(c => <Pressable key={c.id} style={styles.row} onPress={async () => {
             try { await api.join(c.id); await refreshConversations().catch(() => {}); onOpenChat(c.id); }
-            catch (e) { Alert.alert(c.name, e instanceof Error ? e.message : 'Unable to subscribe to channel.'); }
+            catch (e) { Alert.alert(c.name, e instanceof Error ? e.message : 'Unable to join this community.'); }
           }}>
             <Avatar name={c.name} uri={c.avatarUrl} size={52} verified={c.isVerified === true || isOfficialKivoChannel(c.id)} />
-            <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>📢 {c.name}{(c.isVerified || isOfficialKivoChannel(c.id)) ? ' ★' : ''}</Text></View><Text style={styles.preview}>Public channel · Tap to subscribe</Text></View>
+            <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>📢 {c.name}{(c.isVerified || isOfficialKivoChannel(c.id)) ? ' ★' : ''}</Text></View><Text style={styles.preview}>Public {c.kind} · Tap to {c.kind === 'channel' ? 'subscribe' : 'join'}</Text></View>
           </Pressable>)}
         </View> : undefined}
         contentContainerStyle={styles.listContent}
