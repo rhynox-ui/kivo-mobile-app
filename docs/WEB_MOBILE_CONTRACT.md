@@ -94,3 +94,10 @@ Rules:
 - Web fetches image bytes through the shared API client and renders a local blob URL because browser image elements cannot attach auth headers.
 - Mobile attaches Authorization only to same-origin API media URLs; local picker previews and foreign URLs receive no session token.
 - Anonymous caching is allowed only when every active reference for the media object is a public channel.
+
+
+## Cross-platform mutation guards
+
+- Community member restriction/unrestriction checks the current owner/admin role and target's regular-member role inside the mutation; the API rechecks roles afterward.
+- Follow-cap enforcement includes the maximum count in the insert predicate to prevent concurrent requests from exceeding the cap.
+- These controls run on the shared Kivo API used by both Web and Mobile. Route-level limits are server-enforced for both clients.
