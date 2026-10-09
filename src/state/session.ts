@@ -100,7 +100,7 @@ export async function startKivoSession() {
     stopChatSync();
     // Invalidate the previous API session immediately, before queued local
     // stores or a slow restore can leave the old wallet authenticated.
-    void api.restore(address);
+    void api.restore(address).catch(() => {});
     walletActivationQueue = walletActivationQueue.then(async () => {
       // Skip stale queued switches; only the currently selected wallet may
       // restore the API session or restart background chat synchronization.
