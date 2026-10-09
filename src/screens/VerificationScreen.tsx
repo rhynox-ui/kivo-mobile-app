@@ -144,8 +144,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
           setPending(pendingForAttempt);
           const saved = await savePendingRecord(storageKey, keychainService, JSON.stringify(pendingForAttempt));
           pendingPersistenceFailedForAttempt = !saved;
-          pendingPersistenceFailedForAttempt = !saved;
-        setPendingPersistenceWarning(!saved);
+          setPendingPersistenceWarning(!saved);
           await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
           return signature;
         });
@@ -164,6 +163,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         pendingForAttempt = { txHash, chain: selectedChain, plan: selectedPlan };
         setPending(pendingForAttempt);
         const saved = await savePendingRecord(storageKey, keychainService, JSON.stringify(pendingForAttempt));
+        pendingPersistenceFailedForAttempt = !saved;
         setPendingPersistenceWarning(!saved);
       }
       setStatus('Waiting for blockchain confirmation…');
