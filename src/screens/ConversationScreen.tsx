@@ -155,7 +155,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
       <View style={styles.header}>
         <Pressable onPress={onBack} hitSlop={10} accessibilityLabel="Back"><Text style={styles.back}>‹</Text></Pressable>
         <Pressable onPress={() => conversation?.kind === 'dm' && conversation.peer?.userId ? onOpenPerson?.(conversation.peer.userId) : conversation && conversation.kind !== 'dm' ? onOpenInfo?.(id, conversation.kind) : undefined} accessibilityLabel={conversation?.kind === 'dm' ? 'View user profile' : 'Open conversation info'}>
-          <Avatar name={title} uri={conversation?.avatarUrl} size={40} />
+          <Avatar name={title} uri={conversation?.avatarUrl} size={40} verified={conversation?.kind === 'channel' ? (conversation.isVerified === true || isOfficialKivoChannel(conversation.id)) : conversation?.kind === 'dm' ? peerVerified : false} />
         </Pressable>
         <Pressable style={styles.headerCopy} disabled={!conversation} onPress={() => conversation?.kind === 'dm' && conversation.peer?.userId ? onOpenPerson?.(conversation.peer.userId) : conversation && conversation.kind !== 'dm' ? onOpenInfo?.(id, conversation.kind) : undefined}>
           <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{title}</Text>{conversation?.kind === 'channel' && (conversation.isVerified || isOfficialKivoChannel(conversation.id)) ? <Text accessibilityLabel="Verified channel" style={styles.verifiedBadge}>★</Text> : null}</View>
