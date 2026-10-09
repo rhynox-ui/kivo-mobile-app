@@ -89,7 +89,7 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
         data={list}
         keyExtractor={item => item.id}
         renderItem={({ item }) => <Row conversation={item} onPress={() => onOpenChat(item.id)} />}
-        ListEmptyComponent={publicCommunities.length ? undefined : <View style={styles.empty}><Text style={styles.emptyTitle}>{filter === 'channel' ? 'No public channels found' : filter === 'group' ? 'No public groups found' : filter === 'dm' ? 'No chats yet' : 'No chats or public communities yet'}</Text><Text style={styles.muted}>Public groups and channels appear here so you can discover and join them.</Text></View>}
+        ListEmptyComponent={list.length || publicCommunities.length ? undefined : <View style={styles.empty}><Text style={styles.emptyTitle}>{filter === 'channel' ? 'No public channels found' : filter === 'group' ? 'No public groups found' : filter === 'dm' ? 'No chats yet' : 'No chats or public communities yet'}</Text><Text style={styles.muted}>Public groups and channels appear here so you can discover and join them.</Text></View>}
         ListFooterComponent={publicCommunities.length ? <View style={styles.discoverSection}>
           {publicCommunities.map(c => <Pressable key={c.id} style={styles.row} onPress={async () => {
             try { await api.join(c.id); await refreshConversations().catch(() => {}); onOpenChat(c.id); }
