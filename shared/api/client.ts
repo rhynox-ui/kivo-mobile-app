@@ -89,10 +89,10 @@ export class KivoApi {
       throw new ApiError(400, 'Invalid media URL.');
     }
     // Older cached messages may still contain signed query parameters. They are
-    // not credentials anymore; drop them before sending the request or logging.
-    target.search = '';
-    target.hash = '';
-    const response = await fetch(target.toString(), {headers: this.mediaHeaders(target.toString())});
+    // not credentials anymore; rebuild the URL from origin + path so they never
+    // reach the request or logs, without mutating runtime URL implementations.
+    const safeTarget = new URL(target.origin + target.pathname);
+    const response = await fetch(safeTarget.toString(), {headers: this.mediaHeaders(safeTarget.toString())});
     if (!response.ok) throw new ApiError(response.status, response.status === 403 ? 'You no longer have access to this photo.' : 'Could not load this photo.');
     return response.blob();
   }
