@@ -4,7 +4,10 @@ import { KivoMark } from '../components/KivoMark';
 import { LineChart } from '../components/LineChart';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useProfile } from '../state/profileStore';
-import { getWalletSession, subscribeToWallet, type WalletSession } from '../state/walletStore';
+import { getWalletSession, subscribeToWallet, type WalletSession, localEvmSigner, withDeviceAccounts } from '../state/walletStore';
+import { encodeFunctionData, parseUnits } from 'viem';
+import { Connection, PublicKey, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
+import { createAssociatedTokenAccountInstruction, createTransferCheckedInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
 import { api, storage, useSocialReady } from '../state/session';
 import { useChatState } from '../state/useChat';
 import { updateSettings, useSettings } from '../state/settingsStore';
@@ -57,6 +60,8 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const [verificationStatus, setVerificationStatus] = useState<{isVerified: boolean; expiresAt: number | null; permanent: boolean} | null>(null);
   const [verificationReceipt, setVerificationReceipt] = useState<any>(null);
   const [verificationBusy, setVerificationBusy] = useState(false);
+  const [verificationWalletReady, setVerificationWalletReady] = useState(false);
+  const [verificationProgress, setVerificationProgress] = useState<'idle' | 'waiting' | 'checking'>('idle');
   useEffect(() => subscribeToWallet(setWallet), []);
   useEffect(() => subscribeToTradeHistory(setTrades), []);
   useEffect(() => { if (socialReady) api.social(profile.userId).then(setSocial).catch(() => {}); }, [socialReady, profile.userId]);
@@ -134,24 +139,68 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
           : <Pressable style={styles.verificationButton} onPress={() => setShowVerification(v => !v)}><Text style={styles.verificationButtonText}>★ Get Verified</Text></Pressable>}
         {showVerification && !verificationStatus?.isVerified && <View style={styles.verificationPanel}>
           <Text style={styles.verificationTitle}>Blue Star verification</Text>
-          <Text style={styles.small}>$1 USDC for 30 days or $5 USDC for 365 days. Send the exact amount, then submit the transaction hash.</Text>
-          <Text style={styles.small}>EVM: 0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5</Text>
-          <Text style={styles.small}>Solana: 2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki</Text>
-          <View style={styles.verifyChoices}>{(['monthly', 'annual'] as const).map(p => <Pressable key={p} onPress={() => setVerificationPlan(p)} style={[styles.verifyChoice, verificationPlan === p && styles.verifyChoiceActive]}><Text style={styles.verifyChoiceText}>{p === 'monthly' ? '$1 / month' : '$5 / year'}</Text></Pressable>)}</View>
-          <View style={styles.verifyChoices}>{(['base', 'ethereum', 'arbitrum', 'solana'] as const).map(n => <Pressable key={n} onPress={() => setVerificationChain(n)} style={[styles.verifyChoice, verificationChain === n && styles.verifyChoiceActive]}><Text style={styles.verifyChoiceText}>{n === 'base' ? 'Base' : n === 'ethereum' ? 'Ethereum' : n === 'arbitrum' ? 'Arbitrum' : 'Solana'}</Text></Pressable>)}</View>
-          <TextInput value={verificationHash} onChangeText={setVerificationHash} autoCapitalize="none" autoCorrect={false} placeholder="Paste transaction hash" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.verifyInput} />
-          <Pressable disabled={verificationBusy} style={styles.verificationButton} onPress={async () => {
-            if (!verificationHash.trim()) { Alert.alert('Verification', 'Paste the transaction hash first.'); return; }
+          <Text style={styles.small}>Choose a plan and network, connect your Kivo wallet, then press Pay. Your badge activates only after Kivo verifies the on-chain payment.</Text>
+          <View style={styles.verifyChoices}>{(['monthly', 'annual'] as const).map(p => <Pressable key={p} onPress={() => setVerificationPlan(p)} style={[styles.verifyChoice, verificationPlan === p && styles.verifyChoiceActive]}><Text style={styles.verifyChoiceText}>{p === 'monthly' ? '$1 USDC / month' : '$5 USDC / year'}</Text></Pressable>)}</View>
+          <View style={styles.verifyChoices}>{(['ethereum', 'base', 'arbitrum', 'solana'] as const).map(n => <Pressable key={n} onPress={() => { setVerificationChain(n); setVerificationWalletReady(false); }} style={[styles.verifyChoice, verificationChain === n && styles.verifyChoiceActive]}><Text style={styles.verifyChoiceText}>{n === 'base' ? 'Base' : n === 'ethereum' ? 'Ethereum' : n === 'arbitrum' ? 'Arbitrum' : 'Solana'}</Text></Pressable>)}</View>
+          {!verificationWalletReady
+            ? <Pressable disabled={verificationBusy} style={styles.verifyConnect} onPress={() => {
+                if (!socialReady) { Alert.alert('Kivo wallet', 'Sign in to Kivo before connecting your wallet.'); return; }
+                const active = getWalletSession();
+                if (!active) { Alert.alert('Kivo wallet', 'Create or unlock your Kivo wallet first.'); return; }
+                setVerificationWalletReady(true);
+                Alert.alert('Wallet ready', 'Your Kivo wallet is ready. Review the plan and network, then press Pay to approve the transaction.');
+              }}><Text style={styles.verifyConnectText}>Connect Kivo wallet</Text></Pressable>
+            : <Text style={styles.verifyWalletReady}>✓ Kivo wallet ready · {verificationChain[0].toUpperCase() + verificationChain.slice(1)}</Text>}
+          {verificationWalletReady && <Pressable disabled={verificationBusy} style={styles.verificationButton} onPress={async () => {
+            if (!socialReady) { Alert.alert('Kivo wallet', 'Sign in to Kivo before paying.'); return; }
             setVerificationBusy(true);
+            setVerificationProgress('waiting');
             try {
-              const receipt = await api.purchaseVerification({subjectType: 'profile', subjectId: profile.userId, plan: verificationPlan, chain: verificationChain, txHash: verificationHash.trim()});
+              let txHash = '';
+              if (verificationChain === 'solana') {
+                txHash = await withDeviceAccounts('Approve Blue Star USDC payment', async ({solana}) => {
+                  const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+                  const mint = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGZwyTDt1v');
+                  const recipient = new PublicKey('2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki');
+                  const sourceAta = await getAssociatedTokenAddress(mint, solana.publicKey);
+                  if (!(await connection.getAccountInfo(sourceAta))) throw new Error('Your Kivo wallet has no Solana USDC token account. Fund it with USDC before paying.');
+                  const destinationAta = await getAssociatedTokenAddress(mint, recipient);
+                  const transaction = new Transaction();
+                  if (!(await connection.getAccountInfo(destinationAta))) transaction.add(createAssociatedTokenAccountInstruction(solana.publicKey, destinationAta, recipient, mint));
+                  transaction.add(createTransferCheckedInstruction(sourceAta, mint, destinationAta, solana.publicKey, verificationPlan === 'annual' ? 5_000_000n : 1_000_000n, 6));
+                  return await sendAndConfirmTransaction(connection, transaction, [solana], {commitment: 'confirmed'});
+                });
+              } else {
+                const chainIds = {ethereum: 1, base: 8453, arbitrum: 42161} as const;
+                const usdc = {ethereum: '0xA0b86991c6218b36c1d19d4a2e9Eb0cE3606eB48', base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831'} as const;
+                const signer = await localEvmSigner();
+                await signer.ensureChain(chainIds[verificationChain]);
+                const data = encodeFunctionData({abi: [{type:'function',name:'transfer',stateMutability:'nonpayable',inputs:[{name:'to',type:'address'},{name:'value',type:'uint256'}],outputs:[{type:'bool'}]}],functionName:'transfer',args:['0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5',parseUnits(verificationPlan === 'annual' ? '5' : '1', 6)]});
+                txHash = await signer.sendTransaction({to: usdc[verificationChain], data, value: 0n, chainId: chainIds[verificationChain]});
+              }
+              setVerificationHash(txHash);
+              setVerificationProgress('checking');
+              let receipt: any;
+              for (let attempt = 0; ; attempt++) {
+                try {
+                  receipt = await api.purchaseVerification({subjectType: 'profile', subjectId: profile.userId, plan: verificationPlan, chain: verificationChain, txHash});
+                  break;
+                } catch (e) {
+                  const message = e instanceof Error ? e.message : '';
+                  if (attempt >= 7 || !/confirm|temporarily unavailable|retry|not finalized/i.test(message)) throw e;
+                  await new Promise(resolve => setTimeout(resolve, Math.min(2500 + attempt * 1500, 9000)));
+                }
+              }
               setVerificationReceipt(receipt);
               await loadVerification();
               setShowVerification(false);
-              Alert.alert('Payment confirmed', 'Your Blue Star verification is active.');
-            } catch (e) { Alert.alert('Payment not confirmed', e instanceof Error ? e.message : 'Could not verify payment.'); }
-            finally { setVerificationBusy(false); }
-          }}><Text style={styles.verificationButtonText}>{verificationBusy ? 'Checking blockchain…' : 'Verify payment & activate'}</Text></Pressable>
+              Alert.alert('🎉 Congratulations!', 'Payment confirmed. Your Blue Star verification is now active, and your receipt is ready.');
+            } catch (e) {
+              setVerificationProgress('idle');
+              Alert.alert('Payment not confirmed', e instanceof Error ? e.message : 'Could not verify payment. If a transaction was submitted, keep its hash and retry verification.');
+            } finally { setVerificationBusy(false); }
+          }}><Text style={styles.verificationButtonText}>{verificationBusy ? 'Paying securely…' : `Pay $${verificationPlan === 'annual' ? '5' : '1'} USDC & verify`}</Text></Pressable>}
+          {verificationBusy && <View style={styles.verifyProgress}><ActivityIndicator size="small" color={kivoTheme.colors.accent} /><Text style={styles.small}>{verificationProgress === 'checking' ? 'Waiting for blockchain verification…' : 'Waiting for wallet approval and transaction confirmation…'}</Text></View>}
         </View>}
         {verificationReceipt && <View style={styles.verificationPanel}>
           <Text style={styles.verificationTitle}>★ Payment receipt — Paid & Verified</Text>
@@ -314,7 +363,12 @@ const styles = StyleSheet.create({
   verificationButton: { backgroundColor: MINT, borderRadius: 14, paddingVertical: 13, paddingHorizontal: 16, alignItems: 'center' },
   verificationButtonText: { color: '#10301F', fontWeight: '900', fontSize: 14 },
   verificationActive: { color: MINT, fontWeight: '800', paddingVertical: 10 },
-  verificationPanel: { padding: 14, borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, gap: 10 },
+  verificationPanel: { padding: 11, borderRadius: 14, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, gap: 7 },
+  verifyConnect: { minHeight: 38, borderRadius: 10, backgroundColor: c.backgroundDeep, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  verifyConnectText: { color: c.text, fontWeight: '800', fontSize: 12 },
+  verifyWalletReady: { color: MINT, fontWeight: '800', fontSize: 11.5 },
+  verifyProgress: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 3 },
+
   verificationTitle: { color: c.text, fontWeight: '900', fontSize: 17 },
   verifyChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   verifyChoice: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.backgroundDeep },
