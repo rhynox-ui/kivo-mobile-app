@@ -92,7 +92,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
                   const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
                   const mint = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGZwyTDt1v');
                   const recipient = new PublicKey('2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki');
-                  const sourceAta = await getOrCreateAssociatedTokenAccount(connection, solana, mint, solana.publicKey);
+                  const sourceAta = await getAssociatedTokenAddress(mint, solana.publicKey);\n                  if (!(await connection.getAccountInfo(sourceAta))) throw new Error('Your Kivo wallet has no Solana USDC token account. Fund it with USDC before paying.');
                   const destinationAta = await getOrCreateAssociatedTokenAccount(connection, solana, mint, recipient);
                   const transaction = new Transaction().add(createTransferCheckedInstruction(sourceAta.address, mint, destinationAta.address, solana.publicKey, amount, 6));
                   return await sendAndConfirmTransaction(connection, transaction, [solana], {commitment: 'confirmed'});
