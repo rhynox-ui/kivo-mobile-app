@@ -56,7 +56,7 @@ export type ApiCommunity = {
   myRole: CommunityRole | null;
 };
 
-export type ApiMember = {userId: string; role: CommunityRole; joinedAt: number; profile: ApiProfile | null};
+export type ApiMember = {userId: string; role: CommunityRole; joinedAt: number; profile: ApiProfile | null; restricted?: boolean};
 
 export type ApiConversation = {
   id: string;
