@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { launchImageLibrary, type ImagePickerAsset } from 'react-native-image-picker';
 import type { ApiCommunity, CommunityKind } from '@kivo/shared/api/types';
 import { API_LIMITS } from '@kivo/shared/api/types';
 import { refreshConversations } from '@kivo/shared/chat/store';
@@ -88,11 +89,46 @@ function CreateForm({ kind, onCreated }: { kind: CommunityKind; onCreated: (c: A
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
+  const [photo, setPhoto] = useState<ImagePickerAsset | null>(null);
   const [busy, setBusy] = useState(false);
+  const pickPhoto = async () => {
+    try {
+      // Keep the mobile image pipeline lightweight: resize before upload and
+      // let the native picker re-encode to JPEG at moderate quality.
+      const result = await launchImageLibrary({
+        mediaType: 'photo', selectionLimit: 1, maxWidth: API_LIMITS.avatarEdge,
+        maxHeight: API_LIMITS.avatarEdge, quality: 0.65, assetRepresentationMode: 'compatible',
+      });
+      if (result.didCancel) return;
+      if (result.errorCode) throw new Error(result.errorMessage || 'Could not open your photos.');
+      const asset = result.assets?.[0];
+      if (!asset?.uri) throw new Error('No readable photo was selected. Please try another image.');
+      if (asset.type && !['image/jpeg', 'image/png', 'image/webp'].includes(asset.type)) {
+        throw new Error('Choose a JPG, PNG or WebP photo.');
+      }
+      if (asset.fileSize && asset.fileSize > API_LIMITS.maxAvatarBytes) {
+        throw new Error('This photo is still too large after compression. Choose another photo.');
+      }
+      setPhoto(asset);
+    } catch (e) {
+      Alert.alert('Photo', e instanceof Error ? e.message : 'Could not read this photo. Please try another image.');
+    }
+  };
   const create = async () => {
     setBusy(true);
     try {
-      const created = await api.createCommunity({ kind, name, description, visibility });
+      let avatarKey: string | null = null;
+      if (photo?.uri) {
+        const type = photo.type && ['image/jpeg', 'image/png', 'image/webp'].includes(photo.type) ? photo.type : 'image/jpeg';
+        let bytes: Blob;
+        try { bytes = await (await fetch(photo.uri)).blob(); }
+        catch { throw new Error('Kivo could not read that photo. Please select it again from Gallery.'); }
+        if (!bytes.size) throw new Error('The selected photo is empty or unreadable. Please choose another.');
+        if (bytes.size > API_LIMITS.maxAvatarBytes) throw new Error('The compressed photo exceeds Kivo’s size limit. Please choose another photo.');
+        const uploaded = await api.uploadImage(bytes, type, 'avatar');
+        avatarKey = uploaded.key;
+      }
+      const created = await api.createCommunity({ kind, name, description, visibility, avatarKey });
       await refreshConversations().catch(() => {});
       onCreated(created);
     } catch (e) { Alert.alert('Create', e instanceof Error ? e.message : 'Unable to create.'); }
@@ -106,7 +142,12 @@ function CreateForm({ kind, onCreated }: { kind: CommunityKind; onCreated: (c: A
       <View style={styles.switcher}>
         {(['public', 'private'] as const).map(v => <Pressable key={v} onPress={() => setVisibility(v)} style={[styles.tab, visibility === v && styles.tabActive]}><Text style={[styles.tabText, visibility === v && styles.tabTextActive]}>{v === 'public' ? 'Public' : 'Private'}</Text></Pressable>)}
       </View>
-      <Text style={styles.muted}>You become the permanent owner. Admins you promote never receive ownership.</Text>
+      <View style={styles.photoRow}>
+        {photo?.uri ? <Image source={{ uri: photo.uri }} style={styles.photoPreview} /> : null}
+        <Pressable disabled={busy} onPress={pickPhoto} style={styles.secondary}><Text style={styles.secondaryText}>{photo ? 'Change photo' : `Add ${kind} photo`}</Text></Pressable>
+        {photo ? <Pressable disabled={busy} onPress={() => setPhoto(null)}><Text style={styles.removePhoto}>Remove</Text></Pressable> : null}
+      </View>
+      <Text style={styles.muted}>Photos are resized and compressed on your device before upload to reduce storage and data use. You become the permanent owner. Admins you promote never receive ownership.</Text>
       <Pressable disabled={busy || name.trim().length < 2} onPress={create} style={[styles.primary, (busy || name.trim().length < 2) && styles.disabled]}><Text style={styles.primaryText}>{busy ? 'Creating…' : `Create ${kind}`}</Text></Pressable>
     </View>
   );
@@ -139,6 +180,11 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: c.text, backgroundColor: c.backgroundDeep, fontSize: 14 },
   multiline: { minHeight: 70, textAlignVertical: 'top' },
   form: { padding: 14, borderRadius: 18, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, gap: 10 },
+  photoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  photoPreview: { width: 56, height: 56, borderRadius: 16, backgroundColor: c.surfaceRaised },
+  secondary: { borderWidth: 1, borderColor: c.border, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 10 },
+  secondaryText: { color: c.cream, fontSize: 12.5, fontWeight: '800' },
+  removePhoto: { color: c.danger, fontSize: 12.5, fontWeight: '700' },
   primary: { height: 48, borderRadius: 24, backgroundColor: c.cream, alignItems: 'center', justifyContent: 'center' },
   primaryText: { color: c.backgroundDeep, fontWeight: '900' },
   disabled: { opacity: 0.45 },
