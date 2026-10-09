@@ -265,9 +265,15 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
     }
   };
 
-  // A restored pending hash is never submitted repeatedly in the background.
-  // Keep it available for an explicit retry so a temporary API failure cannot
-  // exhaust the server's per-IP purchase rate limit.
+  // Automatically retry the saved transaction hash after a delay. This calls
+  // server-side verification only and never submits another wallet transfer.
+  useEffect(() => {
+    if (!pending || alreadyVerified || !pendingLoaded) return;
+    const timer = setInterval(() => {
+      if (!busy) void pay();
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, [pending?.txHash, pending?.chain, pending?.plan, alreadyVerified, pendingLoaded, busy]);
 
   const connected = Boolean(getWalletSession());
   const receiptPayer = receipt?.payer ?? receipt?.payer_address ?? 'Shown on verified payment record';
