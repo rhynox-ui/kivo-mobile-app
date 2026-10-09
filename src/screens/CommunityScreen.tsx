@@ -177,7 +177,6 @@ const styles = StyleSheet.create({
   role: { color: c.accent, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
   muted: { color: c.textMuted, fontSize: 12.5, lineHeight: 18, textAlign: 'center' },
   small: { color: c.textMuted, fontSize: 11.5 },
-  primary: { marginTop: 6, alignSelf: 'stretch', height: 50, borderRadius: 25, backgroundColor: c.cream, alignItems: 'center', justifyContent: 'center' },
   primaryText: { color: c.backgroundDeep, fontWeight: '900' },
   card: { padding: 14, borderRadius: 18, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, gap: 8 },
   cardTitle: { color: c.text, fontWeight: '800', fontSize: 15 },
