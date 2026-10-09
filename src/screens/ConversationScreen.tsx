@@ -164,7 +164,7 @@ const styles = StyleSheet.create({
   sender: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
   photo: { width: 240, maxWidth: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: c.background },
   text: { color: c.text, fontSize: 15, lineHeight: 20 },
-  messageLink: { color: c.accent, textDecorationLine: 'underline', backgroundColor: 'rgba(244,240,199,0.10)', borderRadius: 3, overflow: 'hidden' },
+  messageLink: { color: c.accent, textDecorationLine: 'underline', textDecorationColor: 'rgba(183,226,123,0.75)', backgroundColor: 'rgba(244,240,199,0.10)', borderRadius: 3 },
   messageHashtag: { color: '#9BC9FF', textDecorationLine: 'underline', backgroundColor: 'rgba(115,170,255,0.12)' },
   messageTicker: { color: c.accent, fontWeight: '800', backgroundColor: 'rgba(183,226,123,0.12)' },
   deletedText: { color: c.textMuted, fontStyle: 'italic', fontSize: 13 },
