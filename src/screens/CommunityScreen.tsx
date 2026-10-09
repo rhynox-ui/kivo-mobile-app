@@ -65,7 +65,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
             : <Pressable onPress={run(() => api.join(c.id), () => onOpenChat(c.id))} style={styles.primary}><Text style={styles.primaryText}>{c.visibility === 'private' ? 'Private' : isChannel ? 'Subscribe' : 'Join group'}</Text></Pressable>}
         </View>
 
-        {isChannel && (c.myRole === 'owner' || c.myRole === 'admin') && c.id !== 'ch_671d27c151fefc25c8e5' && <View style={styles.card}>
+        {isChannel && (c.myRole === 'owner' || c.myRole === 'admin') && !c.isVerified && c.id !== 'ch_671d27c151fefc25c8e5' && <View style={styles.card}>
           <Text style={styles.cardTitle}>★ Blue Star verification</Text>
           <Text style={styles.muted}>$1 USDC / month or $5 USDC / year. Send exact USDC first, then submit the transaction hash.</Text>
           <Text style={styles.muted}>EVM: 0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5</Text>
