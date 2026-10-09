@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AppState } from 'react-native';
 import { ActivityIndicator, Alert, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { isOfficialKivoChannel, type ApiConversation, type ApiProfile } from '@kivo/shared/api/types';
 import { displayName, myUserId, openDirectMessage, rememberProfiles, unreadCount } from '@kivo/shared/chat/store';
@@ -7,6 +8,7 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { api, enableSocial, useSocialReady } from '../state/session';
 import { useChatState } from '../state/useChat';
 import { getWalletSession } from '../state/walletStore';
+import { refreshConversations } from '@kivo/shared/chat/store';
 
 type Filter = 'all' | 'dm' | 'group' | 'channel';
 const FILTERS: Array<[Filter, string]> = [['all', 'All'], ['dm', 'Chats'], ['group', 'Groups'], ['channel', 'Channels']];
@@ -30,6 +32,18 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [composing, setComposing] = useState(false);
+
+  // Subscription expiry is time-based, so refresh server-authoritative badge
+  // status periodically while the chat list is open and when the app resumes.
+  useEffect(() => {
+    const refresh = () => { void refreshConversations().catch(() => {}); };
+    refresh();
+    const timer = setInterval(refresh, 60_000);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') refresh();
+    });
+    return () => { clearInterval(timer); subscription.remove(); };
+  }, []);
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
