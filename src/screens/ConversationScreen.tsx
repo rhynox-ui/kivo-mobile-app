@@ -10,30 +10,13 @@ import { Avatar } from './ChatListScreen';
 type Item = { type: 'day'; key: string; label: string } | { type: 'message'; key: string; message: LocalMessage; showName: boolean };
 
 function renderLinkedText(text: string): React.ReactNode[] {
-  const nodes: React.ReactNode[] = [];
-  const pattern = /https?:\/\/[^\s<>"']+/g;
-  let cursor = 0;
-  let key = 0;
-  for (const match of text.matchAll(pattern)) {
-    const raw = match[0];
-    const start = match.index ?? 0;
-    const url = raw.replace(/[),.!?;:]+$/, '');
-    if (!url) continue;
-    if (start > cursor) nodes.push(text.slice(cursor, start));
-    nodes.push(
-      <Text
-        key={\`link-\${key++}\`}
-        accessibilityRole="link"
-        onPress={() => Linking.openURL(url).catch(() => Alert.alert('Link', 'Could not open this link.'))}
-        style={styles.messageLink}
-      >{url}</Text>
-    );
-    const trailing = raw.slice(url.length);
-    if (trailing) nodes.push(trailing);
-    cursor = start + raw.length;
-  }
-  if (cursor < text.length) nodes.push(text.slice(cursor));
-  return nodes.length ? nodes : [text];
+  const nodes: React.ReactNode[]=[]; const pattern= /https?:\/\/[^\\s<>"']+|www\\.[^\\s<>"']+|#[\\p{L}\\p{N}_]+|\\$[A-Za-z][A-Za-z0-9_]*/gu; let cursor=0; let key=0;
+  for(const match of text.matchAll(pattern)){const raw=match[0];const start=match.index??0;if(start>cursor)nodes.push(text.slice(cursor,start));let url:string;let style=styles.messageLink;
+    if(raw.startsWith('#')){url='https://x.com/hashtag/'+encodeURIComponent(raw.slice(1));style=styles.messageHashtag;}
+    else if(raw.startsWith('$')){url='https://dexscreener.com/search?q='+encodeURIComponent(raw.slice(1));style=styles.messageTicker;}
+    else{const clean=raw.replace(/[),.!?;:]+$/,'');url=clean.startsWith('www.')?'https://'+clean:clean;nodes.push(<Text key={`link-${key++}`} accessibilityRole="link" onPress={()=>Linking.openURL(url).catch(()=>Alert.alert('Link','Could not open this link.'))} style={style}>{clean}</Text>);const tail=raw.slice(clean.length);if(tail)nodes.push(tail);cursor=start+raw.length;continue;}
+    nodes.push(<Text key={`link-${key++}`} accessibilityRole="link" onPress={()=>Linking.openURL(url).catch(()=>Alert.alert('Link','Could not open this link.'))} style={style}>{raw}</Text>);cursor=start+raw.length;
+  } if(cursor<text.length)nodes.push(text.slice(cursor));return nodes.length?nodes:[text];
 }
 
 /**
@@ -182,6 +165,8 @@ const styles = StyleSheet.create({
   photo: { width: 240, maxWidth: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: c.background },
   text: { color: c.text, fontSize: 15, lineHeight: 20 },
   messageLink: { color: c.accent, textDecorationLine: 'underline', backgroundColor: 'rgba(244,240,199,0.10)', borderRadius: 3, overflow: 'hidden' },
+  messageHashtag: { color: '#9BC9FF', textDecorationLine: 'underline', backgroundColor: 'rgba(115,170,255,0.12)' },
+  messageTicker: { color: c.accent, fontWeight: '800', backgroundColor: 'rgba(183,226,123,0.12)' },
   deletedText: { color: c.textMuted, fontStyle: 'italic', fontSize: 13 },
   meta: { color: 'rgba(247,245,223,0.6)', fontSize: 10.5, alignSelf: 'flex-end' },
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background },
