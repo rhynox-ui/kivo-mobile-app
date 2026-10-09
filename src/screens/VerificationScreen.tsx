@@ -235,8 +235,13 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
           break;
         } catch (error) {
           const message = error instanceof Error ? error.message : '';
-          if (attempt >= 14 || !/confirm|temporarily unavailable|retry|not finalized|timeout|network|fetch/i.test(message)) throw error;
-          await new Promise(resolve => setTimeout(resolve, Math.min(2000 + attempt * 1000, 8000)));
+          const httpStatus = typeof error === 'object' && error !== null && 'status' in error
+            ? Number((error as { status?: unknown }).status) : 0;
+          // A 429 must not be retried inside the same minute window. The old
+          // loop could send up to 15 POSTs and exhaust the purchase limiter.
+          if (httpStatus === 429 || attempt >= 2 ||
+              !/confirm|temporarily unavailable|not finalized|timeout|network|fetch/i.test(message)) throw error;
+          await new Promise(resolve => setTimeout(resolve, attempt === 0 ? 5_000 : 15_000));
         }
       }
       setPending(null);
@@ -265,13 +270,9 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
     }
   };
 
-  // Resume server verification automatically after a reload. A pending hash can
-  // only call the verification API; it can never trigger another USDC transfer.
-  useEffect(() => {
-    if (!pending || !pendingLoaded || busy || !socialReady || !getWalletSession() || autoRecoveryBlocked || alreadyVerified) return;
-    const timer = setTimeout(() => { void pay(true); }, 2_500);
-    return () => clearTimeout(timer);
-  }, [pending, pendingLoaded, busy, socialReady, autoRecoveryBlocked, alreadyVerified, pay]);
+  // A restored pending hash is never submitted repeatedly in the background.
+  // Keep it available for an explicit retry so a temporary API failure cannot
+  // exhaust the server's per-IP purchase rate limit.
 
   const connected = Boolean(getWalletSession());
   const receiptPayer = receipt?.payer ?? receipt?.payer_address ?? 'Shown on verified payment record';
