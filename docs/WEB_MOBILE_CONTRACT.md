@@ -48,3 +48,11 @@ Rules:
 - Do not import React Native packages into `trading/` or `shared/`.
 - Do not import browser-only globals into the app, `trading/` or `shared/`.
 - Do not make Cloudflare builds depend on Android tooling, or Android builds on Cloudflare credentials.
+
+
+## Private media authorization (9 Oct 2026)
+
+- The Cloudflare Pages API in `rhynox-ui/kivo` is the shared authorization source for web and mobile media URLs. Mobile must not bypass it with direct R2 access or cache private URLs as public assets.
+- Private message media is re-authorized against current session and conversation access at fetch time. A removed member or non-participant may receive a denied/expired URL.
+- The mobile conversation screen displays a bounded `Photo unavailable` placeholder when a remote image cannot load, instead of leaving a broken image.
+- Regression/build verification is still required; a placeholder is graceful failure handling, not a replacement for server-side authorization.

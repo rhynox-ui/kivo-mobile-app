@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { API_LIMITS } from '@kivo/shared/api/types';
@@ -34,6 +34,28 @@ async function pickCompressedPhoto(): Promise<{ bytes: Blob; type: string; width
   const bytes = await (await fetch(asset.uri)).blob();
   if (bytes.size > API_LIMITS.maxImageBytes) throw new Error('That photo is too large even after compression. Try another photo.');
   return { bytes, type: asset.type === 'image/png' ? 'image/png' : 'image/jpeg', width: asset.width ?? 0, height: asset.height ?? 0, previewUrl: asset.uri };
+}
+
+function MessagePhoto({ uri, width, height }: { uri: string; width: number | null; height: number | null }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [uri]);
+  const dimensions = width && height ? { aspectRatio: width / height } : null;
+  if (failed) {
+    return (
+      <View style={[styles.photo, dimensions, styles.photoUnavailable]} accessibilityLabel="Message photo unavailable">
+        <Text style={styles.photoUnavailableText}>Photo unavailable</Text>
+      </View>
+    );
+  }
+  return (
+    <Image
+      source={{ uri }}
+      style={[styles.photo, dimensions]}
+      resizeMode="cover"
+      onError={() => setFailed(true)}
+      accessibilityLabel="Message photo"
+    />
+  );
 }
 
 export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { id: string; onBack?: () => void; onOpenInfo?: (id: string, kind: 'group' | 'channel') => void; onOpenPerson?: (userId: string) => void }) {
@@ -184,7 +206,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
               <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><Text style={styles.sender}>{displayName(message.senderId)}</Text></Pressable>}
-                {message.media && <Image source={{ uri: message.media.url }} style={[styles.photo, message.media.width && message.media.height ? { aspectRatio: message.media.width / message.media.height } : null]} resizeMode="cover" />}
+                {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} />}
                 {message.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : message.text ? <Text style={styles.text}>{renderLinkedText(message.text)}</Text> : null}
                 <Text style={styles.meta}>
                   {message.editedAt ? 'edited · ' : ''}{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -284,6 +306,8 @@ const styles = StyleSheet.create({
   forwardDestinationTitle: { color: c.text, fontSize: 14, fontWeight: '800' },
   forwardDestinationKind: { color: c.textMuted, fontSize: 11.5, marginTop: 3 },
   photo: { width: 240, maxWidth: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: c.background },
+  photoUnavailable: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: c.border },
+  photoUnavailableText: { color: c.textMuted, fontSize: 12, fontWeight: '700' },
   text: { color: c.text, fontSize: 15, lineHeight: 20 },
   messageLink: { color: c.accent, textDecorationLine: 'underline', textDecorationColor: 'rgba(183,226,123,0.75)', backgroundColor: 'rgba(244,240,199,0.10)', borderRadius: 3 },
   messageHashtag: { color: '#9BC9FF', textDecorationLine: 'underline', backgroundColor: 'rgba(115,170,255,0.12)' },
