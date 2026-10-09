@@ -55,10 +55,11 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   useEffect(() => subscribeToWallet(setWallet), []);
   useEffect(() => subscribeToTradeHistory(setTrades), []);
   useEffect(() => { if (socialReady) api.social(profile.userId).then(setSocial).catch(() => {}); }, [socialReady, profile.userId]);
+  // Verification status is public profile metadata; it must not depend on
+  // enabling the separate social/chat session.
   const loadVerification = useCallback(() => {
-    if (!socialReady) return;
     api.verificationStatus('profile', profile.userId).then(setVerificationStatus).catch(() => {});
-  }, [socialReady, profile.userId]);
+  }, [profile.userId]);
   useEffect(() => {
     loadVerification();
     const timer = setInterval(loadVerification, 60_000);
