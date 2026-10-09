@@ -71,7 +71,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   onBack: () => void;
 }) {
   const socialReady = useSocialReady();
-  const [plan, setPlan] = useState<Plan>('annual');
+  const [plan, setPlan] = useState<Plan>('monthly');
   const [chain, setChain] = useState<Chain>('base');
   const [pending, setPending] = useState<PendingPayment | null>(null);
   const [pendingLoaded, setPendingLoaded] = useState(false);
@@ -229,7 +229,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
           </View>
         ) : !receipt ? (
           <View style={styles.card}>
-            <Text style={styles.description}>Choose a plan. Your wallet will ask you to approve the USDC payment.</Text>
+            <Text style={styles.description}>Choose your plan and network. Kivo checks the blockchain payment before activating your Blue Star badge. Your wallet will ask you to approve the USDC transfer.</Text>
             <Text style={styles.label}>Plan</Text>
             <View style={styles.options}>{PLANS.map(item => <Pressable key={item} disabled={busy || Boolean(pending)} onPress={() => setPlan(item)} style={[styles.option, plan === item && styles.optionActive, Boolean(pending) && styles.optionDisabled]}><Text style={[styles.optionText, plan === item && styles.optionTextActive]}>{item === 'annual' ? '$5 USDC / year' : '$1 USDC / month'}</Text></Pressable>)}</View>
             <Text style={styles.label}>Network</Text>
