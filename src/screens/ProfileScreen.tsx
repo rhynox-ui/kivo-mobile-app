@@ -60,6 +60,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const [verificationReceipt, setVerificationReceipt] = useState<any>(null);
   const [verificationBusy, setVerificationBusy] = useState(false);
   const [verificationWalletReady, setVerificationWalletReady] = useState(false);
+  const [verificationConfirming, setVerificationConfirming] = useState(false);
   const [verificationProgress, setVerificationProgress] = useState<'idle' | 'waiting' | 'checking'>('idle');
   useEffect(() => subscribeToWallet(setWallet), []);
   useEffect(() => subscribeToTradeHistory(setTrades), []);
@@ -139,18 +140,29 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
         {showVerification && !verificationStatus?.isVerified && <View style={styles.verificationPanel}>
           <Text style={styles.verificationTitle}>Blue Star verification</Text>
           <Text style={styles.small}>Choose a plan and network, connect your Kivo wallet, then press Pay. Your badge activates only after Kivo verifies the on-chain payment.</Text>
-          <View style={styles.verifyChoices}>{(['monthly', 'annual'] as const).map(p => <Pressable key={p} onPress={() => setVerificationPlan(p)} style={[styles.verifyChoice, verificationPlan === p && styles.verifyChoiceActive]}><Text style={styles.verifyChoiceText}>{p === 'monthly' ? '$1 USDC / month' : '$5 USDC / year'}</Text></Pressable>)}</View>
-          <View style={styles.verifyChoices}>{(['ethereum', 'base', 'arbitrum', 'solana'] as const).map(n => <Pressable key={n} onPress={() => { setVerificationChain(n); setVerificationWalletReady(false); }} style={[styles.verifyChoice, verificationChain === n && styles.verifyChoiceActive]}><Text style={styles.verifyChoiceText}>{n === 'base' ? 'Base' : n === 'ethereum' ? 'Ethereum' : n === 'arbitrum' ? 'Arbitrum' : 'Solana'}</Text></Pressable>)}</View>
-          {!verificationWalletReady
-            ? <Pressable disabled={verificationBusy} style={styles.verifyConnect} onPress={() => {
-                if (!socialReady) { Alert.alert('Kivo wallet', 'Sign in to Kivo before connecting your wallet.'); return; }
-                const active = getWalletSession();
-                if (!active) { Alert.alert('Kivo wallet', 'Create or unlock your Kivo wallet first.'); return; }
-                setVerificationWalletReady(true);
-                Alert.alert('Wallet ready', 'Your Kivo wallet is ready. Review the plan and network, then press Pay to approve the transaction.');
-              }}><Text style={styles.verifyConnectText}>Connect Kivo wallet</Text></Pressable>
-            : <Text style={styles.verifyWalletReady}>✓ Kivo wallet ready · {verificationChain[0].toUpperCase() + verificationChain.slice(1)}</Text>}
-          {verificationWalletReady && <Pressable disabled={verificationBusy} style={styles.verificationButton} onPress={async () => {
+          {!verificationConfirming && <>
+            <View style={styles.verifyChoices}>{(['monthly', 'annual'] as const).map(p => <Pressable key={p} onPress={() => setVerificationPlan(p)} style={[styles.verifyChoice, verificationPlan === p && styles.verifyChoiceActive]}><Text style={styles.verifyChoiceText}>{p === 'monthly' ? '$1 USDC / month' : '$5 USDC / year'}</Text></Pressable>)}</View>
+            <View style={styles.verifyChoices}>{(['ethereum', 'base', 'arbitrum', 'solana'] as const).map(n => <Pressable key={n} onPress={() => { setVerificationChain(n); setVerificationWalletReady(false); setVerificationConfirming(false); }} style={[styles.verifyChoice, verificationChain === n && styles.verifyChoiceActive]}><Text style={styles.verifyChoiceText}>{n === 'ethereum' ? 'Ethereum' : n === 'base' ? 'Base' : n === 'arbitrum' ? 'Arbitrum' : 'Solana'}</Text></Pressable>)}</View>
+            {!verificationWalletReady
+              ? <Pressable disabled={verificationBusy} style={styles.verifyConnect} onPress={() => {
+                  if (!socialReady) { Alert.alert('Kivo wallet', 'Sign in to Kivo before connecting your wallet.'); return; }
+                  const active = getWalletSession();
+                  if (!active) { Alert.alert('Kivo wallet', 'Create or unlock your Kivo wallet first.'); return; }
+                  setVerificationWalletReady(true);
+                }}><Text style={styles.verifyConnectText}>Use Kivo wallet</Text></Pressable>
+              : <Text style={styles.verifyWalletReady}>✓ Kivo wallet ready</Text>}
+            {verificationWalletReady && <Pressable disabled={verificationBusy} style={styles.verificationButton} onPress={() => setVerificationConfirming(true)}><Text style={styles.verificationButtonText}>Continue</Text></Pressable>}
+          </>}
+          {verificationConfirming && <View style={styles.verifyConfirm}>
+            <Text style={styles.verificationTitle}>Confirm payment</Text>
+            <Text style={styles.small}>Plan: {verificationPlan === 'annual' ? '1 Year Verification' : '1 Month Verification'}</Text>
+            <Text style={styles.small}>Network: {verificationChain[0].toUpperCase() + verificationChain.slice(1)}</Text>
+            <Text style={styles.small}>You will send: {verificationPlan === 'annual' ? '5' : '1'} USDC</Text>
+            <Text style={styles.small}>To: {verificationChain === 'solana' ? '2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki' : '0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5'}</Text>
+            <Text style={styles.small}>Review these details carefully. Your wallet will ask you to approve the transfer.</Text>
+            <Pressable disabled={verificationBusy} style={styles.verifyConnect} onPress={() => setVerificationConfirming(false)}><Text style={styles.verifyConnectText}>Back</Text></Pressable>
+          </View>}
+          {verificationWalletReady && verificationConfirming && <Pressable disabled={verificationBusy} style={styles.verificationButton} onPress={async () => {
             if (!socialReady) { Alert.alert('Kivo wallet', 'Sign in to Kivo before paying.'); return; }
             setVerificationBusy(true);
             setVerificationProgress('waiting');
@@ -361,6 +373,7 @@ const styles = StyleSheet.create({
   verificationButton: { backgroundColor: MINT, borderRadius: 14, paddingVertical: 13, paddingHorizontal: 16, alignItems: 'center' },
   verificationButtonText: { color: '#10301F', fontWeight: '900', fontSize: 14 },
   verificationActive: { color: MINT, fontWeight: '800', paddingVertical: 10 },
+  verifyConfirm: { padding: 11, borderRadius: 12, backgroundColor: kivoTheme.colors.backgroundDeep, borderWidth: 1, borderColor: kivoTheme.colors.border, gap: 5 },
   verificationPanel: { padding: 11, borderRadius: 14, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, gap: 7 },
   verifyConnect: { minHeight: 38, borderRadius: 10, backgroundColor: c.backgroundDeep, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
   verifyConnectText: { color: c.text, fontWeight: '800', fontSize: 12 },
