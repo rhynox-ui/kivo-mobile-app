@@ -124,12 +124,13 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
                   return signature;
                 });
               } else if (!verificationPendingPayment) {
+                const evmChain = selectedChain as 'ethereum' | 'base' | 'arbitrum';
                 const chainIds = {ethereum: 1, base: 8453, arbitrum: 42161} as const;
                 const usdc = {ethereum: '0xA0b86991c6218b36c1d19d4a2e9Eb0cE3606eB48', base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831'} as const;
                 const signer = await localEvmSigner();
-                await signer.ensureChain(chainIds[selectedChain]);
+                await signer.ensureChain(chainIds[evmChain]);
                 const data = encodeFunctionData({abi: [{type:'function',name:'transfer',stateMutability:'nonpayable',inputs:[{name:'to',type:'address'},{name:'value',type:'uint256'}],outputs:[{type:'bool'}]}],functionName:'transfer',args:['0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5',parseUnits(selectedPlan === 'annual' ? '5' : '1', 6)]});
-                txHash = await signer.sendTransaction({to: usdc[selectedChain], data, value: 0n, chainId: chainIds[selectedChain]});
+                txHash = await signer.sendTransaction({to: usdc[evmChain], data, value: 0n, chainId: chainIds[evmChain]});
                 pendingPaymentForAttempt = {txHash, chain:selectedChain, plan:selectedPlan};
                 setVerificationPendingPayment(pendingPaymentForAttempt);
               }
