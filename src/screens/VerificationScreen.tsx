@@ -22,14 +22,26 @@ const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGZwyTDt1v';
 // Local stores only help recover a submitted hash; the server must still verify it on-chain.
 const PENDING_KEYCHAIN_SERVICE = 'com.kivo.verification-pending';
 
+function isValidPendingRecord(value: string): boolean {
+  try {
+    const parsed = JSON.parse(value) as { txHash?: unknown; chain?: unknown; plan?: unknown };
+    return typeof parsed.txHash === 'string' &&
+      (parsed.chain === 'ethereum' || parsed.chain === 'base' || parsed.chain === 'arbitrum' || parsed.chain === 'solana') &&
+      (parsed.plan === 'monthly' || parsed.plan === 'annual') &&
+      (parsed.chain === 'solana' ? /^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(parsed.txHash) : /^0x[0-9a-fA-F]{64}$/.test(parsed.txHash));
+  } catch {
+    return false;
+  }
+}
+
 async function readPendingRecord(key: string, service: string): Promise<string | null> {
   try {
     const value = await storage.getItem(key);
-    if (value) return value;
+    if (value && isValidPendingRecord(value)) return value;
   } catch {}
   try {
     const credentials = await Keychain.getGenericPassword({ service });
-    if (credentials && credentials.username === key) return credentials.password;
+    if (credentials && credentials.username === key && isValidPendingRecord(credentials.password)) return credentials.password;
   } catch {}
   return null;
 }
