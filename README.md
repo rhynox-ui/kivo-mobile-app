@@ -4,6 +4,8 @@ Standalone React Native Android application for Kivo.
 
 This repository contains the **Kivo Mobile** product. The Kivo Web product remains in the main Kivo repository.
 
+**Product source of truth:** read the [Kivo Product & Feature Handbook](https://github.com/rhynox-ui/kivo/blob/main/docs/PRODUCT_HANDBOOK.md) and the [Web/Mobile Contract](docs/WEB_MOBILE_CONTRACT.md) before changing user-visible behavior. The handbook separates current foundations, gated capabilities and future plans; do not treat planned features as shipped.
+
 ## Product boundary
 
 - **Mobile:** Kivo wallet, unified USDC balance, mobile trading, social/community, profile, notifications and mobile-native wallet security.
