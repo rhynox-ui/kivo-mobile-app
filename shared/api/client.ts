@@ -180,6 +180,13 @@ export class KivoApi {
   addMember(id: string, address: string) { return this.request<{community: ApiCommunity; members: ApiMember[]}>('POST', `/api/communities/${encodeURIComponent(id)}/members`, {address}); }
   removeMember(id: string, userId: string) { return this.request<{community: ApiCommunity; members: ApiMember[]}>( 'DELETE', `/api/communities/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`); }
   setAdmin(id: string, userId: string, promote: boolean) { return this.request<{community: ApiCommunity; members: ApiMember[]}>(promote ? 'POST' : 'DELETE', `/api/communities/${encodeURIComponent(id)}/admins/${encodeURIComponent(userId)}`, promote ? {} : undefined); }
+  latestVerificationReceipt(subjectType: 'profile' | 'channel', subjectId: string) {
+    return this.request<{
+      id: string; subject_type: 'profile' | 'channel'; subject_id: string; plan: 'monthly' | 'annual';
+      chain: 'ethereum' | 'base' | 'arbitrum' | 'solana'; amount: number; txHash: string; payer: string;
+      recipient: string; paidAt: number; expiresAt: number; explorerUrl: string; status: string;
+    } | null>('GET', `/api/verification/receipt?subjectType=${subjectType}&subjectId=${encodeURIComponent(subjectId)}`);
+  }
   verificationStatus(subjectType: 'profile' | 'channel', subjectId: string) {
     return this.request<{isVerified: boolean; permanent: boolean; expiresAt: number | null; plan: 'monthly' | 'annual' | null; chain?: string}>('GET', `/api/verification/status?subjectType=${subjectType}&subjectId=${encodeURIComponent(subjectId)}`);
   }
