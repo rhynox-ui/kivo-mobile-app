@@ -96,9 +96,9 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
 
   useEffect(() => {
     let active = true;
-    void storage.getItem(receiptStorageKey).then(raw => {
+    void Promise.resolve(storage.getItem(receiptStorageKey)).then(raw => {
       if (!active || !raw) return;
-      try { setReceipt(JSON.parse(raw)); } catch { void storage.removeItem(receiptStorageKey).catch(() => {}); }
+      try { setReceipt(JSON.parse(raw)); } catch { void Promise.resolve(storage.removeItem?.(receiptStorageKey)).catch(() => {}); }
     }).catch(() => {});
 
     // Recover the server-confirmed receipt after reinstall or on another device.
@@ -120,7 +120,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         status: serverReceipt.status,
       };
       setReceipt(recovered);
-      void storage.setItem(receiptStorageKey, JSON.stringify(recovered)).catch(() => {});
+      void Promise.resolve(storage.setItem(receiptStorageKey, JSON.stringify(recovered))).catch(() => {});
     }).catch(() => {});
     return () => { active = false; };
   }, [receiptStorageKey, subjectType, subjectId]);
@@ -241,7 +241,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
       await clearPendingRecord(storageKey, keychainService);
       setPendingPersistenceWarning(false);
       setReceipt(result);
-      await storage.setItem(receiptStorageKey, JSON.stringify(result)).catch(() => {});
+      await Promise.resolve(storage.setItem(receiptStorageKey, JSON.stringify(result))).catch(() => {});
       setAlreadyVerified(true);
       setStatus('Payment confirmed. Blue Star verification is active.');
       Alert.alert('Blue Star activated', 'Payment confirmed. Your verification receipt is ready.');
