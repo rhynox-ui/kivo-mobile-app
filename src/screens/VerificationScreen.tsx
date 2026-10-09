@@ -89,6 +89,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   const [receipt, setReceipt] = useState<any>(null);
   const [alreadyVerified, setAlreadyVerified] = useState(false);
   const [pendingPersistenceWarning, setPendingPersistenceWarning] = useState(false);
+  const [autoRecoveryBlocked, setAutoRecoveryBlocked] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const receiptStorageKey = `kivo:verification-receipt:${subjectType}:${subjectId}`;
   const storageKey = `kivo:verification-pending:${subjectType}:${subjectId}`;
@@ -166,10 +167,10 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
     return () => { active = false; };
   }, [subjectType, subjectId, storageKey]);
 
-  const pay = async () => {
+  const pay = async (autoRecovery = false) => {
     if (busy || !pendingLoaded) return;
     if (!socialReady) {
-      Alert.alert('Kivo', 'Turn on chats first so your account can complete verification.');
+      if (!autoRecovery) Alert.alert('Kivo', 'Turn on chats first so your account can complete verification.');
       return;
     }
     if (!getWalletSession()) {
@@ -177,6 +178,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
       return;
     }
     setBusy(true);
+    if (!autoRecovery) setAutoRecoveryBlocked(false);
     let pendingForAttempt = pending;
     let pendingPersistenceFailedForAttempt = false;
     try {
@@ -233,8 +235,8 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
           break;
         } catch (error) {
           const message = error instanceof Error ? error.message : '';
-          if (attempt >= 7 || !/confirm|temporarily unavailable|retry|not finalized/i.test(message)) throw error;
-          await new Promise(resolve => setTimeout(resolve, Math.min(2500 + attempt * 1500, 9000)));
+          if (attempt >= 14 || !/confirm|temporarily unavailable|retry|not finalized|timeout|network|fetch/i.test(message)) throw error;
+          await new Promise(resolve => setTimeout(resolve, Math.min(2000 + attempt * 1000, 8000)));
         }
       }
       setPending(null);
@@ -243,14 +245,17 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
       setReceipt(result);
       await Promise.resolve(storage.setItem(receiptStorageKey, JSON.stringify(result))).catch(() => {});
       setAlreadyVerified(true);
+      setAutoRecoveryBlocked(false);
       setStatus('Payment confirmed. Blue Star verification is active.');
       Alert.alert('Blue Star activated', 'Payment confirmed. Your verification receipt is ready.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not verify payment.';
+      const retryable = /confirm|temporarily unavailable|retry|not finalized|timeout|network|fetch/i.test(message);
+      if (pendingForAttempt && autoRecovery && !retryable) setAutoRecoveryBlocked(true);
       if (pendingForAttempt) {
         setPending(pendingForAttempt);
         setStatus(`${pendingPersistenceFailedForAttempt ? 'Recovery storage could not be saved. Keep this screen open and retry verification before leaving. ' : ''}Payment submitted. Retry verification; do not pay again. ${message}`);
-        Alert.alert('Payment submitted', 'Retry verification for the existing transaction. Do not pay again.');
+        if (!autoRecovery) Alert.alert('Payment submitted', 'Retry verification for the existing transaction. Do not pay again.');
       } else {
         setStatus(message);
         Alert.alert('Payment not completed', message);
@@ -259,6 +264,14 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
       setBusy(false);
     }
   };
+
+  // Resume server verification automatically after a reload. A pending hash can
+  // only call the verification API; it can never trigger another USDC transfer.
+  useEffect(() => {
+    if (!pending || !pendingLoaded || busy || !socialReady || !getWalletSession() || autoRecoveryBlocked || alreadyVerified) return;
+    const timer = setTimeout(() => { void pay(true); }, 2_500);
+    return () => clearTimeout(timer);
+  }, [pending, pendingLoaded, busy, socialReady, autoRecoveryBlocked, alreadyVerified, pay]);
 
   const connected = Boolean(getWalletSession());
   const receiptPayer = receipt?.payer ?? receipt?.payer_address ?? 'Shown on verified payment record';

@@ -55,13 +55,15 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   useEffect(() => subscribeToWallet(setWallet), []);
   useEffect(() => subscribeToTradeHistory(setTrades), []);
   useEffect(() => { if (socialReady) api.social(profile.userId).then(setSocial).catch(() => {}); }, [socialReady, profile.userId]);
+  // Verification status is public profile metadata; it must not depend on
+  // enabling the separate social/chat session.
   const loadVerification = useCallback(() => {
-    if (!socialReady) return;
     api.verificationStatus('profile', profile.userId).then(setVerificationStatus).catch(() => {});
-  }, [socialReady, profile.userId]);
+  }, [profile.userId]);
   useEffect(() => {
     loadVerification();
-    const timer = setInterval(loadVerification, 60_000);
+    // Keep the profile badge in sync shortly after checkout activates a subscription.
+    const timer = setInterval(loadVerification, 5_000);
     return () => clearInterval(timer);
   }, [loadVerification]);
 
@@ -109,7 +111,10 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
             <Pressable onPress={() => Share.share({ message: `@${profile.username} on Kivo · https://kivo-web.pages.dev/u/${encodeURIComponent(profile.userId)}` }).catch(() => {})} style={styles.iconButton} accessibilityLabel="Share profile"><Text style={styles.iconButtonText}>⇪</Text></Pressable>
           </View>
         </View>
-        <Text style={styles.username}>@{profile.username}</Text>
+        <View style={styles.usernameRow}>
+          <Text style={styles.username}>@{profile.username}</Text>
+          {verificationStatus?.isVerified === true ? <Text accessibilityLabel="Blue Star verified" style={styles.blueStarBadge}>★</Text> : null}
+        </View>
         {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : <Pressable onPress={onEditProfile}><Text style={styles.addBio}>+ Add a bio</Text></Pressable>}
         <View style={styles.follows}>
           <Text style={styles.followText}><Text style={styles.count}>{social?.following ?? 0}</Text> Following</Text>
@@ -248,7 +253,9 @@ const styles = StyleSheet.create({
   identityActions: { flexDirection: 'row', gap: 10 },
   iconButton: { width: 42, height: 42, borderRadius: 14, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' },
   iconButtonText: { color: c.text, fontSize: 17 },
+  usernameRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 7 },
   username: { color: c.text, fontSize: 23, fontWeight: '800', marginTop: 4 },
+  blueStarBadge: { color: kivoTheme.colors.accent, fontSize: 19, fontWeight: '900', marginTop: 4 },
   bio: { color: c.text, fontSize: 14.5, lineHeight: 20 },
   addBio: { color: c.textMuted, fontSize: 14, fontWeight: '700' },
   follows: { flexDirection: 'row', gap: 22 },
