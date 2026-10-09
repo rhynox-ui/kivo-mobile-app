@@ -133,7 +133,7 @@ const c = kivoTheme.colors;
 const styles = StyleSheet.create({
   verifyChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10, marginBottom: 6 },
   verifyChoice: { borderWidth: 1, borderColor: kivoTheme.colors.border, borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12 },
-  verifyChoiceActive: { borderColor: kivoTheme.colors.accent, backgroundColor: kivoTheme.colors.surfaceElevated },
+  verifyChoiceActive: { borderColor: kivoTheme.colors.accent, backgroundColor: kivoTheme.colors.surfaceRaised },
   verifyChoiceText: { color: kivoTheme.colors.text, fontSize: 13, fontWeight: '600' },
   receipt: { marginTop: 14, padding: 12, borderRadius: 12, backgroundColor: kivoTheme.colors.surface },
   receiptText: { color: kivoTheme.colors.text, fontSize: 12, marginTop: 5 },
