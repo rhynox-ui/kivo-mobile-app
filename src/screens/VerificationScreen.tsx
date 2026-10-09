@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { api, storage, useSocialReady } from '../state/session';
 import { getWalletSession, localEvmSigner, withDeviceAccounts } from '../state/walletStore';
 import { encodeFunctionData, parseUnits } from 'viem';
@@ -15,6 +15,12 @@ type PendingPayment = { txHash: string; chain: Chain; plan: Plan };
 
 const CHAINS: Chain[] = ['base', 'ethereum', 'arbitrum', 'solana'];
 const PLANS: Plan[] = ['monthly', 'annual'];
+const CHAIN_META: Record<Chain, { label: string; mark: string; color: string; subtitle: string }> = {
+  ethereum: { label: 'Ethereum', mark: '◆', color: '#8B9CFF', subtitle: 'Ethereum Mainnet' },
+  base: { label: 'Base', mark: '▰', color: '#4C7DFF', subtitle: 'Base Mainnet' },
+  arbitrum: { label: 'Arbitrum One', mark: '◈', color: '#8AB4F8', subtitle: 'Arbitrum One' },
+  solana: { label: 'Solana', mark: '≋', color: '#8BDFC5', subtitle: 'Solana Mainnet' },
+};
 const EVM_RECIPIENT = '0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5';
 const SOLANA_RECIPIENT = '2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGZwyTDt1v';
@@ -73,6 +79,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   const socialReady = useSocialReady();
   const [plan, setPlan] = useState<Plan>('monthly');
   const [chain, setChain] = useState<Chain>('base');
+  const [networkPickerOpen, setNetworkPickerOpen] = useState(false);
   const [pending, setPending] = useState<PendingPayment | null>(null);
   const [pendingLoaded, setPendingLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -233,7 +240,25 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
             <Text style={styles.label}>Plan</Text>
             <View style={styles.options}>{PLANS.map(item => <Pressable key={item} disabled={busy || Boolean(pending)} onPress={() => setPlan(item)} style={[styles.option, plan === item && styles.optionActive, Boolean(pending) && styles.optionDisabled]}><Text style={[styles.optionText, plan === item && styles.optionTextActive]}>{item === 'annual' ? '$5 USDC / year' : '$1 USDC / month'}</Text></Pressable>)}</View>
             <Text style={styles.label}>Network</Text>
-            <View style={styles.options}>{CHAINS.map(item => <Pressable key={item} disabled={busy || Boolean(pending)} onPress={() => setChain(item)} style={[styles.option, chain === item && styles.optionActive, Boolean(pending) && styles.optionDisabled]}><Text style={[styles.optionText, chain === item && styles.optionTextActive]}>{item === 'ethereum' ? 'Ethereum' : item === 'arbitrum' ? 'Arbitrum' : item[0].toUpperCase() + item.slice(1)}</Text></Pressable>)}</View>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Choose network. Selected: ${CHAIN_META[chain].label}`} disabled={busy || Boolean(pending)} onPress={() => setNetworkPickerOpen(true)} style={[styles.networkSelector, Boolean(pending) && styles.optionDisabled]}>
+              <View style={[styles.networkMark, { backgroundColor: CHAIN_META[chain].color + '22' }]}><Text style={[styles.networkMarkText, { color: CHAIN_META[chain].color }]}>{CHAIN_META[chain].mark}</Text></View>
+              <View style={styles.networkCopy}><Text style={styles.networkName}>{CHAIN_META[chain].label}</Text><Text style={styles.networkSubtitle}>{CHAIN_META[chain].subtitle}</Text></View>
+              <Text style={styles.networkChevron}>⌄</Text>
+            </Pressable>
+            <Modal visible={networkPickerOpen} transparent animationType="fade" onRequestClose={() => setNetworkPickerOpen(false)}>
+              <Pressable style={styles.modalBackdrop} onPress={() => setNetworkPickerOpen(false)}>
+                <Pressable style={styles.pickerSheet} onPress={() => {}}>
+                  <View style={styles.pickerHandle} />
+                  <View style={styles.pickerHeader}><View><Text style={styles.pickerTitle}>Choose network</Text><Text style={styles.pickerSubtitle}>Pay with USDC on your selected network</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Close network picker" onPress={() => setNetworkPickerOpen(false)} style={styles.pickerClose}><Text style={styles.pickerCloseText}>×</Text></Pressable></View>
+                  {CHAINS.map(item => <Pressable key={item} accessibilityRole="button" onPress={() => { setChain(item); setNetworkPickerOpen(false); }} style={[styles.networkOption, chain === item && styles.networkOptionActive]}>
+                    <View style={[styles.networkMark, { backgroundColor: CHAIN_META[item].color + '22' }]}><Text style={[styles.networkMarkText, { color: CHAIN_META[item].color }]}>{CHAIN_META[item].mark}</Text></View>
+                    <View style={styles.networkCopy}><Text style={styles.networkName}>{CHAIN_META[item].label}</Text><Text style={styles.networkSubtitle}>{CHAIN_META[item].subtitle}</Text></View>
+                    {chain === item ? <Text style={styles.selectedMark}>✓</Text> : <Text style={styles.networkChevron}>›</Text>}
+                  </Pressable>)}
+                  <Text style={styles.pickerFootnote}>Make sure your wallet has USDC on the selected network.</Text>
+                </Pressable>
+              </Pressable>
+            </Modal>
             <View style={styles.walletState}><View style={styles.dot}/><Text style={styles.walletText}>{connected ? 'Kivo wallet connected' : 'Unlock Kivo wallet to continue'}</Text></View>
             <Pressable disabled={busy || !pendingLoaded || !connected || !socialReady} onPress={() => void pay()} style={[styles.payButton, (busy || !pendingLoaded || !connected || !socialReady) && styles.buttonDisabled]}>
               {busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep}/> : <Text style={styles.payText}>{pending ? 'Retry verification' : `Pay ${plan === 'annual' ? '$5' : '$1'} USDC`}</Text>}
@@ -279,6 +304,25 @@ const styles = StyleSheet.create({
   description: { color: kivoTheme.colors.textMuted, fontSize: 14, lineHeight: 21 },
   label: { color: kivoTheme.colors.text, fontSize: 13, fontWeight: '800', marginTop: 4 },
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  networkSelector: { minHeight: 62, borderWidth: 1, borderColor: kivoTheme.colors.border, borderRadius: 14, paddingHorizontal: 13, paddingVertical: 10, backgroundColor: kivoTheme.colors.backgroundDeep, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  networkMark: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  networkMarkText: { fontSize: 23, fontWeight: '900' },
+  networkCopy: { flex: 1, gap: 3 },
+  networkName: { color: kivoTheme.colors.text, fontSize: 14, fontWeight: '800' },
+  networkSubtitle: { color: kivoTheme.colors.textMuted, fontSize: 11 },
+  networkChevron: { color: kivoTheme.colors.textMuted, fontSize: 25, paddingHorizontal: 5 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0, 15, 13, 0.72)', justifyContent: 'flex-end', padding: 12 },
+  pickerSheet: { borderWidth: 1, borderColor: kivoTheme.colors.border, borderRadius: 24, padding: 16, paddingBottom: 22, backgroundColor: kivoTheme.colors.surface, gap: 10 },
+  pickerHandle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: kivoTheme.colors.border, marginBottom: 5 },
+  pickerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  pickerTitle: { color: kivoTheme.colors.text, fontSize: 19, fontWeight: '900' },
+  pickerSubtitle: { color: kivoTheme.colors.textMuted, fontSize: 12, marginTop: 4 },
+  pickerClose: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: kivoTheme.colors.backgroundDeep },
+  pickerCloseText: { color: kivoTheme.colors.text, fontSize: 24, lineHeight: 26 },
+  networkOption: { minHeight: 62, borderWidth: 1, borderColor: kivoTheme.colors.border, borderRadius: 15, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: kivoTheme.colors.backgroundDeep, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  networkOptionActive: { borderColor: kivoTheme.colors.accent, backgroundColor: kivoTheme.colors.surfaceRaised },
+  selectedMark: { color: kivoTheme.colors.accent, fontSize: 20, fontWeight: '900', paddingHorizontal: 5 },
+  pickerFootnote: { color: kivoTheme.colors.textMuted, fontSize: 11, lineHeight: 16, marginTop: 2 },
   option: { borderWidth: 1, borderColor: kivoTheme.colors.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 11, backgroundColor: kivoTheme.colors.backgroundDeep },
   optionActive: { borderColor: kivoTheme.colors.accent, backgroundColor: kivoTheme.colors.accent },
   optionDisabled: { opacity: 0.6 },
