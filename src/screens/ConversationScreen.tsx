@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Image, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { API_LIMITS } from '@kivo/shared/api/types';
-import { deleteForEveryone, discardMessage, displayName, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
+import { deleteForEveryone, discardMessage, displayName, editMessage, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useActiveConversation, useChatState } from '../state/useChat';
 import { Avatar } from './ChatListScreen';
@@ -41,6 +41,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const conversation = state.conversations.find(c => c.id === id);
   const messages = state.messages[id] ?? [];
   const [draft, setDraft] = useState('');
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const list = useRef<FlatList<Item>>(null);
   const atBottom = useRef(true);
   const previousMessageCount = useRef(messages.length);
@@ -67,8 +68,11 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const send = async () => {
     const text = draft;
     if (!text.trim()) return;
-    setDraft('');
-    try { await sendText(id, text); } catch (error) { Alert.alert('Message', error instanceof Error ? error.message : 'Not sent.'); }
+    try {
+      if (editingMessageId) { await editMessage(id, editingMessageId, text); setEditingMessageId(null); }
+      else await sendText(id, text);
+      setDraft('');
+    } catch (error) { Alert.alert(editingMessageId ? 'Edit message' : 'Message', error instanceof Error ? error.message : 'Not sent.'); }
   };
   const attach = async () => {
     try {
@@ -86,9 +90,13 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
       return;
     }
     if (message.status !== 'sent' || message.deleted || (message.senderId !== me && !canModerate)) return;
-    Alert.alert('Delete message', 'Delete this message for everyone?', [
+    Alert.alert('Message options', undefined, [
+      ...(message.senderId === me ? [{ text: 'Edit', onPress: () => { setEditingMessageId(message.id); setDraft(message.text); }] } : []),
+      { text: 'Delete', style: 'destructive', onPress: () => Alert.alert('Delete message', 'Delete this message for everyone?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => deleteForEveryone(id, message.id).catch(error => Alert.alert('Delete', error instanceof Error ? error.message : 'Could not delete.')) },
+      ]) },
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => deleteForEveryone(id, message.id).catch(error => Alert.alert('Delete', error instanceof Error ? error.message : 'Could not delete.')) },
     ]);
   };
 
@@ -141,7 +149,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
                 {message.media && <Image source={{ uri: message.media.url }} style={[styles.photo, message.media.width && message.media.height ? { aspectRatio: message.media.width / message.media.height } : null]} resizeMode="cover" />}
                 {message.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : message.text ? <Text style={styles.text}>{renderLinkedText(message.text)}</Text> : null}
                 <Text style={styles.meta}>
-                  {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {message.editedAt ? 'edited · ' : ''}{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   {mine ? message.status === 'pending' ? '  ◷' : message.status === 'failed' ? '  ⚠ tap & hold' : '  ✓' : ''}
                 </Text>
               </Pressable>
@@ -158,10 +166,13 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
         )}
       </View>
       {canPost ? (
+        <View>
+        {editingMessageId && <View style={styles.editingBar}><Text style={styles.editingLabel}>Editing message</Text><Pressable onPress={() => { setEditingMessageId(null); setDraft(''); }}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
         <View style={styles.composer}>
           <Pressable onPress={attach} hitSlop={8} style={styles.attach} accessibilityLabel="Attach photo"><Text style={styles.attachText}>＋</Text></Pressable>
-          <TextInput value={draft} onChangeText={setDraft} placeholder="Message" placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={API_LIMITS.maxMessageChars} style={styles.input} />
-          <Pressable disabled={!draft.trim()} onPress={send} style={[styles.send, !draft.trim() && styles.sendDisabled]} accessibilityLabel="Send"><Text style={styles.sendText}>➤</Text></Pressable>
+          <TextInput value={draft} onChangeText={setDraft} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={API_LIMITS.maxMessageChars} style={styles.input} />
+          <Pressable disabled={!draft.trim()} onPress={send} style={[styles.send, !draft.trim() && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
+        </View>
         </View>
       ) : (
         <View style={styles.readonly}><Text style={styles.readonlyText}>📢 Only the channel owner and admins can post.</Text></View>
@@ -181,6 +192,9 @@ const styles = StyleSheet.create({
   info: { color: c.cream, fontSize: 20, paddingHorizontal: 6 },
   listWrap: { flex: 1, position: 'relative' },
   messages: { padding: 10, paddingBottom: 16, gap: 3 },
+  editingBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 7, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border },
+  editingLabel: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
+  editingCancel: { color: c.textMuted, fontSize: 12.5, fontWeight: '700' },
   jumpLatest: { position: 'absolute', right: 12, bottom: 18, minWidth: 44, height: 44, borderRadius: 22, paddingHorizontal: 5, backgroundColor: '#24394B', alignItems: 'center', justifyContent: 'center', elevation: 5, flexDirection: 'row', gap: 3 },
   jumpCount: { minWidth: 25, height: 25, borderRadius: 13, paddingHorizontal: 5, backgroundColor: '#55B7F3', alignItems: 'center', justifyContent: 'center' },
   jumpCountText: { color: '#FFFFFF', fontSize: 11.5, fontWeight: '900', fontVariant: ['tabular-nums'] },
