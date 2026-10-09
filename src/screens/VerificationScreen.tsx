@@ -227,7 +227,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
       const message = error instanceof Error ? error.message : 'Could not verify payment.';
       if (pendingForAttempt) {
         setPending(pendingForAttempt);
-        setStatus(`${pendingPersistenceFailedForAttempt ? 'Recovery storage could not be saved. Keep this screen open and share the transaction hash. ' : ''}Payment submitted. Retry verification; do not pay again. ${message}`);
+        setStatus(`${pendingPersistenceFailedForAttempt ? 'Recovery storage could not be saved. Keep this screen open and retry verification before leaving. ' : ''}Payment submitted. Retry verification; do not pay again. ${message}`);
         Alert.alert('Payment submitted', 'Retry verification for the existing transaction. Do not pay again.');
       } else {
         setStatus(message);
