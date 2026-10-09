@@ -138,13 +138,12 @@ function Row({ conversation: c, onPress }: { conversation: ApiConversation; onPr
 
 export function Avatar({ name, uri, size, verified = false }: { name: string; uri?: string | null; size: number; verified?: boolean }) {
   // Verification is supplied only by the server-owned status endpoint or the official-channel allowlist.
-  const borderRadius = verified ? Math.round(size * 0.22) : size / 2;
+  const borderRadius = verified ? 6 : size / 2;
   return (
     <View style={{ width: size, height: size, position: 'relative', overflow: 'visible' }}>
       {uri
         ? <Image source={{ uri }} style={{ width: size, height: size, borderRadius, backgroundColor: kivoTheme.colors.surfaceRaised }} />
         : <View style={[styles.avatar, { width: size, height: size, borderRadius }]}><Text style={[styles.avatarText, { fontSize: size * 0.4 }]}>{name.replace(/^@/, '').slice(0, 1).toUpperCase()}</Text></View>}
-      {verified && <View accessibilityLabel="Verified profile" style={styles.verifiedAvatarBadge}><Text style={styles.verifiedAvatarCheck}>✓</Text></View>}
     </View>
   );
 }
@@ -232,8 +231,6 @@ const styles = StyleSheet.create({
   rowTitleLine: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 },
   rowTitle: { color: c.text, fontSize: 16, fontWeight: '700', flexShrink: 1 },
   verifiedBadge: { overflow: 'hidden', color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 11, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 17, height: 17, borderRadius: 9 },
-  verifiedAvatarBadge: { position: 'absolute', right: -2, bottom: -2, width: 17, height: 17, borderRadius: 4, backgroundColor: '#2589F5', borderWidth: 2, borderColor: c.background, alignItems: 'center', justifyContent: 'center' },
-  verifiedAvatarCheck: { color: '#FFFFFF', fontSize: 11, fontWeight: '900', lineHeight: 12 },
   time: { color: c.textMuted, fontSize: 11.5 },
   timeUnread: { color: '#2FD67B', fontWeight: '700' },
   preview: { color: c.textMuted, fontSize: 13.5, flex: 1 },
