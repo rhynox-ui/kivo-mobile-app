@@ -158,7 +158,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
           <Avatar name={title} uri={conversation?.avatarUrl} size={40} />
         </Pressable>
         <Pressable style={styles.headerCopy} disabled={!conversation} onPress={() => conversation?.kind === 'dm' && conversation.peer?.userId ? onOpenPerson?.(conversation.peer.userId) : conversation && conversation.kind !== 'dm' ? onOpenInfo?.(id, conversation.kind) : undefined}>
-          <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{title}</Text>{conversation?.kind === 'channel' && (conversation.isVerified || isOfficialKivoChannel(conversation.id)) ? <Text accessibilityLabel="Verified official Kivo channel" style={styles.verifiedBadge}>★</Text> : null}</View>
+          <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{title}</Text>{conversation?.kind === 'channel' && (conversation.isVerified || isOfficialKivoChannel(conversation.id)) ? <Text accessibilityLabel="Verified channel" style={styles.verifiedBadge}>★</Text> : null}</View>
           <Text style={styles.status}>{subtitle}</Text>
         </Pressable>
         {conversation?.kind === 'dm' && conversation.peer?.userId && <Pressable onPress={() => {

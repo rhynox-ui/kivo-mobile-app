@@ -180,6 +180,12 @@ export class KivoApi {
   addMember(id: string, address: string) { return this.request<{community: ApiCommunity; members: ApiMember[]}>('POST', `/api/communities/${encodeURIComponent(id)}/members`, {address}); }
   removeMember(id: string, userId: string) { return this.request<{community: ApiCommunity; members: ApiMember[]}>( 'DELETE', `/api/communities/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`); }
   setAdmin(id: string, userId: string, promote: boolean) { return this.request<{community: ApiCommunity; members: ApiMember[]}>(promote ? 'POST' : 'DELETE', `/api/communities/${encodeURIComponent(id)}/admins/${encodeURIComponent(userId)}`, promote ? {} : undefined); }
+  verificationStatus(subjectType: 'profile' | 'channel', subjectId: string) {
+    return this.request<{isVerified: boolean; permanent: boolean; expiresAt: number | null; plan: 'monthly' | 'annual' | null; chain?: string}>('GET', `/api/verification/status?subjectType=${subjectType}&subjectId=${encodeURIComponent(subjectId)}`);
+  }
+  purchaseVerification(input: {subjectType: 'profile' | 'channel'; subjectId: string; plan: 'monthly' | 'annual'; chain: 'ethereum' | 'base' | 'arbitrum' | 'solana'; txHash: string}) {
+    return this.request<{id: string; plan: string; chain: string; token: 'USDC'; amount: string; txHash: string; payer: string; recipient: string; paidAt: number; expiresAt: number; explorerUrl: string; blockNumber: number; status: string}>('POST', '/api/verification/purchase', input);
+  }
   moderationStatus() { return this.request<{cooldownUntil: number; reason: string}>('GET', '/api/moderation/status'); }
   conversations() { return this.request<ApiConversation[]>('GET', '/api/conversations'); }
   openDm(address: string) { return this.request<{id: string}>('POST', '/api/conversations/dm', {address}); }

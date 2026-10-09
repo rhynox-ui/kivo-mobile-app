@@ -52,7 +52,7 @@ function Communities({ kind, onOpenChat, onOpenCommunity }: { kind: 'group' | 'c
         <Pressable key={c.id} onPress={() => (c.myRole ? onOpenChat(c.id) : onOpenCommunity(c.id))} style={styles.card}>
           <Avatar name={c.name} uri={c.avatarUrl} size={48} />
           <View style={styles.flex}>
-            <Text style={styles.name} numberOfLines={1}>{c.name}</Text>
+            <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{c.name}</Text>{kind === 'channel' && (c.isVerified || c.id === 'ch_671d27c151fefc25c8e5') ? <Text accessibilityLabel="Verified channel" style={styles.verifiedBadge}>★</Text> : null}</View>
             <Text style={styles.small}>{c.memberCount} {kind === 'channel' ? 'subscribers' : 'members'} · {c.postCount} {kind === 'channel' ? 'posts' : 'messages'}</Text>
             {c.description ? <Text style={styles.small} numberOfLines={2}>{c.description}</Text> : null}
           </View>
@@ -102,6 +102,8 @@ const styles = StyleSheet.create({
   card: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 16, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
   flex: { flex: 1, minWidth: 0 },
   name: { color: c.text, fontWeight: '800', fontSize: 15 },
+  nameLine: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  verifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 10, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 17, height: 17, borderRadius: 9, overflow: 'hidden' },
   small: { color: c.textMuted, fontSize: 12, marginTop: 2 },
   muted: { color: c.textMuted, fontSize: 12, lineHeight: 17 },
   error: { color: c.danger, fontSize: 12 },

@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, AppState, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { isOfficialKivoChannel, type ApiConversation, type ApiProfile } from '@kivo/shared/api/types';
 import { displayName, myUserId, openDirectMessage, rememberProfiles, unreadCount } from '@kivo/shared/chat/store';
 import { KivoMark } from '../components/KivoMark';
@@ -7,6 +7,7 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { api, enableSocial, useSocialReady } from '../state/session';
 import { useChatState } from '../state/useChat';
 import { getWalletSession } from '../state/walletStore';
+import { refreshConversations } from '@kivo/shared/chat/store';
 
 type Filter = 'all' | 'dm' | 'group' | 'channel';
 const FILTERS: Array<[Filter, string]> = [['all', 'All'], ['dm', 'Chats'], ['group', 'Groups'], ['channel', 'Channels']];
@@ -30,11 +31,35 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [composing, setComposing] = useState(false);
+  const [publicChannels, setPublicChannels] = useState<ApiCommunity[]>([]);
+
+  // Subscription expiry is time-based, so refresh server-authoritative badge
+  // status periodically while the chat list is open and when the app resumes.
+  useEffect(() => {
+    const refresh = () => { void refreshConversations().catch(() => {}); };
+    refresh();
+    const timer = setInterval(refresh, 60_000);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') refresh();
+    });
+    return () => { clearInterval(timer); subscription.remove(); };
+  }, []);
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
     return state.conversations.filter(c => (filter === 'all' || c.kind === filter) && (!q || c.title.toLowerCase().includes(q)));
   }, [state.conversations, filter, query]);
+
+  useEffect(() => {
+    if (filter !== 'channel' || !ready) { setPublicChannels([]); return; }
+    let active = true;
+    api.discover('channel', query.trim()).then(found => {
+      if (!active) return;
+      const joined = new Set(state.conversations.filter(c => c.kind === 'channel').map(c => c.id));
+      setPublicChannels(found.filter(c => !joined.has(c.id)));
+    }).catch(() => { if (active) setPublicChannels([]); });
+    return () => { active = false; };
+  }, [filter, query, ready, state.conversations]);
 
   if (!ready) return <EnableSocial />;
 
@@ -62,7 +87,18 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
         data={list}
         keyExtractor={item => item.id}
         renderItem={({ item }) => <Row conversation={item} onPress={() => onOpenChat(item.id)} />}
-        ListEmptyComponent={<View style={styles.empty}><Text style={styles.emptyTitle}>No chats yet</Text><Text style={styles.muted}>Tap ✎ to message someone, or join groups and channels from Discover.</Text></View>}
+        ListEmptyComponent={filter === 'channel' && publicChannels.length ? null : <View style={styles.empty}><Text style={styles.emptyTitle}>{filter === 'channel' ? 'No channels yet' : 'No chats yet'}</Text><Text style={styles.muted}>Discover public channels or join communities to see them here.</Text></View>}
+        ListFooterComponent={filter === 'channel' ? <View style={styles.discoverSection}>
+          <Text style={styles.discoverTitle}>Public channels on Kivo</Text>
+          {publicChannels.map(c => <Pressable key={c.id} style={styles.row} onPress={async () => {
+            try { await api.join(c.id); await refreshConversations().catch(() => {}); onOpenChat(c.id); }
+            catch (e) { Alert.alert(c.name, e instanceof Error ? e.message : 'Unable to subscribe to channel.'); }
+          }}>
+            <Avatar name={c.name} uri={c.avatarUrl} size={52} />
+            <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>📢 {c.name}{(c.isVerified || isOfficialKivoChannel(c.id)) ? ' ★' : ''}</Text></View><Text style={styles.preview}>Public channel · Tap to subscribe</Text></View>
+          </Pressable>)}
+          {!publicChannels.length && <Text style={styles.muted}>No other public channels found.</Text>}
+        </View> : null}
         contentContainerStyle={styles.listContent}
       />
     </View>
@@ -169,6 +205,8 @@ const styles = StyleSheet.create({
   filterTextActive: { color: c.backgroundDeep },
   offline: { color: '#F2C96D', fontSize: 12, paddingHorizontal: 18, paddingBottom: 6 },
   listContent: { paddingBottom: 24 },
+  discoverSection: { borderTopWidth: 1, borderTopColor: c.border, marginTop: 12, paddingTop: 12 },
+  discoverTitle: { color: c.text, fontSize: 15, fontWeight: '800', paddingHorizontal: 16, paddingBottom: 6 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10 },
   pressed: { backgroundColor: c.surface },
   rowMain: { flex: 1, minWidth: 0, gap: 4, borderBottomWidth: 1, borderBottomColor: c.border, paddingBottom: 10 },
