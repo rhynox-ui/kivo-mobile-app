@@ -93,12 +93,13 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   const receiptStorageKey = `kivo:verification-receipt:${subjectType}:${subjectId}`;
   const storageKey = `kivo:verification-pending:${subjectType}:${subjectId}`;
   const keychainService = `${PENDING_KEYCHAIN_SERVICE}.${subjectType}.${encodeURIComponent(subjectId)}`;
+  const pendingRecovery = pending as PendingPayment | null;
 
   useEffect(() => {
     let active = true;
-    void storage.getItem(receiptStorageKey).then(raw => {
+    void Promise.resolve(storage.getItem(receiptStorageKey)).then(raw => {
       if (!active || !raw) return;
-      try { setReceipt(JSON.parse(raw)); } catch { void storage.removeItem(receiptStorageKey).catch(() => {}); }
+      try { setReceipt(JSON.parse(raw)); } catch { void Promise.resolve(storage.removeItem?.(receiptStorageKey)).catch(() => {}); }
     }).catch(() => {});
 
     // Recover the server-confirmed receipt after reinstall or on another device.
@@ -120,7 +121,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         status: serverReceipt.status,
       };
       setReceipt(recovered);
-      void storage.setItem(receiptStorageKey, JSON.stringify(recovered)).catch(() => {});
+      void Promise.resolve(storage.setItem(receiptStorageKey, JSON.stringify(recovered))).catch(() => {});
     }).catch(() => {});
     return () => { active = false; };
   }, [receiptStorageKey, subjectType, subjectId]);
@@ -241,7 +242,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
       await clearPendingRecord(storageKey, keychainService);
       setPendingPersistenceWarning(false);
       setReceipt(result);
-      await storage.setItem(receiptStorageKey, JSON.stringify(result)).catch(() => {});
+      await Promise.resolve(storage.setItem(receiptStorageKey, JSON.stringify(result))).catch(() => {});
       setAlreadyVerified(true);
       setStatus('Payment confirmed. Blue Star verification is active.');
       Alert.alert('Blue Star activated', 'Payment confirmed. Your verification receipt is ready.');
@@ -317,7 +318,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
               {busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep}/> : <Text style={styles.payText}>{pending ? 'Retry verification' : `Pay ${plan === 'annual' ? '$5' : '$1'} USDC`}</Text>}
             </Pressable>
             <Text style={styles.status} accessibilityLiveRegion="polite">{status}</Text>
-            {pending ? <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: `Kivo Blue Star payment recovery\\nSubject: ${subjectType} ${subjectId}\\nNetwork: ${pending.chain}\\nPlan: ${pending.plan}\\nTransaction: ${pending.txHash}\\nRetry verification in Kivo; do not pay again.` })}><Text style={styles.secondaryText}>Share transaction recovery details</Text></Pressable> : null}
+            {pendingRecovery ? <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: `Kivo Blue Star payment recovery\\nSubject: ${subjectType} ${subjectId}\\nNetwork: ${pendingRecovery.chain}\\nPlan: ${pendingRecovery.plan}\\nTransaction: ${pendingRecovery.txHash}\\nRetry verification in Kivo; do not pay again.` })}><Text style={styles.secondaryText}>Share transaction recovery details</Text></Pressable> : null}
             <Text style={styles.finePrint}>No funds move until you approve the transaction in your wallet.</Text>
           </View>
         ) : (
