@@ -93,7 +93,7 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
             try { await api.join(c.id); await refreshConversations().catch(() => {}); onOpenChat(c.id); }
             catch (e) { Alert.alert(c.name, e instanceof Error ? e.message : 'Unable to subscribe to channel.'); }
           }}>
-            <Avatar name={c.name} uri={c.avatarUrl} size={52} />
+            <Avatar name={c.name} uri={c.avatarUrl} size={52} verified={c.isVerified === true || isOfficialKivoChannel(c.id)} />
             <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>📢 {c.name}{(c.isVerified || isOfficialKivoChannel(c.id)) ? ' ★' : ''}</Text></View><Text style={styles.preview}>Public channel · Tap to subscribe</Text></View>
           </Pressable>)}
         </View> : undefined}
@@ -105,11 +105,23 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
 
 function Row({ conversation: c, onPress }: { conversation: ApiConversation; onPress: () => void }) {
   const unread = unreadCount(c.id);
+  const [peerVerified, setPeerVerified] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setPeerVerified(false);
+    if (c.kind === 'dm' && c.peer?.userId) {
+      api.verificationStatus('profile', c.peer.userId)
+        .then(status => { if (active) setPeerVerified(status.isVerified === true); })
+        .catch(() => { if (active) setPeerVerified(false); });
+    }
+    return () => { active = false; };
+  }, [c.id, c.kind, c.peer?.userId]);
+  const verified = c.isVerified === true || isOfficialKivoChannel(c.id) || peerVerified;
   const me = myUserId();
   const prefix = c.lastSenderId && c.kind !== 'channel' && c.lastPreview ? (c.lastSenderId === me ? 'You: ' : c.kind === 'group' ? `${displayName(c.lastSenderId)}: ` : '') : '';
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
-      <Avatar name={c.title} uri={c.avatarUrl} size={52} />
+      <Avatar name={c.title} uri={c.avatarUrl} size={52} verified={verified} />
       <View style={styles.rowMain}>
         <View style={styles.rowTop}>
           <View style={styles.rowTitleLine}><Text style={styles.rowTitle} numberOfLines={1}>{c.kind === 'channel' ? '📢 ' : c.kind === 'group' ? '👥 ' : ''}{c.title}</Text>{c.kind === 'channel' && (c.isVerified || isOfficialKivoChannel(c.id)) ? <Text accessibilityLabel="Verified official Kivo channel" style={styles.verifiedBadge}>★</Text> : null}</View>
@@ -124,9 +136,11 @@ function Row({ conversation: c, onPress }: { conversation: ApiConversation; onPr
   );
 }
 
-export function Avatar({ name, uri, size }: { name: string; uri?: string | null; size: number }) {
-  if (uri) return <Image source={{ uri }} style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: kivoTheme.colors.surfaceRaised }} />;
-  return <View style={[styles.avatar, { width: size, height: size, borderRadius: size / 2 }]}><Text style={[styles.avatarText, { fontSize: size * 0.4 }]}>{name.replace(/^@/, '').slice(0, 1).toUpperCase()}</Text></View>;
+export function Avatar({ name, uri, size, verified = false }: { name: string; uri?: string | null; size: number; verified?: boolean }) {
+  // Rounded-square silhouette is a visual treatment only; verification is supplied by server-owned status.
+  const borderRadius = verified ? Math.round(size * 0.22) : size / 2;
+  if (uri) return <Image source={{ uri }} style={{ width: size, height: size, borderRadius, backgroundColor: kivoTheme.colors.surfaceRaised }} />;
+  return <View style={[styles.avatar, { width: size, height: size, borderRadius }]}><Text style={[styles.avatarText, { fontSize: size * 0.4 }]}>{name.replace(/^@/, '').slice(0, 1).toUpperCase()}</Text></View>;
 }
 
 function NewChat({ onOpen }: { onOpen: (id: string) => void }) {
