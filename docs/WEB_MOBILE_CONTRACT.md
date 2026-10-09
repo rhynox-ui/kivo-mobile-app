@@ -56,3 +56,11 @@ Rules:
 - Private message media is re-authorized against current session and conversation access at fetch time. A removed member or non-participant may receive a denied/expired URL.
 - The mobile conversation screen displays a bounded `Photo unavailable` placeholder when a remote image cannot load, instead of leaving a broken image.
 - Regression/build verification is still required; a placeholder is graceful failure handling, not a replacement for server-side authorization.
+
+
+## Message retry and private media safety
+
+- All message sends, edits, deletes, and private media reads must go through the shared Kivo social API in `rhynox-ui/kivo`; mobile UI checks are not authorization.
+- The API treats `clientId` only as an idempotency key. A retry is accepted only for the same authenticated sender and same conversation; reusing another message's ID must return HTTP 409 and must not disclose the existing message.
+- The API revalidates current access to private message media. Mobile shows a safe `Photo unavailable` placeholder when access has expired or been revoked.
+- These API/client changes have been committed, but tests and Android typecheck/bundle verification still need an owner-authorized manual run.
