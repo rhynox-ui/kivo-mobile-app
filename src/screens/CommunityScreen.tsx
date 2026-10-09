@@ -80,13 +80,15 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
           {verificationReceipt && <View style={styles.receipt}>
             <Text style={styles.cardTitle}>★ Kivo payment receipt</Text>
             <Text style={styles.receiptText}>Status: Paid & Verified</Text>
+            <Text style={styles.receiptText}>Verified subject: {c.name}</Text>
             <Text style={styles.receiptText}>Plan: {verificationReceipt.plan} · {verificationReceipt.amount} USDC</Text>
             <Text style={styles.receiptText}>Network: {verificationReceipt.chain}</Text>
             <Text style={styles.receiptText}>Transaction hash: {verificationReceipt.txHash}</Text>
+            <Text style={styles.receiptText}>Payer: {verificationReceipt.payer || 'Not provided by verifier'}</Text>
             <Text style={styles.receiptText}>Paid to: {verificationReceipt.recipient}</Text>
             <Text style={styles.receiptText}>Paid: {new Date(verificationReceipt.paidAt).toLocaleString()}</Text>
             <Text style={styles.receiptText}>Valid until: {new Date(verificationReceipt.expiresAt).toLocaleDateString()}</Text>
-            <Pressable style={styles.secondary} onPress={() => Share.share({message: `Kivo Verification Receipt\nStatus: Paid & Verified\nPlan: ${verificationReceipt.plan}\nAmount: ${verificationReceipt.amount} USDC\nNetwork: ${verificationReceipt.chain}\nTransaction: ${verificationReceipt.txHash}\nRecipient: ${verificationReceipt.recipient}\nValid until: ${new Date(verificationReceipt.expiresAt).toISOString()}\nExplorer: ${verificationReceipt.explorerUrl}`})}><Text style={styles.secondaryText}>Share receipt</Text></Pressable>
+            <Pressable style={styles.secondary} onPress={() => Share.share({message: `Kivo Verification Receipt\nStatus: Paid & Verified\nPlan: ${verificationReceipt.plan}\nAmount: ${verificationReceipt.amount} USDC\nNetwork: ${verificationReceipt.chain}\nTransaction: ${verificationReceipt.txHash}\nPayer: ${verificationReceipt.payer || 'Not provided by verifier'}\nRecipient: ${verificationReceipt.recipient}\nValid until: ${new Date(verificationReceipt.expiresAt).toISOString()}\nExplorer: ${verificationReceipt.explorerUrl}`})}><Text style={styles.secondaryText}>Share receipt</Text></Pressable>
             <Pressable style={styles.secondary} onPress={() => Share.share({message: verificationReceipt.explorerUrl})}><Text style={styles.secondaryText}>View transaction: {verificationReceipt.explorerUrl}</Text></Pressable>
           </View>}
         </View>}
@@ -149,7 +151,6 @@ const styles = StyleSheet.create({
   hero: { alignItems: 'center', gap: 8, paddingVertical: 8 },
   titleLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
   title: { color: c.text, fontSize: 24, fontWeight: '800', textAlign: 'center', flexShrink: 1 },
-  verifiedBadge: { overflow: 'hidden', color: '#2589F5', fontSize: 20, fontWeight: '900', textAlign: 'center', width: 20, height: 22 },
   description: { color: c.text, fontSize: 14, textAlign: 'center', lineHeight: 20 },
   role: { color: c.accent, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
   muted: { color: c.textMuted, fontSize: 12.5, lineHeight: 18, textAlign: 'center' },
