@@ -10,7 +10,7 @@ import { api, socialReady } from '../state/session';
 import { Avatar } from './ChatListScreen';
 import { localEvmSigner, withDeviceAccounts, getWalletSession } from '../state/walletStore';
 import { encodeFunctionData, parseUnits } from 'viem';
-import { Connection, PublicKey, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import { createTransferCheckedInstruction, getAssociatedTokenAddress, getOrCreateAssociatedTokenAccount } from '@solana/spl-token';
 
 function memberName(member: ApiMember) {
