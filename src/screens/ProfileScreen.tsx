@@ -62,7 +62,8 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   }, [profile.userId]);
   useEffect(() => {
     loadVerification();
-    const timer = setInterval(loadVerification, 60_000);
+    // Keep the profile badge in sync shortly after checkout activates a subscription.
+    const timer = setInterval(loadVerification, 5_000);
     return () => clearInterval(timer);
   }, [loadVerification]);
 
