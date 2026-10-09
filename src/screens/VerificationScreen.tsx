@@ -239,7 +239,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
           <View style={styles.card}>
             <Text style={styles.description}>Choose your plan and network. Kivo checks the blockchain payment before activating your Blue Star badge. Your wallet will ask you to approve the USDC transfer.</Text>
             <Text style={styles.label}>Plan</Text>
-            <View style={styles.options}>{PLANS.map(item => <Pressable key={item} disabled={busy || Boolean(pending)} onPress={() => setPlan(item)} style={[styles.option, plan === item && styles.optionActive, Boolean(pending) && styles.optionDisabled]}><Text style={[styles.optionText, plan === item && styles.optionTextActive]}>{item === 'annual' ? '$5 USDC / year' : '$1 USDC / month'}</Text></Pressable>)}</View>
+            <View style={styles.options}>{PLANS.map(item => <Pressable key={item} disabled={busy || Boolean(pending)} onPress={() => setPlan(item)} style={[styles.option, plan === item && styles.optionActive, Boolean(pending) && styles.optionDisabled]}><UsdcLogo /><View style={styles.planCopy}><Text style={[styles.optionText, plan === item && styles.optionTextActive]}>{item === 'annual' ? '$5 USDC / year' : '$1 USDC / month'}</Text><Text style={[styles.planHint, plan === item && styles.optionTextActive]}>{item === 'annual' ? '365 days · Best value' : '30 days'}</Text></View>{plan === item ? <Text style={styles.planSelected}>✓</Text> : <View style={styles.planRadio} />}</Pressable>)}</View>
             <Text style={styles.label}>Network</Text>
             <Pressable accessibilityRole="button" accessibilityLabel={`Choose network. Selected: ${CHAIN_META[chain].label}`} disabled={busy || Boolean(pending)} onPress={() => setNetworkPickerOpen(true)} style={[styles.networkSelector, Boolean(pending) && styles.optionDisabled]}>
               <NetworkLogo chain={chain} />
@@ -292,6 +292,10 @@ function ReceiptRow({ label, value }: { label: string; value: string }) {
   return <View style={styles.receiptRow}><Text style={styles.receiptLabel}>{label}</Text><Text selectable style={styles.receiptValue}>{value}</Text></View>;
 }
 
+function UsdcLogo() {
+  return <Svg width={32} height={32} viewBox="0 0 100 100"><Circle cx="50" cy="50" r="48" fill="#2775CA"/><Path d="M64 34c-3-3-8-5-14-5-10 0-17 5-17 13 0 7 5 10 16 12 8 2 11 3 11 7s-4 6-10 6c-7 0-12-2-16-6l-7 8c5 5 12 8 21 8v9h6v-9c11-1 18-7 18-16 0-8-6-12-17-14-8-2-10-3-10-6 0-3 3-5 8-5s9 2 12 5Z" fill="#FFFFFF"/><Path d="M48 12v10M48 78v10" stroke="#FFFFFF" strokeWidth="5" strokeLinecap="round"/></Svg>;
+}
+
 function NetworkLogo({ chain }: { chain: Chain }) {
   const size = 38;
   if (chain === 'ethereum') return <View style={[styles.networkMark, { backgroundColor: '#627EEA18' }]}><Svg width={25} height={30} viewBox="0 0 256 417"><Polygon points="127.9,0 0,211.9 127.9,154.4" fill="#8C9EFF"/><Polygon points="127.9,0 255.8,211.9 127.9,154.4" fill="#62688F"/><Polygon points="0,236.2 127.9,417 127.9,281.8" fill="#8C9EFF"/><Polygon points="255.8,236.2 127.9,417 127.9,281.8" fill="#62688F"/><Polygon points="0,211.9 127.9,281.8 127.9,154.4" fill="#62688F"/><Polygon points="255.8,211.9 127.9,281.8 127.9,154.4" fill="#454A75"/></Svg></View>;
@@ -312,7 +316,7 @@ const styles = StyleSheet.create({
   card: { padding: 18, borderRadius: 18, borderWidth: 1, borderColor: kivoTheme.colors.border, backgroundColor: kivoTheme.colors.surface, gap: 12 },
   description: { color: kivoTheme.colors.textMuted, fontSize: 14, lineHeight: 21 },
   label: { color: kivoTheme.colors.text, fontSize: 13, fontWeight: '800', marginTop: 4 },
-  options: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  options: { flexDirection: 'column', gap: 9 },
   networkSelector: { minHeight: 62, borderWidth: 1, borderColor: kivoTheme.colors.border, borderRadius: 14, paddingHorizontal: 13, paddingVertical: 10, backgroundColor: kivoTheme.colors.backgroundDeep, flexDirection: 'row', alignItems: 'center', gap: 12 },
   networkMark: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   networkCopy: { flex: 1, gap: 3 },
@@ -331,10 +335,14 @@ const styles = StyleSheet.create({
   networkOptionActive: { borderColor: kivoTheme.colors.accent, backgroundColor: kivoTheme.colors.surfaceRaised },
   selectedMark: { color: kivoTheme.colors.accent, fontSize: 20, fontWeight: '900', paddingHorizontal: 5 },
   pickerFootnote: { color: kivoTheme.colors.textMuted, fontSize: 11, lineHeight: 16, marginTop: 2 },
-  option: { borderWidth: 1, borderColor: kivoTheme.colors.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 11, backgroundColor: kivoTheme.colors.backgroundDeep },
+  option: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 11, borderWidth: 1, borderColor: kivoTheme.colors.border, borderRadius: 15, paddingHorizontal: 13, paddingVertical: 11, backgroundColor: kivoTheme.colors.backgroundDeep },
   optionActive: { borderColor: kivoTheme.colors.accent, backgroundColor: kivoTheme.colors.accent },
   optionDisabled: { opacity: 0.6 },
-  optionText: { color: kivoTheme.colors.text, fontSize: 13, fontWeight: '700' },
+  optionText: { color: kivoTheme.colors.text, fontSize: 14, fontWeight: '800' },
+  planCopy: { flex: 1, gap: 3 },
+  planHint: { color: kivoTheme.colors.textMuted, fontSize: 11 },
+  planRadio: { width: 21, height: 21, borderRadius: 11, borderWidth: 1.5, borderColor: kivoTheme.colors.textMuted },
+  planSelected: { width: 22, height: 22, borderRadius: 11, overflow: 'hidden', textAlign: 'center', textAlignVertical: 'center', color: kivoTheme.colors.backgroundDeep, backgroundColor: kivoTheme.colors.accent, fontSize: 14, fontWeight: '900' },
   optionTextActive: { color: kivoTheme.colors.backgroundDeep },
   walletState: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: kivoTheme.colors.success },
