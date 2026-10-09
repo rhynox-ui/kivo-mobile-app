@@ -88,8 +88,7 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
         keyExtractor={item => item.id}
         renderItem={({ item }) => <Row conversation={item} onPress={() => onOpenChat(item.id)} />}
         ListEmptyComponent={filter === 'channel' && publicChannels.length ? null : <View style={styles.empty}><Text style={styles.emptyTitle}>{filter === 'channel' ? 'No channels yet' : 'No chats yet'}</Text><Text style={styles.muted}>Discover public channels or join communities to see them here.</Text></View>}
-        ListFooterComponent={filter === 'channel' ? <View style={styles.discoverSection}>
-          <Text style={styles.discoverTitle}>Public channels on Kivo</Text>
+        ListFooterComponent={filter === 'channel' && publicChannels.length ? <View style={styles.discoverSection}>
           {publicChannels.map(c => <Pressable key={c.id} style={styles.row} onPress={async () => {
             try { await api.join(c.id); await refreshConversations().catch(() => {}); onOpenChat(c.id); }
             catch (e) { Alert.alert(c.name, e instanceof Error ? e.message : 'Unable to subscribe to channel.'); }
@@ -97,7 +96,6 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
             <Avatar name={c.name} uri={c.avatarUrl} size={52} />
             <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>📢 {c.name}{(c.isVerified || isOfficialKivoChannel(c.id)) ? ' ★' : ''}</Text></View><Text style={styles.preview}>Public channel · Tap to subscribe</Text></View>
           </Pressable>)}
-          {!publicChannels.length && <Text style={styles.muted}>No other public channels found.</Text>}
         </View> : null}
         contentContainerStyle={styles.listContent}
       />
