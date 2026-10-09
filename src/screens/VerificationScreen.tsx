@@ -3,7 +3,8 @@ import { ActivityIndicator, Alert, Linking, Modal, Pressable, ScrollView, Share,
 import QRCode from 'react-native-qrcode-svg';
 import { api, storage, useSocialReady } from '../state/session';
 import { getWalletSession, localEvmSigner, withDeviceAccounts } from '../state/walletStore';
-import { encodeFunctionData, parseUnits } from 'viem';
+import { createPublicClient, encodeFunctionData, parseUnits } from 'viem';
+import { transportFor, viemChainForChainId } from '@kivo/trading/core/chainRegistry';
 import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import * as Keychain from 'react-native-keychain';
 import { createAssociatedTokenAccountInstruction, createTransferCheckedInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
@@ -224,7 +225,19 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         pendingPersistenceFailedForAttempt = !saved;
         setPendingPersistenceWarning(!saved);
       }
-      setStatus('Waiting for blockchain confirmation…');
+      // Wait for the same confirmation depth required by the backend before
+      // calling verification; otherwise an immediate receipt check can fail and
+      // leave the paid user stuck in manual recovery.
+      if (selectedChain !== 'solana') {
+        setStatus('Waiting for blockchain confirmation…');
+        const chainId = selectedChain === 'ethereum' ? 1 : selectedChain === 'base' ? 8453 : 42161;
+        const evmChain = viemChainForChainId(chainId);
+        if (!evmChain) throw new Error('Network configuration unavailable. Your payment is saved; retry verification later.');
+        const confirmations = selectedChain === 'ethereum' ? 12 : 20;
+        const client = createPublicClient({ chain: evmChain, transport: transportFor(chainId) });
+        const receipt = await client.waitForTransactionReceipt({ hash: txHash as `0x${string}`, confirmations });
+        if (receipt.status !== 'success') throw new Error('The USDC transaction failed on-chain. Contact Kivo support before paying again.');
+      }
       setStatus('Verifying payment with Kivo…');
       let result: any;
       for (let attempt = 0; ; attempt++) {
