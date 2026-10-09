@@ -4,6 +4,7 @@ import { api, storage, useSocialReady } from '../state/session';
 import { getWalletSession, localEvmSigner, withDeviceAccounts } from '../state/walletStore';
 import { encodeFunctionData, parseUnits } from 'viem';
 import { Connection, PublicKey, Transaction } from '@solana/web3.js';
+import * as Keychain from 'react-native-keychain';
 import { createAssociatedTokenAccountInstruction, createTransferCheckedInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
 import { kivoTheme } from '../theme/kivoTheme';
 
@@ -17,6 +18,38 @@ const PLANS: Plan[] = ['monthly', 'annual'];
 const EVM_RECIPIENT = '0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5';
 const SOLANA_RECIPIENT = '2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGZwyTDt1v';
+
+const PENDING_KEYCHAIN_SERVICE = 'com.kivo.verification-pending';
+
+async function readPendingRecord(key: string, service: string): Promise<string | null> {
+  try {
+    const value = await storage.getItem(key);
+    if (value) return value;
+  } catch {}
+  try {
+    const credentials = await Keychain.getGenericPassword({ service });
+    if (credentials && credentials.username === key) return credentials.password;
+  } catch {}
+  return null;
+}
+
+async function savePendingRecord(key: string, service: string, value: string): Promise<boolean> {
+  let saved = false;
+  try { await storage.setItem(key, value); saved = true; } catch {}
+  try {
+    await Keychain.setGenericPassword(key, value, {
+      service,
+      accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    });
+    saved = true;
+  } catch {}
+  return saved;
+}
+
+async function clearPendingRecord(key: string, service: string): Promise<void> {
+  try { await storage.removeItem(key); } catch {}
+  try { await Keychain.resetGenericPassword({ service }); } catch {}
+}
 
 export function VerificationScreen({ subjectType, subjectId, subjectName, onBack }: {
   subjectType: SubjectType;
@@ -33,7 +66,9 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   const [status, setStatus] = useState('Choose a plan and network to get started.');
   const [receipt, setReceipt] = useState<any>(null);
   const [alreadyVerified, setAlreadyVerified] = useState(false);
+  const [pendingPersistenceWarning, setPendingPersistenceWarning] = useState(false);
   const storageKey = `kivo:verification-pending:${subjectType}:${subjectId}`;
+  const keychainService = `${PENDING_KEYCHAIN_SERVICE}.${subjectType}.${encodeURIComponent(subjectId)}`;
 
   useEffect(() => {
     let active = true;
@@ -52,7 +87,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
           setPlan(restored.plan);
           setStatus('A payment was already submitted. Retry verification; do not pay again.');
         } else {
-          await storage.removeItem(storageKey);
+          await clearPendingRecord(storageKey, keychainService);
         }
       }
     }).catch(() => {}).finally(() => { if (active) setPendingLoaded(true); });
@@ -67,7 +102,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         setAlreadyVerified(true);
         setStatus(current.permanent ? 'Blue Star verification is active.' : `Verified until ${current.expiresAt ? new Date(current.expiresAt).toLocaleDateString() : 'expiry unavailable'}.`);
         setPending(null);
-        void storage.removeItem(storageKey).catch(() => {});
+        void clearPendingRecord(storageKey, keychainService);
       }
     }).catch(() => {});
     return () => { active = false; };
@@ -106,7 +141,8 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
           const signature = await connection.sendTransaction(transaction, [solana], { skipPreflight: false, preflightCommitment: 'confirmed' });
           pendingForAttempt = { txHash: signature, chain: selectedChain, plan: selectedPlan };
           setPending(pendingForAttempt);
-          await storage.setItem(storageKey, JSON.stringify(pendingForAttempt)).catch(() => {});
+          const saved = await savePendingRecord(storageKey, keychainService, JSON.stringify(pendingForAttempt));
+          setPendingPersistenceWarning(!saved);
           await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
           return signature;
         });
@@ -124,7 +160,8 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         txHash = await signer.sendTransaction({ to: usdc[evmChain], data, value: 0n, chainId: chainIds[evmChain] });
         pendingForAttempt = { txHash, chain: selectedChain, plan: selectedPlan };
         setPending(pendingForAttempt);
-        await storage.setItem(storageKey, JSON.stringify(pendingForAttempt)).catch(() => {});
+        const saved = await savePendingRecord(storageKey, keychainService, JSON.stringify(pendingForAttempt));
+        setPendingPersistenceWarning(!saved);
       }
       setStatus('Waiting for blockchain confirmation…');
       let result: any;
@@ -139,7 +176,8 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         }
       }
       setPending(null);
-      await storage.removeItem(storageKey).catch(() => {});
+      await clearPendingRecord(storageKey, keychainService);
+      setPendingPersistenceWarning(false);
       setReceipt(result);
       setAlreadyVerified(true);
       setStatus('Payment confirmed. Blue Star verification is active.');
@@ -148,7 +186,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
       const message = error instanceof Error ? error.message : 'Could not verify payment.';
       if (pendingForAttempt) {
         setPending(pendingForAttempt);
-        setStatus(`Payment submitted. Retry verification; do not pay again. ${message}`);
+        setStatus(`${pendingPersistenceWarning ? 'Recovery storage could not be saved. Keep this screen open and share the transaction hash. ' : ''}Payment submitted. Retry verification; do not pay again. ${message}`);
         Alert.alert('Payment submitted', 'Retry verification for the existing transaction. Do not pay again.');
       } else {
         setStatus(message);
@@ -185,6 +223,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
               {busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep}/> : <Text style={styles.payText}>{pending ? 'Retry verification' : `Pay ${plan === 'annual' ? '$5' : '$1'} USDC`}</Text>}
             </Pressable>
             <Text style={styles.status} accessibilityLiveRegion="polite">{status}</Text>
+            {pending ? <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: `Kivo Blue Star payment recovery\\nSubject: ${subjectType} ${subjectId}\\nNetwork: ${pending.chain}\\nPlan: ${pending.plan}\\nTransaction: ${pending.txHash}\\nRetry verification in Kivo; do not pay again.` })}><Text style={styles.secondaryText}>Share transaction recovery details</Text></Pressable> : null}
             <Text style={styles.finePrint}>No funds move until you approve the transaction in your wallet.</Text>
           </View>
         ) : (
