@@ -10,7 +10,7 @@ import { Avatar } from './ChatListScreen';
 type Item = { type: 'day'; key: string; label: string } | { type: 'message'; key: string; message: LocalMessage; showName: boolean };
 
 function renderLinkedText(text: string): React.ReactNode[] {
-  const nodes: React.ReactNode[]=[]; const pattern= /https?:\/\/[^\\s<>"']+|www\\.[^\\s<>"']+|#[\\p{L}\\p{N}_]+|\\$[A-Za-z][A-Za-z0-9_]*/gu; let cursor=0; let key=0;
+  const nodes: React.ReactNode[]=[]; const pattern= /https?:\/\/[^\s<>"']+|www\.[^\s<>"']+|#[\p{L}\p{N}_]+|\$[A-Za-z][A-Za-z0-9_]*/gu; let cursor=0; let key=0;
   for(const match of text.matchAll(pattern)){const raw=match[0];const start=match.index??0;if(start>cursor)nodes.push(text.slice(cursor,start));let url:string;let style=styles.messageLink;
     if(raw.startsWith('#')){url='https://x.com/hashtag/'+encodeURIComponent(raw.slice(1));style=styles.messageHashtag;}
     else if(raw.startsWith('$')){url='https://dexscreener.com/search?q='+encodeURIComponent(raw.slice(1));style=styles.messageTicker;}
