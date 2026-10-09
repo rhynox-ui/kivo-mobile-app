@@ -19,7 +19,7 @@ function solanaAddressFor(m:string){try{return deriveSolanaKeypair(m).publicKey.
 function nearAddressFor(m:string){try{return deriveNearAccount(m).address;}catch{return undefined;}}
 function setUnlocked(mnemonic:string){const a=mnemonicToAccount(mnemonic);unlockedMnemonic=mnemonic;session={address:a.address,solanaAddress:solanaAddressFor(mnemonic),nearAddress:nearAddressFor(mnemonic),source:'local'};emit();return session;}
 export async function createLocalWallet(mnemonic:string,password:string){await createVault(mnemonic,password);return setUnlocked(mnemonic);}
-export async function importLocalWallet(mnemonic:string,password:string){const normalized=mnemonic.trim().replace(/\\s+/g,' ');if(!validateMnemonic(normalized,english))throw new Error('Recovery phrase is invalid. Check the words and order.');mnemonicToAccount(normalized);await createVault(normalized,password);setUnlocked(normalized);return{address:session!.address};}
+export async function importLocalWallet(mnemonic:string,password:string){const normalized=mnemonic.trim().replace(/\s+/g,' ');if(!validateMnemonic(normalized,english))throw new Error('Recovery phrase is invalid. Check the words and order.');mnemonicToAccount(normalized);await createVault(normalized,password);setUnlocked(normalized);return{address:session!.address};}
 export async function loadWalletSession(){return getWalletSession();}
 export function getWalletSession(){return session?{...session}:null;}
 export function lockWalletSession(){session=null;unlockedMnemonic=null;emit();}
