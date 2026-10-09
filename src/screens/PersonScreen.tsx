@@ -43,10 +43,10 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
           </Pressable>
           <Pressable onPress={() => guard(async () => onOpenChat(await openDirectMessage(address)))} style={[styles.button, styles.secondary]}><Text style={styles.secondaryText}>Message</Text></Pressable>
         </View>
-        <Pressable onPress={() => Alert.alert(blocked ? 'Unblock user?' : 'Block user?', blocked ? 'This user will be able to message you again.' : 'This user will no longer be able to send you direct messages.', [
+        <Pressable onPress={() => Alert.alert(blocked ? 'Unblock user?' : 'Block user?', blocked ? 'This user is currently blocked. Unblocking will let them message you again.' : 'This user is not blocked. Blocking will stop them from sending you direct messages.', [
           { text: 'Cancel', style: 'cancel' },
-          { text: blocked ? 'Unblock' : 'Block', style: blocked ? 'default' : 'destructive', onPress: () => guard(async () => { if (blocked) await api.unblockUser(userId); else await api.blockUser(userId); setBlocked(!blocked); }) },
-        ])} style={[styles.button, styles.blockButton]}><Text style={styles.blockButtonText}>{blocked ? 'Unblock user' : 'Block user'}</Text></Pressable>
+          { text: blocked ? 'Unblock user' : 'Block user', style: blocked ? 'default' : 'destructive', onPress: () => guard(async () => { if (blocked) await api.unblockUser(userId); else await api.blockUser(userId); setBlocked(!blocked); }) },
+        ])} style={[styles.button, styles.blockButton, blocked && styles.blockedButton]}><Text style={[styles.blockButtonText, blocked && styles.blockedButtonText]}>{blocked ? 'Blocked · Tap to unblock' : 'Block user'}</Text></Pressable>
         <Text style={styles.note}>Usernames, avatars and follower counts are social signals — never proof of who owns a wallet.</Text>
         <Text style={styles.section}>Joined groups</Text>
         {groups.length === 0 ? <Text style={styles.note}>No public groups yet.</Text> : (
@@ -85,6 +85,8 @@ const styles = StyleSheet.create({
   secondaryText: { color: c.text, fontWeight: '800' },
   blockButton: { alignSelf: 'stretch', backgroundColor: c.surface, borderWidth: 1, borderColor: c.danger },
   blockButtonText: { color: c.danger, fontWeight: '800' },
+  blockedButton: { backgroundColor: '#3B2026', borderColor: c.danger },
+  blockedButtonText: { color: '#FF9A9A', fontWeight: '900' },
   note: { color: c.textMuted, fontSize: 11.5, textAlign: 'center' },
   section: { alignSelf: 'flex-start', color: c.text, fontSize: 17, fontWeight: '800', marginTop: 12 },
   strip: { gap: 10 },
