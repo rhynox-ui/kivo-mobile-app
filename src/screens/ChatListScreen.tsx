@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AppState } from 'react-native';
-import { ActivityIndicator, Alert, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { isOfficialKivoChannel, type ApiConversation, type ApiProfile } from '@kivo/shared/api/types';
 import { displayName, myUserId, openDirectMessage, rememberProfiles, unreadCount } from '@kivo/shared/chat/store';
 import { KivoMark } from '../components/KivoMark';
