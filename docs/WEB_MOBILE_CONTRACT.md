@@ -64,3 +64,10 @@ Rules:
 - The API treats `clientId` only as an idempotency key. A retry is accepted only for the same authenticated sender and same conversation; reusing another message's ID must return HTTP 409 and must not disclose the existing message.
 - The API revalidates current access to private message media. Mobile shows a safe `Photo unavailable` placeholder when access has expired or been revoked.
 - These API/client changes have been committed, but tests and Android typecheck/bundle verification still need an owner-authorized manual run.
+
+
+## API abuse controls and CORS
+
+- The shared API applies exact browser-origin CORS allowlisting at its boundary. Native React Native networking is not authorized by CORS; every API route still enforces server-side identity/permissions.
+- Auth challenge/verification, profile approval/update, media uploads, provider-backed fallback/Relay quotes, and sponsored Relay execution have bounded IP-scoped limits.
+- On HTTP 429, show the server's retry guidance and avoid immediate retry loops. Do not retry transaction submission automatically.
