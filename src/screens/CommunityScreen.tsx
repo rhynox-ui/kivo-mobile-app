@@ -157,7 +157,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
                 ? `Payment submitted (${pendingPaymentForAttempt.txHash}). Retry verification; do not pay again. ${e instanceof Error ? e.message : ''}`
                 : (e instanceof Error ? e.message : 'Could not verify payment.'));
             } finally { setVerificationBusy(false); }
-          }} style={styles.verifyPay}><Text style={styles.verifyPayText}{verificationBusy ? 'Paying securely…' : verificationPendingPayment ? 'Retry verification' : `Pay ${verificationPlan === 'annual' ? '5' : '1'} USDC & verify`}</Text></Pressable>}
+          }} style={styles.verifyPay}><Text style={styles.verifyPayText}>{verificationBusy ? 'Paying securely…' : verificationPendingPayment ? 'Retry verification' : `Pay ${verificationPlan === 'annual' ? '5' : '1'} USDC & verify`}</Text></Pressable>}
           {verificationBusy && <View style={styles.verifyProgress}><ActivityIndicator size="small" color={kivoTheme.colors.accent} /><Text style={styles.verifyProgressText}>{verificationProgress === 'checking' ? 'Waiting for blockchain verification…' : 'Waiting for wallet approval and transaction confirmation…'}</Text></View>}
           {verificationReceipt && <View style={styles.receipt}>
             <Text style={styles.cardTitle}>🎉 Congratulations! Blue Star activated</Text>
