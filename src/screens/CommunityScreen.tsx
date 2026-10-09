@@ -44,7 +44,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
       <ScrollView contentContainerStyle={styles.body}>
         <View style={styles.hero}>
           <Avatar name={c.name} uri={c.avatarUrl} size={88} />
-          <View style={styles.titleLine}><Text style={styles.title}>{c.name}</Text>{isChannel && c.id === 'ch_671d27c151fefc25c8e5' ? <Text accessibilityLabel="Verified official Kivo channel" style={styles.verifiedBadge}>✓</Text> : null}</View>
+          <View style={styles.titleLine}><Text style={styles.title}>{c.name}</Text>{isChannel && c.id === 'ch_671d27c151fefc25c8e5' ? <Text accessibilityLabel="Verified official Kivo channel" style={styles.verifiedBadge}>★</Text> : null}</View>
           <Text style={styles.muted}>{c.visibility === 'private' ? 'Private' : 'Public'} {isChannel ? 'channel' : 'group'} · {c.memberCount} {isChannel ? 'subscribers' : 'members'} · {c.postCount} {isChannel ? 'posts' : 'messages'}</Text>
           {c.description ? <Text style={styles.description}>{c.description}</Text> : null}
           {c.myRole ? <Text style={styles.role}>{c.myRole.toUpperCase()}</Text> : null}
@@ -99,13 +99,13 @@ const styles = StyleSheet.create({
   back: { color: c.cream, fontSize: 36, width: 24 },
   headerTitleLine: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 },
   headerTitle: { flexShrink: 1, color: c.text, fontSize: 17, fontWeight: '800' },
-  verifiedBadge: { overflow: 'hidden', color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 11, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 17, height: 17, borderRadius: 9 },
+  verifiedBadge: { overflow: 'hidden', color: '#2589F5', fontSize: 20, fontWeight: '900', textAlign: 'center', width: 20, height: 22 },
   share: { color: c.accent, fontWeight: '800' },
   body: { padding: 18, gap: 12, paddingBottom: 40 },
   hero: { alignItems: 'center', gap: 8, paddingVertical: 8 },
   titleLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
   title: { color: c.text, fontSize: 24, fontWeight: '800', textAlign: 'center', flexShrink: 1 },
-  verifiedBadge: { overflow: 'hidden', color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 12, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 19, height: 19, borderRadius: 10 },
+  verifiedBadge: { overflow: 'hidden', color: '#2589F5', fontSize: 20, fontWeight: '900', textAlign: 'center', width: 20, height: 22 },
   description: { color: c.text, fontSize: 14, textAlign: 'center', lineHeight: 20 },
   role: { color: c.accent, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
   muted: { color: c.textMuted, fontSize: 12.5, lineHeight: 18, textAlign: 'center' },
