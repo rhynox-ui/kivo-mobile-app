@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, Image, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
+import { Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { API_LIMITS } from '@kivo/shared/api/types';
 import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
@@ -42,6 +42,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const messages = state.messages[id] ?? [];
   const [draft, setDraft] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [forwardingMessage, setForwardingMessage] = useState<LocalMessage | null>(null);
   const list = useRef<FlatList<Item>>(null);
   const atBottom = useRef(true);
   const previousMessageCount = useRef(messages.length);
@@ -92,13 +93,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
     if (message.status !== 'sent' || message.deleted) return;
     Alert.alert('Message options', undefined, [
       ...(message.senderId === me ? [{ text: 'Edit', onPress: () => { setEditingMessageId(message.id); setDraft(message.text); }] } : []),
-      { text: 'Forward', onPress: () => {
-        const destinations = state.conversations.filter(c => c.id !== id && (c.kind === 'dm' || c.myRole === 'owner' || c.myRole === 'admin' || (c.kind === 'group' && !c.onlyAdminsPost)));
-        Alert.alert('Forward to…', undefined, [
-          ...destinations.slice(0, 8).map(c => ({text: c.title, onPress: () => { void forwardMessage(id, message.id, c.id).then(() => Alert.alert('Forwarded', 'Message sent to ' + c.title + '.')).catch(error => Alert.alert('Forward', error instanceof Error ? error.message : 'Could not forward.')); }})),
-          {text: 'Cancel', style: 'cancel' as const},
-        ]);
-      } },
+      { text: 'Forward', onPress: () => setForwardingMessage(message) },
       ...(message.senderId === me || canModerate ? [{ text: 'Delete', style: 'destructive' as const, onPress: () => Alert.alert('Delete message', 'Delete this message for everyone?', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => deleteForEveryone(id, message.id).catch(error => Alert.alert('Delete', error instanceof Error ? error.message : 'Could not delete.')) },
@@ -185,6 +180,31 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
       ) : (
         <View style={styles.readonly}><Text style={styles.readonlyText}>📢 Only the channel owner and admins can post.</Text></View>
       )}
+      <Modal transparent visible={!!forwardingMessage} animationType="fade" onRequestClose={() => setForwardingMessage(null)}>
+        <View style={styles.forwardOverlay}>
+          <View style={styles.forwardSheet}>
+            <View style={styles.forwardHeader}>
+              <Text style={styles.forwardTitle}>Forward to…</Text>
+              <Pressable onPress={() => setForwardingMessage(null)} hitSlop={10}><Text style={styles.forwardCancel}>Cancel</Text></Pressable>
+            </View>
+            <ScrollView style={styles.forwardList} keyboardShouldPersistTaps="handled">
+              {state.conversations.filter(c => c.id !== id && (c.kind === 'dm' || c.myRole === 'owner' || c.myRole === 'admin' || (c.kind === 'group' && !c.onlyAdminsPost))).map(c => (
+                <Pressable key={c.id} style={styles.forwardDestination} onPress={() => {
+                  const selected = forwardingMessage;
+                  setForwardingMessage(null);
+                  if (selected) void forwardMessage(id, selected.id, c.id).then(() => Alert.alert('Forwarded', 'Message sent to ' + c.title + '.')).catch(error => Alert.alert('Forward', error instanceof Error ? error.message : 'Could not forward.'));
+                }}>
+                  <Avatar name={c.title} uri={c.avatarUrl} size={38} />
+                  <View style={styles.forwardDestinationCopy}>
+                    <Text style={styles.forwardDestinationTitle} numberOfLines={1}>{c.title}</Text>
+                    <Text style={styles.forwardDestinationKind}>{c.kind === 'dm' ? 'Direct message' : c.kind === 'group' ? 'Group' : 'Channel'}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -218,6 +238,16 @@ const styles = StyleSheet.create({
   deleted: { opacity: 0.6 },
   sender: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
   forwardedLabel: { color: c.textMuted, fontSize: 11, fontStyle: 'italic', fontWeight: '700' },
+  forwardOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.62)', justifyContent: 'center', padding: 22 },
+  forwardSheet: { maxHeight: '78%', borderRadius: 20, overflow: 'hidden', backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border },
+  forwardHeader: { paddingHorizontal: 18, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: c.border },
+  forwardTitle: { color: c.text, fontSize: 17, fontWeight: '900' },
+  forwardCancel: { color: c.accent, fontSize: 13, fontWeight: '800' },
+  forwardList: { flexGrow: 0 },
+  forwardDestination: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12, borderBottomWidth: 1, borderBottomColor: c.border },
+  forwardDestinationCopy: { flex: 1, minWidth: 0 },
+  forwardDestinationTitle: { color: c.text, fontSize: 14, fontWeight: '800' },
+  forwardDestinationKind: { color: c.textMuted, fontSize: 11.5, marginTop: 3 },
   photo: { width: 240, maxWidth: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: c.background },
   text: { color: c.text, fontSize: 15, lineHeight: 20 },
   messageLink: { color: c.accent, textDecorationLine: 'underline', textDecorationColor: 'rgba(183,226,123,0.75)', backgroundColor: 'rgba(244,240,199,0.10)', borderRadius: 3 },
