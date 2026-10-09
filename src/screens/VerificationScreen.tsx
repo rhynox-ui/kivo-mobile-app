@@ -248,7 +248,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
           <View style={styles.card}>
             <Text style={styles.successTitle}>Payment progress</Text>
             {(['Wallet transaction submitted', 'Blockchain confirmation', 'Kivo verification', 'Blue Star activation'] as const).map((step, index) => {
-              const activeIndex = /Payment confirmed|Blue Star verification is active/i.test(status) ? 3 : /Waiting for blockchain|Waiting for Solana/i.test(status) ? 1 : /submitted|Retry verification|temporarily unavailable|confirm/i.test(status) ? 2 : busy ? 0 : 1;
+              const activeIndex = /Payment confirmed|Blue Star verification is active/i.test(status) ? 4 : /Waiting for blockchain|Waiting for Solana/i.test(status) ? 1 : /submitted|Retry verification|temporarily unavailable|confirm/i.test(status) ? 2 : busy ? 0 : 1;
               const done = index < activeIndex || (alreadyVerified && Boolean(receipt));
               return <View key={step} style={styles.progressRow}><View style={[styles.progressDot, done && styles.progressDotDone, index === activeIndex && styles.progressDotActive]}><Text style={styles.progressDotText}>{done ? '✓' : String(index + 1)}</Text></View><Text style={[styles.progressLabel, (done || index === activeIndex) && styles.progressLabelActive]}>{step}</Text></View>;
             })}
