@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {mnemonicToAccount} from 'viem/accounts';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
+import {normalizeRecoveryPhrase, recoveryWordMatches} from '../src/wallet/recoveryPhrase.ts';
 
 const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const evm = mnemonicToAccount(mnemonic);
@@ -11,5 +12,10 @@ assert.match(solanaSource, /SOLANA_DERIVATION_PATH\s*=\s*["']m\/44'\/501'\/0'\/0
 assert.match(solanaSource, /derivePath\(SOLANA_DERIVATION_PATH/);
 console.log('ok - EVM BIP-44 known vector');
 console.log('ok - Solana derivation deterministic');
+assert.equal(normalizeRecoveryPhrase('  abandon   abandon\n abandon  about  '), 'abandon abandon abandon about');
+assert.equal(recoveryWordMatches('abandon   abandon\n about', 1, 'ABANDON'), true);
+assert.equal(recoveryWordMatches('abandon   abandon\n about', 2, 'about'), true);
+assert.equal(recoveryWordMatches('abandon   abandon\n about', 3, 'about'), false);
+console.log('ok - recovery phrase whitespace normalization and word-position checks');
 console.log('ok - Solana derivation path matches Mango Pro');
 console.log('\nWallet parity gate: 3 checks passed');
