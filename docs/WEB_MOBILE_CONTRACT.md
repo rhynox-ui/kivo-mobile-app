@@ -85,3 +85,12 @@ Rules:
 - Web chat polling pauses while the browser tab is hidden and resumes when the tab is visible and the user is signed in.
 - Mobile chat polling pauses while the app is backgrounded and resumes in the foreground only when the API session is valid.
 - Shared polling loops use a generation guard so stale asynchronous completions cannot restart polling after a stop or wallet change.
+
+
+## Private message media parity
+
+- Web and Mobile receive message-media URLs without user/session signatures in query parameters.
+- The API requires the current Bearer session for private group/DM media and rechecks membership or DM participation for every fetch.
+- Web fetches image bytes through the shared API client and renders a local blob URL because browser image elements cannot attach auth headers.
+- Mobile attaches Authorization only to same-origin API media URLs; local picker previews and foreign URLs receive no session token.
+- Anonymous caching is allowed only when every active reference for the media object is a public channel.
