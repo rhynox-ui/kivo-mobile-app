@@ -107,4 +107,13 @@ check('Mango Convert execution parity', () => {
 check('Critical trading files are typechecked', () => {
   assert.equal(Object.prototype.hasOwnProperty.call(JSON.parse(read('tsconfig.json')), 'exclude'), false);
 });
+check('Wallet removal locks signing before secret cleanup', () => {
+  const s = read('src/state/walletStore.ts');
+  const start = s.indexOf('export async function clearLocalWallet');
+  const end = s.indexOf('\n}', start);
+  assert.ok(start >= 0 && end > start);
+  const body = s.slice(start, end);
+  assert.ok(body.indexOf('session=null;unlockedMnemonic=null;emit();') < body.indexOf('await clearBiometricUnlock()'));
+  assert.ok(body.indexOf('await clearBiometricUnlock()') < body.indexOf('await clearVault()'));
+});
 console.log('\nMango parity gate: ' + n + ' checks passed');
