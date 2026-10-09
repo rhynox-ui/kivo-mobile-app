@@ -6,6 +6,7 @@ import { configureRelayEndpoints } from '@kivo/trading/core/relayQuote';
 import { configureGaslessStatusUrl } from '@kivo/trading/kivo/gasless';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
+import { AppState } from 'react-native';
 import { useEffect, useState } from 'react';
 import type { KeyValueStorage } from '@kivo/shared/storage';
 import { KivoApi } from '@kivo/shared/api/client';
@@ -47,6 +48,14 @@ export const api = new KivoApi({ baseUrl: KIVO_API_BASE_URL, storage, sessionSto
 let started = false;
 let lastAddress: string | null | undefined;
 
+function syncChatForAppState() {
+  if (AppState.currentState === 'active' && socialReady()) {
+    startChatSync(() => AppState.currentState === 'active' && socialReady());
+  } else {
+    stopChatSync();
+  }
+}
+
 export async function startKivoSession() {
   if (started) return;
   started = true;
@@ -76,6 +85,7 @@ export async function startKivoSession() {
     maxPerConversation: 3000,
     onIncoming: (conversation, message) => addNotification(conversation?.title ?? 'New message', message.text ? message.text.slice(0, 90) : '📷 Photo'),
   });
+  AppState.addEventListener('change', syncChatForAppState);
   subscribeToWallet(wallet => {
     const address = wallet?.address ?? null;
     if (address?.toLowerCase() === lastAddress?.toLowerCase()) return;
@@ -83,7 +93,7 @@ export async function startKivoSession() {
     stopChatSync();
     void (async () => {
       await Promise.all([activateProfileForWallet(address), activateTradeHistory(address), activateChat(address)]);
-      if (await api.restore(address)) { void pullServerProfile(); startChatSync(); }
+      if (await api.restore(address)) { void pullServerProfile(); syncChatForAppState(); }
     })();
   });
 }
@@ -94,7 +104,7 @@ export async function enableSocial() {
   if (!wallet) throw new Error('Set up a wallet first.');
   await api.signIn(wallet.address, signMessageWithLocalWallet);
   await pullServerProfile();
-  startChatSync();
+  syncChatForAppState();
 }
 
 export function socialReady(): boolean {

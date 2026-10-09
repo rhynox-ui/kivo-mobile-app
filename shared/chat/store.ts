@@ -43,6 +43,7 @@ let syncTimer: ReturnType<typeof setTimeout> | null = null;
 let syncing = false;
 let activeConversation: string | null = null;
 let failures = 0;
+let syncGeneration = 0;
 
 function emit() {
   listeners.forEach(listener => listener(state));
@@ -179,17 +180,24 @@ export async function syncNow(): Promise<void> {
 }
 
 /** Polls the relay: fast while a chat is open, slower in the background, backing off when offline. */
-export function startChatSync() {
+export function startChatSync(shouldContinue: () => boolean = () => true) {
   stopChatSync();
+  const generation = syncGeneration;
+  const canContinue = () => generation === syncGeneration && shouldContinue();
   const loop = async () => {
+    if (!canContinue()) return;
     await syncNow();
+    if (!canContinue()) return;
     const base = activeConversation ? 3000 : 12000;
     syncTimer = setTimeout(loop, Math.min(60_000, base * 2 ** Math.min(failures, 4)));
   };
-  void refreshConversations().catch(() => {}).finally(loop);
+  void refreshConversations().catch(() => {}).finally(() => {
+    if (canContinue()) void loop();
+  });
 }
 
 export function stopChatSync() {
+  syncGeneration += 1;
   if (syncTimer) clearTimeout(syncTimer);
   syncTimer = null;
 }

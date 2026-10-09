@@ -78,3 +78,10 @@ Rules:
 - The shared API client stores mobile API sessions in the device-only Keychain. Sign-out and HTTP 401 clear that configured secure store, not AsyncStorage.
 - A delayed 401 from an old request must not clear a newer wallet/session after account switching.
 - Current-session server revocation is available through sign-out; device listing and revoke-other-session controls remain a separate product decision.
+
+
+## Free-tier polling lifecycle
+
+- Web chat polling pauses while the browser tab is hidden and resumes when the tab is visible and the user is signed in.
+- Mobile chat polling pauses while the app is backgrounded and resumes in the foreground only when the API session is valid.
+- Shared polling loops use a generation guard so stale asynchronous completions cannot restart polling after a stop or wallet change.
