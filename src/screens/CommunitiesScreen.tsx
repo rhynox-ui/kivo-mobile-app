@@ -77,7 +77,7 @@ function Row({ community: c, onPress, onInfo, action }: { community: ApiCommunit
     <Pressable onPress={onPress} style={styles.row}>
       <Avatar name={c.name} uri={c.avatarUrl} size={46} />
       <View style={styles.flex}>
-        <Text style={styles.rowTitle} numberOfLines={1}>{c.name}</Text>
+        <View style={styles.rowTitleLine}><Text style={styles.rowTitle} numberOfLines={1}>{c.name}</Text>{c.kind === 'channel' && c.id === 'ch_671d27c151fefc25c8e5' ? <Text accessibilityLabel="Verified official Kivo channel" style={styles.verifiedBadge}>✓</Text> : null}</View>
         <Text style={styles.small} numberOfLines={1}>{c.memberCount} {c.kind === 'channel' ? 'subscribers' : 'members'}{c.myRole ? ` · ${c.myRole === 'owner' ? 'Owner' : c.myRole === 'admin' ? 'Admin' : c.kind === 'channel' ? 'Subscribed' : 'Member'}` : ''}</Text>
       </View>
       {action ?? (onInfo ? <Pressable onPress={onInfo} hitSlop={8}><Text style={styles.infoIcon}>ⓘ</Text></Pressable> : null)}
@@ -173,7 +173,9 @@ const styles = StyleSheet.create({
   error: { color: c.danger, fontSize: 12.5 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: c.border },
   flex: { flex: 1, minWidth: 0 },
-  rowTitle: { color: c.text, fontWeight: '800', fontSize: 15 },
+  rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 5, minWidth: 0 },
+  rowTitle: { color: c.text, fontWeight: '800', fontSize: 15, flexShrink: 1 },
+  verifiedBadge: { overflow: 'hidden', color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 11, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 17, height: 17, borderRadius: 9 },
   infoIcon: { color: c.textMuted, fontSize: 20 },
   join: { backgroundColor: c.cream, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
   joinText: { color: c.backgroundDeep, fontWeight: '800', fontSize: 12.5 },
