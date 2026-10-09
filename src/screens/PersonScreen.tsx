@@ -19,8 +19,16 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
     api.social(userId).then(setStats).catch(() => {});
     api.publicCommunitiesOf(userId).then(setGroups).catch(() => {});
     api.blockedUsers().then(ids => setBlocked(ids.includes(userId))).catch(() => {});
+  }, [userId]);
+  useEffect(() => {
+    let active = true;
+    setVerificationStatus(null);
     // Badge state comes from the server's verified record, never profile metadata.
-    api.verificationStatus('profile', userId).then(setVerificationStatus).catch(() => setVerificationStatus(null));
+    // Ignore late responses after navigating to a different user's profile.
+    api.verificationStatus('profile', userId)
+      .then(status => { if (active) setVerificationStatus(status); })
+      .catch(() => { if (active) setVerificationStatus(null); });
+    return () => { active = false; };
   }, [userId]);
   const guard = async (fn: () => Promise<void>) => {
     if (!socialReady()) { Alert.alert('Kivo', 'Turn on chats first (Chats tab).'); return; }
