@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { api, storage } from '../state/session';
+import { api, storage, useSocialReady } from '../state/session';
 import { getWalletSession, localEvmSigner, withDeviceAccounts } from '../state/walletStore';
 import { encodeFunctionData, parseUnits } from 'viem';
 import { Connection, PublicKey, Transaction } from '@solana/web3.js';
@@ -24,6 +24,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   subjectName: string;
   onBack: () => void;
 }) {
+  const socialReady = useSocialReady();
   const [plan, setPlan] = useState<Plan>('annual');
   const [chain, setChain] = useState<Chain>('base');
   const [pending, setPending] = useState<PendingPayment | null>(null);
@@ -72,6 +73,10 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
 
   const pay = async () => {
     if (busy || !pendingLoaded) return;
+    if (!socialReady) {
+      Alert.alert('Kivo', 'Turn on chats first so your account can complete verification.');
+      return;
+    }
     if (!getWalletSession()) {
       Alert.alert('Kivo wallet', 'Unlock your Kivo wallet before paying.');
       return;
@@ -167,7 +172,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
             <Text style={styles.label}>Network</Text>
             <View style={styles.options}>{CHAINS.map(item => <Pressable key={item} disabled={busy || Boolean(pending)} onPress={() => setChain(item)} style={[styles.option, chain === item && styles.optionActive, Boolean(pending) && styles.optionDisabled]}><Text style={[styles.optionText, chain === item && styles.optionTextActive]}>{item === 'ethereum' ? 'Ethereum' : item === 'arbitrum' ? 'Arbitrum' : item[0].toUpperCase() + item.slice(1)}</Text></Pressable>)}</View>
             <View style={styles.walletState}><View style={styles.dot}/><Text style={styles.walletText}>{connected ? 'Kivo wallet connected' : 'Unlock Kivo wallet to continue'}</Text></View>
-            <Pressable disabled={busy || !pendingLoaded || !connected} onPress={() => void pay()} style={[styles.payButton, (busy || !pendingLoaded || !connected) && styles.buttonDisabled]}>
+            <Pressable disabled={busy || !pendingLoaded || !connected || !socialReady} onPress={() => void pay()} style={[styles.payButton, (busy || !pendingLoaded || !connected || !socialReady) && styles.buttonDisabled]}>
               {busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep}/> : <Text style={styles.payText}>{pending ? 'Retry verification' : `Pay ${plan === 'annual' ? '$5' : '$1'} USDC`}</Text>}
             </Pressable>
             <Text style={styles.status} accessibilityLiveRegion="polite">{status}</Text>
