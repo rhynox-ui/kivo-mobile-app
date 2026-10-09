@@ -17,6 +17,8 @@ export class KivoApi {
   private sessionStorage: KeyValueStorage;
   private client: 'web' | 'mobile';
   private session: {token: string; expiresAt: number; address: string} | null = null;
+  private sessionGeneration = 0;
+  private activeAddress: string | null = null;
   private listeners = new Set<() => void>();
 
   constructor(options: KivoApiOptions) { this.baseUrl = options.baseUrl.replace(/\/$/, ''); this.storage = options.storage; this.sessionStorage = options.sessionStorage ?? options.storage; this.client = options.client; }
@@ -24,30 +26,47 @@ export class KivoApi {
   private emit() { this.listeners.forEach(listener => listener()); }
 
   async restore(address: string | null): Promise<boolean> {
+    const generation = ++this.sessionGeneration;
+    const normalizedAddress = address?.toLowerCase() ?? null;
+    this.activeAddress = normalizedAddress;
     this.session = null;
-    if (!address) { this.emit(); return false; }
+    this.emit();
+    if (!normalizedAddress) return false;
     try {
       const raw = await this.sessionStorage.getItem(SESSION_KEY);
       const saved = raw ? JSON.parse(raw) as {token: string; expiresAt: number; address: string} : null;
-      if (saved && saved.address === address.toLowerCase() && saved.expiresAt > Date.now() + 60_000 && /^kv_[0-9a-f]{64}$/.test(saved.token)) this.session = saved;
+      if (generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) return false;
+      if (saved && saved.address === normalizedAddress && saved.expiresAt > Date.now() + 60_000 && /^kv_[0-9a-f]{64}$/.test(saved.token)) this.session = saved;
     } catch {}
-    this.emit();
-    return Boolean(this.session);
+    if (generation === this.sessionGeneration) this.emit();
+    return generation === this.sessionGeneration && Boolean(this.session);
   }
 
   isSignedIn(address?: string | null): boolean { return Boolean(this.session && (!address || this.session.address === address.toLowerCase())); }
 
   async signIn(address: string, sign: (message: string) => Promise<string>): Promise<AuthSession> {
+    const generation = ++this.sessionGeneration;
+    const normalizedAddress = address.toLowerCase();
+    this.activeAddress = normalizedAddress;
     const challenge = await this.request<AuthChallenge>('POST', '/api/auth/challenge', {address, client: this.client}, false);
+    if (generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) throw new ApiError(409, 'Wallet changed during sign-in. Please try again.');
     const signature = await sign(challenge.message);
+    if (generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) throw new ApiError(409, 'Wallet changed during sign-in. Please try again.');
     const session = await this.request<AuthSession>('POST', '/api/auth/verify', {address, nonce: challenge.nonce, signature}, false);
-    this.session = {token: session.token, expiresAt: session.expiresAt, address: address.toLowerCase()};
-    await this.sessionStorage.setItem(SESSION_KEY, JSON.stringify(this.session));
+    if (generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) throw new ApiError(409, 'Wallet changed during sign-in. Please try again.');
+    const nextSession = {token: session.token, expiresAt: session.expiresAt, address: normalizedAddress};
+    await this.sessionStorage.setItem(SESSION_KEY, JSON.stringify(nextSession));
+    if (generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) {
+      await this.sessionStorage.removeItem?.(SESSION_KEY);
+      throw new ApiError(409, 'Wallet changed during sign-in. Please try again.');
+    }
+    this.session = nextSession;
     this.emit();
     return session;
   }
 
   async signOut() {
+    ++this.sessionGeneration;
     if (this.session) await this.request('POST', '/api/auth/signout', {}).catch(() => {});
     this.session = null;
     await this.sessionStorage.removeItem?.(SESSION_KEY);
