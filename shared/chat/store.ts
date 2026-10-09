@@ -302,6 +302,18 @@ export async function editMessage(conversationId: string, id: string, text: stri
   emit();
 }
 
+export async function forwardMessage(conversationId: string, id: string, targetConversationId: string) {
+  if (!opts) throw new Error('Chat is not ready.');
+  if (conversationId === targetConversationId) throw new Error('Choose a different conversation.');
+  const source = state.messages[conversationId]?.find(m => m.id === id);
+  if (!source || source.deleted || source.status !== 'sent') throw new Error('This message cannot be forwarded.');
+  const forwarded = await opts.api.forwardMessage(id, targetConversationId);
+  const list = [...(state.messages[targetConversationId] ?? []).filter(m => m.id !== forwarded.id), {...forwarded, status: 'sent' as const}]
+    .sort((a, b) => a.createdAt - b.createdAt || (a.seq || Number.MAX_SAFE_INTEGER) - (b.seq || Number.MAX_SAFE_INTEGER));
+  state = {...state, messages: {...state.messages, [targetConversationId]: cap(list)}, conversations: state.conversations.map(c => c.id === targetConversationId ? {...c, lastSeq: Math.max(c.lastSeq, forwarded.seq), lastPreview: forwarded.text ? forwarded.text.slice(0, 80) : '📷 Photo', lastSenderId: forwarded.senderId, lastActivityAt: forwarded.createdAt} : c)};
+  emit();
+}
+
 export async function deleteForEveryone(conversationId: string, id: string) {
   if (!opts) return;
   await opts.api.deleteMessage(id);
