@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
-import type { ApiCommunity, ApiMember } from '@kivo/shared/api/types';
+import { isOfficialKivoChannel, type ApiCommunity, type ApiMember } from '@kivo/shared/api/types';
 import { canDemoteGroupAdmin, canPromoteGroupAdmin, canRemoveGroupMember } from '@kivo/shared/social/rules';
 import type { KivoGroup } from '@kivo/shared/social/types';
 import { refreshConversations } from '@kivo/shared/chat/store';
@@ -40,7 +40,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
 
   return (
     <View style={styles.root}>
-      <Header title={c.name} onBack={onBack} onShare={() => Share.share({ message: `Join ${c.name} on Kivo: https://kivo-web.pages.dev/${c.kind}/${c.id}` })} />
+      <Header title={c.name} verified={isOfficialKivoChannel(c.id)} onBack={onBack} onShare={() => Share.share({ message: `Join ${c.name} on Kivo: https://kivotrade.site/${c.kind}/${c.id}` })} />
       <ScrollView contentContainerStyle={styles.body}>
         <View style={styles.hero}>
           <Avatar name={c.name} uri={c.avatarUrl} size={88} />
@@ -88,8 +88,8 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
   );
 }
 
-function Header({ title, onBack, onShare }: { title: string; onBack: () => void; onShare?: () => void }) {
-  return <View style={styles.header}><Pressable onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>{onShare ? <Pressable onPress={onShare}><Text style={styles.share}>Share</Text></Pressable> : <View />}</View>;
+function Header({ title, verified = false, onBack, onShare }: { title: string; verified?: boolean; onBack: () => void; onShare?: () => void }) {
+  return <View style={styles.header}><Pressable onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable><View style={styles.headerTitleLine}><Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>{verified ? <Text accessibilityLabel="Verified official Kivo channel" style={styles.verifiedBadge}>✓</Text> : null}</View>{onShare ? <Pressable onPress={onShare}><Text style={styles.share}>Share</Text></Pressable> : <View />}</View>;
 }
 
 const c = kivoTheme.colors;
@@ -97,7 +97,9 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: c.background },
   header: { minHeight: 60, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: c.border },
   back: { color: c.cream, fontSize: 36, width: 24 },
-  headerTitle: { flex: 1, color: c.text, fontSize: 17, fontWeight: '800' },
+  headerTitleLine: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  headerTitle: { flexShrink: 1, color: c.text, fontSize: 17, fontWeight: '800' },
+  verifiedBadge: { overflow: 'hidden', color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 11, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 17, height: 17, borderRadius: 9 },
   share: { color: c.accent, fontWeight: '800' },
   body: { padding: 18, gap: 12, paddingBottom: 40 },
   hero: { alignItems: 'center', gap: 8, paddingVertical: 8 },
