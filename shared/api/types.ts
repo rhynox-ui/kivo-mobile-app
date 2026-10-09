@@ -54,6 +54,8 @@ export type ApiCommunity = {
   createdAt: number;
   /** The caller's role, or null when not a member / not signed in. */
   myRole: CommunityRole | null;
+  /** Server-owned verified status; clients cannot modify this field. */
+  isVerified?: boolean;
 };
 
 export type ApiMember = {userId: string; role: CommunityRole; joinedAt: number; profile: ApiProfile | null; restricted?: boolean};
@@ -66,6 +68,8 @@ export type ApiConversation = {
   /** For DMs: the other participant. */
   peer: ApiProfile | null;
   myRole: CommunityRole | null;
+  /** Server-owned verified status for channel conversations. */
+  isVerified?: boolean;
   lastSeq: number;
   lastPreview: string;
   lastSenderId: string | null;
