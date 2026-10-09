@@ -35,7 +35,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
 
   useEffect(() => {
     let active = true;
-    void storage.getItem(storageKey).then(raw => {
+    void storage.getItem(storageKey).then(async raw => {
       if (!active) return;
       if (raw) {
         const parsed = JSON.parse(raw) as { txHash?: unknown; chain?: unknown; plan?: unknown };
