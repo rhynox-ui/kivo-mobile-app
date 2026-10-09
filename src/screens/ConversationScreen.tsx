@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Image, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { API_LIMITS } from '@kivo/shared/api/types';
-import { deleteForEveryone, discardMessage, displayName, editMessage, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
+import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useActiveConversation, useChatState } from '../state/useChat';
 import { Avatar } from './ChatListScreen';
@@ -92,6 +92,13 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
     if (message.status !== 'sent' || message.deleted || (message.senderId !== me && !canModerate)) return;
     Alert.alert('Message options', undefined, [
       ...(message.senderId === me ? [{ text: 'Edit', onPress: () => { setEditingMessageId(message.id); setDraft(message.text); }] } : []),
+      { text: 'Forward', onPress: () => {
+        const destinations = state.conversations.filter(c => c.id !== id && (c.kind === 'dm' || c.myRole === 'owner' || c.myRole === 'admin' || (c.kind === 'group' && !c.onlyAdminsPost)));
+        Alert.alert('Forward to…', undefined, [
+          ...destinations.slice(0, 8).map(c => ({text: c.title, onPress: () => { void forwardMessage(id, message.id, c.id).then(() => Alert.alert('Forwarded', 'Message sent to ' + c.title + '.')).catch(error => Alert.alert('Forward', error instanceof Error ? error.message : 'Could not forward.')); }})),
+          {text: 'Cancel', style: 'cancel' as const},
+        ]);
+      } },
       { text: 'Delete', style: 'destructive', onPress: () => Alert.alert('Delete message', 'Delete this message for everyone?', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => deleteForEveryone(id, message.id).catch(error => Alert.alert('Delete', error instanceof Error ? error.message : 'Could not delete.')) },
@@ -145,6 +152,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
           return (
             <View style={[styles.bubbleRow, mine && styles.bubbleRowMine]}>
               <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted]}>
+                {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><Text style={styles.sender}>{displayName(message.senderId)}</Text></Pressable>}
                 {message.media && <Image source={{ uri: message.media.url }} style={[styles.photo, message.media.width && message.media.height ? { aspectRatio: message.media.width / message.media.height } : null]} resizeMode="cover" />}
                 {message.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : message.text ? <Text style={styles.text}>{renderLinkedText(message.text)}</Text> : null}
@@ -209,6 +217,7 @@ const styles = StyleSheet.create({
   post: { maxWidth: '96%', borderRadius: 16 },
   deleted: { opacity: 0.6 },
   sender: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
+  forwardedLabel: { color: c.textMuted, fontSize: 11, fontStyle: 'italic', fontWeight: '700' },
   photo: { width: 240, maxWidth: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: c.background },
   text: { color: c.text, fontSize: 15, lineHeight: 20 },
   messageLink: { color: c.accent, textDecorationLine: 'underline', textDecorationColor: 'rgba(183,226,123,0.75)', backgroundColor: 'rgba(244,240,199,0.10)', borderRadius: 3 },
