@@ -83,7 +83,7 @@ function Row({ conversation: c, onPress }: { conversation: ApiConversation; onPr
         </View>
         <View style={styles.rowTop}>
           <Text style={styles.preview} numberOfLines={1}>{c.lastPreview ? prefix + c.lastPreview : c.kind === 'dm' ? 'Say hello 👋' : c.kind === 'group' ? 'Group created' : 'Channel'}</Text>
-          {unread > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{unread > 99 ? '99+' : unread}</Text></View>}
+          {unread > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{unread > 999 ? '999+' : unread}</Text></View>}
         </View>
       </View>
     </Pressable>
@@ -177,8 +177,8 @@ const styles = StyleSheet.create({
   time: { color: c.textMuted, fontSize: 11.5 },
   timeUnread: { color: '#2FD67B', fontWeight: '700' },
   preview: { color: c.textMuted, fontSize: 13.5, flex: 1 },
-  badge: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: '#2FD67B', alignItems: 'center', justifyContent: 'center' },
-  badgeText: { color: c.backgroundDeep, fontSize: 11.5, fontWeight: '900' },
+  badge: { minWidth: 24, height: 24, borderRadius: 999, paddingHorizontal: 7, backgroundColor: '#40566A', alignItems: 'center', justifyContent: 'center' },
+  badgeText: { color: '#F4F8FC', fontSize: 12, fontWeight: '800', fontVariant: ['tabular-nums'] },
   avatar: { backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: c.cream, fontWeight: '800' },
   empty: { alignItems: 'center', padding: 30, gap: 6 },
