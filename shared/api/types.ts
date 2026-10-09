@@ -40,6 +40,18 @@ export type PublicCommunityCard = {id: string; kind: 'group' | 'channel'; name: 
 export type CommunityKind = 'group' | 'channel';
 export type CommunityRole = 'owner' | 'admin' | 'member';
 
+export type CommunitySettingsInput = {
+  name?: string;
+  description?: string;
+  avatarKey?: string | null;
+  visibility?: 'public' | 'private';
+  onlyAdminsPost?: boolean;
+};
+
+export function isOfficialKivoChannel(id: string): boolean {
+  return id === 'ch_671d27c151fefc25c8e5';
+}
+
 export type ApiCommunity = {
   id: string;
   kind: CommunityKind;
