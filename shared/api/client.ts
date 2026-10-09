@@ -1,7 +1,7 @@
 // Typed client for the Kivo social API, shared by web and mobile.
 import type {KeyValueStorage} from '../storage';
 import type {ProfileSocial, PublicCommunityCard} from './types';
-import type {ApiCommunity, ApiConversation, ApiMember, ApiMessage, ApiProfile, AuthChallenge, AuthSession, CommunityKind, ProfileApprovalChallenge, SyncResponse} from './types';
+import type {ApiCommunity, ApiConversation, ApiMember, ApiMessage, ApiProfile, AuthChallenge, AuthSession, CommunityKind, CommunitySettingsInput, ProfileApprovalChallenge, SyncResponse} from './types';
 
 export class ApiError extends Error {
   status: number;
@@ -90,6 +90,10 @@ export class KivoApi {
     if (target.origin !== base.origin || !target.pathname.startsWith('/api/media/')) {
       throw new ApiError(400, 'Invalid media URL.');
     }
+    // Older cached messages may still contain signed query parameters. They are
+    // not credentials anymore; drop them before sending the request or logging.
+    target.search = '';
+    target.hash = '';
     const response = await fetch(target.toString(), {headers: this.mediaHeaders(target.toString())});
     if (!response.ok) throw new ApiError(response.status, response.status === 403 ? 'You no longer have access to this photo.' : 'Could not load this photo.');
     return response.blob();
@@ -169,11 +173,16 @@ export class KivoApi {
   myCommunities() { return this.request<ApiCommunity[]>('GET', '/api/communities/mine'); }
   community(id: string) { return this.request<{community: ApiCommunity; members: ApiMember[]}>('GET', `/api/communities/${encodeURIComponent(id)}`); }
   createCommunity(input: {kind: CommunityKind; name: string; description: string; visibility: 'public' | 'private'; avatarKey?: string | null}) { return this.request<ApiCommunity>('POST', '/api/communities', input); }
-  join(id: string) { return this.request<{community: ApiCommunity; members: ApiMember[]}>('POST', `/api/communities/${encodeURIComponent(id)}/join`, {}); }
+  join(id: string, inviteCode?: string) { return this.request<{community: ApiCommunity; members: ApiMember[]}>('POST', `/api/communities/${encodeURIComponent(id)}/join`, inviteCode ? {inviteCode} : {}); }
+  updateCommunity(id: string, input: CommunitySettingsInput) { return this.request<{community: ApiCommunity; members: ApiMember[]}>('PATCH', `/api/communities/${encodeURIComponent(id)}`, input); }
+  deleteCommunity(id: string) { return this.request<{ok: true}>('DELETE', `/api/communities/${encodeURIComponent(id)}`); }
+  resetInvite(id: string) { return this.request<{community: ApiCommunity; members: ApiMember[]}>('POST', `/api/communities/${encodeURIComponent(id)}/invite`, {}); }
+  invite(code: string) { return this.request<ApiCommunity>('GET', `/api/communities/invite/${encodeURIComponent(code)}`); }
   leave(id: string) { return this.request<{ok: true}>('POST', `/api/communities/${encodeURIComponent(id)}/leave`, {}); }
   addMember(id: string, address: string) { return this.request<{community: ApiCommunity; members: ApiMember[]}>('POST', `/api/communities/${encodeURIComponent(id)}/members`, {address}); }
   removeMember(id: string, userId: string) { return this.request<{community: ApiCommunity; members: ApiMember[]}>( 'DELETE', `/api/communities/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`); }
   setAdmin(id: string, userId: string, promote: boolean) { return this.request<{community: ApiCommunity; members: ApiMember[]}>(promote ? 'POST' : 'DELETE', `/api/communities/${encodeURIComponent(id)}/admins/${encodeURIComponent(userId)}`, promote ? {} : undefined); }
+  moderationStatus() { return this.request<{cooldownUntil: number; reason: string}>('GET', '/api/moderation/status'); }
   conversations() { return this.request<ApiConversation[]>('GET', '/api/conversations'); }
   openDm(address: string) { return this.request<{id: string}>('POST', '/api/conversations/dm', {address}); }
   history(conversationId: string, before?: number) { return this.request<ApiMessage[]>('GET', `/api/conversations/${encodeURIComponent(conversationId)}/messages${before ? `?before=${before}` : ''}`); }

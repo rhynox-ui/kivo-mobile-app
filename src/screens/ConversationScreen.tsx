@@ -49,7 +49,7 @@ function MessagePhoto({ uri, width, height }: { uri: string; width: number | nul
   }
   return (
     <Image
-      source={{ uri, headers: api.mediaHeaders(uri) }}
+      source={{ uri: uri.split('?')[0], headers: api.mediaHeaders(uri.split('?')[0]) }}
       style={[styles.photo, dimensions]}
       resizeMode="cover"
       onError={() => setFailed(true)}
