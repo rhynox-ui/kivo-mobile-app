@@ -48,7 +48,7 @@ async function savePendingRecord(key: string, service: string, value: string): P
 }
 
 async function clearPendingRecord(key: string, service: string): Promise<void> {
-  try { await storage.removeItem(key); } catch {}
+  try { await storage.removeItem?.(key); } catch {}
   try { await Keychain.resetGenericPassword({ service }); } catch {}
 }
 
@@ -73,7 +73,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
 
   useEffect(() => {
     let active = true;
-    void storage.getItem(storageKey).then(async raw => {
+    void readPendingRecord(storageKey, keychainService).then(async raw => {
       if (!active) return;
       if (raw) {
         const parsed = JSON.parse(raw) as { txHash?: unknown; chain?: unknown; plan?: unknown };
@@ -93,7 +93,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
       }
     }).catch(() => {}).finally(() => { if (active) setPendingLoaded(true); });
     return () => { active = false; };
-  }, [storageKey]);
+  }, [storageKey, keychainService]);
 
   useEffect(() => {
     let active = true;
