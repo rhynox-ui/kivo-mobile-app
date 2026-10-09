@@ -21,6 +21,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
   const [error, setError] = useState('');
   const [address, setAddress] = useState('');
   const [verifiedMembers, setVerifiedMembers] = useState<Set<string>>(() => new Set());
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -81,7 +82,8 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
           </View>
           <View style={styles.profileDescription}>
             <Text style={styles.cardTitle}>{isChannel ? 'Channel information' : 'About this group'}</Text>
-            <Text style={styles.description}>{c.description || (isChannel ? 'A Kivo channel.' : 'A Kivo group.')}</Text>
+            <Text numberOfLines={descriptionExpanded ? undefined : 3} style={styles.description}>{c.description || (isChannel ? 'A Kivo channel.' : 'A Kivo group.')}</Text>
+            {(c.description?.length ?? 0) > 120 && <Pressable accessibilityRole="button" onPress={() => setDescriptionExpanded(value => !value)} hitSlop={8}><Text style={styles.readMore}>{descriptionExpanded ? 'Show less' : 'Read full description'}</Text></Pressable>}
             <View style={styles.profileStats}>
               <Text style={styles.stat}><Text style={styles.statValue}>{c.memberCount}</Text> {isChannel ? 'subscribers' : 'members'}</Text>
               <Text style={styles.stat}><Text style={styles.statValue}>{c.postCount}</Text> {isChannel ? 'posts' : 'messages'}</Text>
@@ -159,8 +161,8 @@ const styles = StyleSheet.create({
   verifiedBadge: { overflow: 'hidden', color: '#2589F5', fontSize: 20, fontWeight: '900', textAlign: 'center', width: 20, height: 22 },
   share: { color: c.accent, fontWeight: '800' },
   body: { padding: 18, gap: 12, paddingBottom: 40 },
-  profileHero: { padding: 16, borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, gap: 18 },
-  profileIdentity: { alignItems: 'center', gap: 9, paddingTop: 4 },
+  profileHero: { padding: 12, borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, gap: 12 },
+  profileIdentity: { alignItems: 'center', gap: 6, paddingTop: 0 },
   titleLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
   title: { color: c.text, fontSize: 24, fontWeight: '800', textAlign: 'center', flexShrink: 1 },
   profileSubtitle: { color: c.textMuted, fontSize: 12.5, lineHeight: 18, textAlign: 'center' },
@@ -169,8 +171,9 @@ const styles = StyleSheet.create({
   primary: { marginTop: 6, alignSelf: 'stretch', height: 50, borderRadius: 25, backgroundColor: c.cream, alignItems: 'center', justifyContent: 'center' },
   shareButton: { flex: 1, minHeight: 46, borderRadius: 14, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
   shareButtonText: { color: c.cream, fontWeight: '800' },
-  profileDescription: { borderTopWidth: 1, borderTopColor: c.border, paddingTop: 16, gap: 8 },
+  profileDescription: { borderTopWidth: 1, borderTopColor: c.border, paddingTop: 10, gap: 6 },
   profileStats: { flexDirection: 'row', flexWrap: 'wrap', gap: 18 },
+  readMore: { color: c.accent, fontSize: 12, fontWeight: '800', paddingVertical: 2 },
   stat: { color: c.textMuted, fontSize: 12.5 },
   statValue: { color: c.text, fontWeight: '800' },
   description: { color: c.text, fontSize: 14, lineHeight: 20 },
