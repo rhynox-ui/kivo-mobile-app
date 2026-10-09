@@ -75,7 +75,7 @@ export function CommunitiesScreen({ kind: initialKind = 'group', onOpenChat, onO
 function Row({ community: c, onPress, onInfo, action }: { community: ApiCommunity; onPress: () => void; onInfo?: () => void; action?: React.ReactNode }) {
   return (
     <Pressable onPress={onPress} style={styles.row}>
-      <Avatar name={c.name} uri={c.avatarUrl} size={46} />
+      <Avatar name={c.name} uri={c.avatarUrl} size={46} verified={c.kind === 'channel' && (c.isVerified === true || c.id === 'ch_671d27c151fefc25c8e5')} />
       <View style={styles.flex}>
         <View style={styles.rowTitleLine}><Text style={styles.rowTitle} numberOfLines={1}>{c.name}</Text>{c.kind === 'channel' && (c.isVerified || c.id === 'ch_671d27c151fefc25c8e5') ? <Text accessibilityLabel="Verified official Kivo channel" style={styles.verifiedBadge}>★</Text> : null}</View>
         <Text style={styles.small} numberOfLines={1}>{c.memberCount} {c.kind === 'channel' ? 'subscribers' : 'members'}{c.myRole ? ` · ${c.myRole === 'owner' ? 'Owner' : c.myRole === 'admin' ? 'Admin' : c.kind === 'channel' ? 'Subscribed' : 'Member'}` : ''}</Text>
