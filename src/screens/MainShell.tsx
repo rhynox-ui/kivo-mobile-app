@@ -11,6 +11,7 @@ import { WalletSummaryScreen } from './WalletSummaryScreen';
 import { EditProfileScreen } from './EditProfileScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { ProfileScreen } from './ProfileScreen';
+import { VerificationScreen } from './VerificationScreen';
 import { SecurityScreen } from './SecurityScreen';
 import { DiscoverScreen } from './DiscoverScreen';
 import { NotificationScreen } from './NotificationScreen';
@@ -29,6 +30,7 @@ type View_ =
   | { name: 'communities'; kind: CommunityKind }
   | { name: 'person'; userId: string }
   | { name: 'token' }
+  | { name: 'verification'; subjectType: 'profile' | 'channel'; subjectId: string; subjectName: string }
   | { name: 'wallet'; action?: 'deposit' | 'withdraw' } | { name: 'editProfile' } | { name: 'settings' } | { name: 'notifications' } | { name: 'activity' } | { name: 'security' };
 
 const TAB_GLYPH: Record<Tab, string> = { Chats: '💬', Discover: '◎', Trade: '⇄', Profile: '◯' };
@@ -50,8 +52,9 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
   const openToken = (token: KivoToken) => { setSelectedToken(token); push({ name: 'token' }); };
 
   switch (view.name) {
+    case 'verification': return <VerificationScreen subjectType={view.subjectType} subjectId={view.subjectId} subjectName={view.subjectName} onBack={back} />;
     case 'conversation': return <ConversationScreen id={view.id} onBack={back} onOpenInfo={id => openCommunity(id)} onOpenPerson={userId => push({ name: 'person', userId })} />;
-    case 'community': return <CommunityScreen id={view.id} onBack={back} onOpenChat={openChat} onOpenPerson={userId => push({ name: 'person', userId })} />;
+    case 'community': return <CommunityScreen id={view.id} onBack={back} onOpenChat={openChat} onOpenPerson={userId => push({ name: 'person', userId })} onOpenVerification={(subjectType, subjectId, subjectName) => push({ name: 'verification', subjectType, subjectId, subjectName })} />;
     case 'communities': return <CommunitiesScreen kind={view.kind} onBack={back} onOpenChat={openChat} onOpenInfo={openCommunity} />;
     case 'person': return <PersonScreen userId={view.userId} onBack={back} onOpenChat={openChat} onOpenCommunity={openCommunity} />;
     case 'token': return <TokenDetailScreen token={selectedToken} onMarket={setSelectedToken} onBack={back} onBuy={() => { setTradeSide('buy'); home('Trade'); }} onSell={() => { setTradeSide('sell'); home('Trade'); }} />;
@@ -80,6 +83,7 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
           onOpenCommunities={() => push({ name: 'communities', kind: 'group' })}
           onOpenTrade={() => setTab('Trade')}
           onOpenChats={() => setTab('Chats')}
+          onOpenVerification={(subjectId, subjectName) => push({ name: 'verification', subjectType: 'profile', subjectId, subjectName })}
         />}
       </View>
       <View style={styles.nav}>

@@ -6,12 +6,8 @@ import type { KivoGroup } from '@kivo/shared/social/types';
 import { refreshConversations } from '@kivo/shared/chat/store';
 import { getProfile } from '@kivo/shared/profile/store';
 import { kivoTheme } from '../theme/kivoTheme';
-import { api, socialReady, storage } from '../state/session';
+import { api, socialReady } from '../state/session';
 import { Avatar } from './ChatListScreen';
-import { localEvmSigner, withDeviceAccounts, getWalletSession } from '../state/walletStore';
-import { encodeFunctionData, parseUnits } from 'viem';
-import { Connection, PublicKey, Transaction } from '@solana/web3.js';
-import { createTransferCheckedInstruction, getAssociatedTokenAddress, getOrCreateAssociatedTokenAccount } from '@solana/spl-token';
 
 function memberName(member: ApiMember) {
   if (member.profile?.username) return '@' + member.profile.username;
@@ -20,49 +16,12 @@ function memberName(member: ApiMember) {
 }
 
 /** Group/channel info: description, members/team and owner-controlled roles (same rules as web and the API). */
-export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: string; onBack: () => void; onOpenChat: (id: string) => void; onOpenPerson?: (userId: string) => void }) {
+export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVerification }: { id: string; onBack: () => void; onOpenChat: (id: string) => void; onOpenPerson?: (userId: string) => void; onOpenVerification?: (subjectType: 'channel', subjectId: string, subjectName: string) => void }) {
   const [data, setData] = useState<{ community: ApiCommunity; members: ApiMember[] } | null>(null);
   const [error, setError] = useState('');
   const [address, setAddress] = useState('');
-  const [verificationPlan, setVerificationPlan] = useState<'monthly' | 'annual'>('annual');
-  const [verificationChain, setVerificationChain] = useState<'ethereum' | 'base' | 'arbitrum' | 'solana'>('base');
-  const [verificationHash, setVerificationHash] = useState('');
-  const [verificationReceipt, setVerificationReceipt] = useState<any>(null);
-  const [verificationBusy, setVerificationBusy] = useState(false);
-  const [verificationWalletReady, setVerificationWalletReady] = useState(false);
-  const [verificationConfirming, setVerificationConfirming] = useState(false);
-  const [verificationPendingPayment, setVerificationPendingPayment] = useState<{txHash:string; chain:'ethereum'|'base'|'arbitrum'|'solana'; plan:'monthly'|'annual'} | null>(null);
-  const [verificationPendingLoaded, setVerificationPendingLoaded] = useState(false);
-  const verificationPendingKey = `kivo:verification-pending:channel:${id}`;
-  const [verificationProgress, setVerificationProgress] = useState<'idle' | 'waiting' | 'checking' | 'success'>('idle');
+
   const load = useCallback(() => api.community(id).then(setData).catch(e => setError(e instanceof Error ? e.message : 'Not available.')), [id]);
-  useEffect(() => {
-    let active = true;
-    void storage.getItem(verificationPendingKey).then(raw => {
-      if (!active || !raw) return;
-      const parsed = JSON.parse(raw) as {txHash?: unknown; chain?: unknown; plan?: unknown};
-      if (typeof parsed.txHash !== 'string' ||
-          !(parsed.chain === 'ethereum' || parsed.chain === 'base' || parsed.chain === 'arbitrum' || parsed.chain === 'solana') ||
-          !(parsed.plan === 'monthly' || parsed.plan === 'annual') ||
-          !(parsed.chain === 'solana' ? /^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(parsed.txHash) : /^0x[0-9a-fA-F]{64}$/.test(parsed.txHash))) {
-        void storage.removeItem(verificationPendingKey);
-        return;
-      }
-      const pending = {txHash: parsed.txHash, chain: parsed.chain, plan: parsed.plan} as {txHash:string; chain:'ethereum'|'base'|'arbitrum'|'solana'; plan:'monthly'|'annual'};
-      setVerificationPendingPayment(pending);
-      setVerificationPlan(pending.plan);
-      setVerificationChain(pending.chain);
-      setVerificationWalletReady(true);
-      setVerificationConfirming(true);
-    }).catch(() => {}).finally(() => { if (active) setVerificationPendingLoaded(true); });
-    return () => { active = false; };
-  }, [verificationPendingKey]);
-  useEffect(() => {
-    if (data?.community.isVerified || (data?.community.kind === 'channel' && isOfficialKivoChannel(data.community.id))) {
-      setVerificationPendingPayment(null);
-      void storage.removeItem(verificationPendingKey).catch(() => {});
-    }
-  }, [data?.community.isVerified, data?.community.id, verificationPendingKey]);
   useEffect(() => {
     void load();
     const timer = setInterval(() => { void load(); }, 60_000);
@@ -102,110 +61,10 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
             : <Pressable onPress={run(() => api.join(c.id), () => onOpenChat(c.id))} style={styles.primary}><Text style={styles.primaryText}>{c.visibility === 'private' ? 'Private' : isChannel ? 'Subscribe' : 'Join group'}</Text></Pressable>}
         </View>
 
-        {isChannel && (c.myRole === 'owner' || c.myRole === 'admin') && !c.isVerified && c.id !== 'ch_671d27c151fefc25c8e5' && <View style={styles.verifyCard}>
-          <Text style={styles.cardTitle}>★ Blue Star verification</Text>
-          <Text style={styles.verifyIntro}>Choose a plan and network. Connect your Kivo wallet first, then pay when you are ready. Kivo checks the blockchain before activating your badge.</Text>
-          {!verificationConfirming && <>
-            <View style={styles.verifyChoices}>{(['monthly', 'annual'] as const).map(p => <Pressable key={p} onPress={() => setVerificationPlan(p)} style={[styles.verifyChoice, verificationPlan === p && styles.verifyChoiceActive]}><Text style={styles.verifyChoiceText}>{p === 'monthly' ? '$1 USDC / month' : '$5 USDC / year'}</Text></Pressable>)}</View>
-            <View style={styles.verifyChoices}>{(['ethereum', 'base', 'arbitrum', 'solana'] as const).map(n => <Pressable key={n} onPress={() => { setVerificationChain(n); setVerificationWalletReady(false); setVerificationConfirming(false); }} style={[styles.verifyChoice, verificationChain === n && styles.verifyChoiceActive]}><Text style={styles.verifyChoiceText}>{n === 'ethereum' ? 'Ethereum' : n === 'base' ? 'Base' : n === 'arbitrum' ? 'Arbitrum' : 'Solana'}</Text></Pressable>)}</View>
-            {!verificationWalletReady ? <Pressable disabled={verificationBusy} onPress={() => {
-              if (!socialReady()) { Alert.alert('Kivo wallet', 'Turn on chats first so your wallet is authenticated.'); return; }
-              if (!getWalletSession()) { Alert.alert('Kivo wallet', 'Create or unlock your Kivo wallet first.'); return; }
-              setVerificationWalletReady(true);
-            }} style={styles.verifyConnect}><Text style={styles.secondaryText}>Use Kivo wallet</Text></Pressable> : <Text style={styles.verifyWalletReady}>✓ Kivo wallet ready</Text>}
-            {verificationWalletReady && <Pressable disabled={verificationBusy} disabled={verificationBusy || !verificationPendingLoaded} onPress={() => setVerificationConfirming(true)} style={styles.verifyPay}><Text style={styles.verifyPayText}>Continue</Text></Pressable>}
-          </>}
-          {verificationConfirming && <View style={styles.verifyConfirm}>
-            <Text style={styles.cardTitle}>Confirm payment</Text>
-            <Text style={styles.receiptText}>Plan: {verificationPlan === 'annual' ? '1 Year Verification' : '1 Month Verification'}</Text>
-            <Text style={styles.receiptText}>Network: {verificationChain[0].toUpperCase() + verificationChain.slice(1)}</Text>
-            <Text style={styles.receiptText}>You will send: {verificationPlan === 'annual' ? '5' : '1'} USDC</Text>
-            <Text style={styles.receiptText}>To: {verificationChain === 'solana' ? '2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki' : '0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5'}</Text>
-            <Text style={styles.verifyIntro}>Only continue if the amount, network and recipient are correct. Your wallet will ask you to approve the transfer.</Text>
-            <Pressable disabled={verificationBusy} onPress={() => { if (verificationPendingPayment) { Alert.alert('Payment pending', 'Retry verification for the submitted transaction; do not pay again.'); return; } setVerificationConfirming(false); }} style={styles.verifyConnect}><Text style={styles.secondaryText}>Back</Text></Pressable>
-          </View>}
-          {verificationWalletReady && verificationConfirming && <Pressable disabled={verificationBusy} onPress={async () => {
-            if (!socialReady()) { Alert.alert('Kivo wallet', 'Sign in to Kivo before paying.'); return; }
-            setVerificationBusy(true);
-            setVerificationProgress('waiting');
-            let pendingPaymentForAttempt = verificationPendingPayment;
-            try {
-              const selectedPlan = verificationPendingPayment?.plan ?? verificationPlan;
-              const selectedChain = verificationPendingPayment?.chain ?? verificationChain;
-              const amount = selectedPlan === 'annual' ? 5_000_000n : 1_000_000n;
-              let txHash = verificationPendingPayment?.txHash ?? '';
-              if (!verificationPendingPayment && selectedChain === 'solana') {
-                txHash = await withDeviceAccounts('Approve Blue Star USDC payment', async ({solana}) => {
-                  const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
-                  const mint = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGZwyTDt1v');
-                  const recipient = new PublicKey('2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki');
-                  const sourceAta = await getAssociatedTokenAddress(mint, solana.publicKey);
-                  if (!(await connection.getAccountInfo(sourceAta))) throw new Error('Your Kivo wallet has no Solana USDC token account. Fund it with USDC before paying.');
-                  const destinationAta = await getOrCreateAssociatedTokenAccount(connection, solana, mint, recipient);
-                  const transaction = new Transaction().add(createTransferCheckedInstruction(sourceAta, mint, destinationAta.address, solana.publicKey, amount, 6));
-                  const {blockhash, lastValidBlockHeight} = await connection.getLatestBlockhash('confirmed');
-                  transaction.feePayer = solana.publicKey;
-                  transaction.recentBlockhash = blockhash;
-                  const signature = await connection.sendTransaction(transaction, [solana], {skipPreflight: false, preflightCommitment: 'confirmed'});
-                  pendingPaymentForAttempt = {txHash: signature, chain:selectedChain, plan:selectedPlan};
-                  setVerificationPendingPayment(pendingPaymentForAttempt);
-                await storage.setItem(verificationPendingKey, JSON.stringify(pendingPaymentForAttempt)).catch(() => {});
-                  await storage.setItem(verificationPendingKey, JSON.stringify(pendingPaymentForAttempt)).catch(() => {});
-                  await connection.confirmTransaction({signature, blockhash, lastValidBlockHeight}, 'confirmed');
-                  return signature;
-                });
-              } else if (!verificationPendingPayment) {
-                const evmChain = selectedChain as 'ethereum' | 'base' | 'arbitrum';
-                const chainIds = {ethereum: 1, base: 8453, arbitrum: 42161} as const;
-                const usdc = {ethereum: '0xA0b86991c6218b36c1d19d4a2e9Eb0cE3606eB48', base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831'} as const;
-                const signer = await localEvmSigner();
-                await signer.ensureChain(chainIds[evmChain]);
-                const data = encodeFunctionData({abi: [{type:'function',name:'transfer',stateMutability:'nonpayable',inputs:[{name:'to',type:'address'},{name:'value',type:'uint256'}],outputs:[{type:'bool'}]}],functionName:'transfer',args:['0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5',parseUnits(selectedPlan === 'annual' ? '5' : '1', 6)]});
-                txHash = await signer.sendTransaction({to: usdc[evmChain], data, value: 0n, chainId: chainIds[evmChain]});
-                pendingPaymentForAttempt = {txHash, chain:selectedChain, plan:selectedPlan};
-                setVerificationPendingPayment(pendingPaymentForAttempt);
-              }
-              setVerificationHash(txHash);
-              setVerificationProgress('checking');
-              let receipt: any;
-              for (let attempt = 0; ; attempt++) {
-                try {
-                  receipt = await api.purchaseVerification({subjectType: 'channel', subjectId: c.id, plan: selectedPlan, chain: selectedChain, txHash});
-                  break;
-                } catch (e) {
-                  const message = e instanceof Error ? e.message : '';
-                  if (attempt >= 7 || !/confirm|temporarily unavailable|retry|not finalized/i.test(message)) throw e;
-                  await new Promise(resolve => setTimeout(resolve, Math.min(2500 + attempt * 1500, 9000)));
-                }
-              }
-              setVerificationPendingPayment(null);
-              void storage.removeItem(verificationPendingKey).catch(() => {});
-              setVerificationReceipt(receipt);
-              setVerificationProgress('success');
-              Alert.alert('🎉 Congratulations!', 'Payment confirmed. Your Blue Star verification is now active, and your receipt is ready below.');
-              void load();
-            } catch (e) {
-              setVerificationProgress('idle');
-              Alert.alert('Payment not confirmed', pendingPaymentForAttempt
-                ? `Payment submitted (${pendingPaymentForAttempt.txHash}). Retry verification; do not pay again. ${e instanceof Error ? e.message : ''}`
-                : (e instanceof Error ? e.message : 'Could not verify payment.'));
-            } finally { setVerificationBusy(false); }
-          }} style={styles.verifyPay}><Text style={styles.verifyPayText}>{verificationBusy ? 'Paying securely…' : verificationPendingPayment ? 'Retry verification' : `Pay ${verificationPlan === 'annual' ? '5' : '1'} USDC & verify`}</Text></Pressable>}
-          {verificationBusy && <View style={styles.verifyProgress}><ActivityIndicator size="small" color={kivoTheme.colors.accent} /><Text style={styles.verifyProgressText}>{verificationProgress === 'checking' ? 'Waiting for blockchain verification…' : 'Waiting for wallet approval and transaction confirmation…'}</Text></View>}
-          {verificationReceipt && <View style={styles.receipt}>
-            <Text style={styles.cardTitle}>🎉 Congratulations! Blue Star activated</Text>
-            <Text style={styles.receiptText}>Status: Paid & Verified</Text>
-            <Text style={styles.receiptText}>Verified subject: {c.name}</Text>
-            <Text style={styles.receiptText}>Plan: {verificationReceipt.plan} · {verificationReceipt.amount} USDC</Text>
-            <Text style={styles.receiptText}>Network: {verificationReceipt.chain}</Text>
-            <Text style={styles.receiptText}>Transaction hash: {verificationReceipt.txHash}</Text>
-            <Text style={styles.receiptText}>Payer: {verificationReceipt.payer || 'Not provided by verifier'}</Text>
-            <Text style={styles.receiptText}>Paid to: {verificationReceipt.recipient}</Text>
-            <Text style={styles.receiptText}>Paid: {new Date(verificationReceipt.paidAt).toLocaleString()}</Text>
-            <Text style={styles.receiptText}>Valid until: {new Date(verificationReceipt.expiresAt).toLocaleDateString()}</Text>
-            <Pressable style={styles.secondary} onPress={() => Share.share({message: `Kivo Verification Receipt\nStatus: Paid & Verified\nPlan: ${verificationReceipt.plan}\nAmount: ${verificationReceipt.amount} USDC\nNetwork: ${verificationReceipt.chain}\nTransaction: ${verificationReceipt.txHash}\nPayer: ${verificationReceipt.payer || 'Not provided by verifier'}\nRecipient: ${verificationReceipt.recipient}\nValid until: ${new Date(verificationReceipt.expiresAt).toISOString()}\nExplorer: ${verificationReceipt.explorerUrl}`})}><Text style={styles.secondaryText}>Share receipt</Text></Pressable>
-            <Pressable style={styles.secondary} onPress={() => Share.share({message: verificationReceipt.explorerUrl})}><Text style={styles.secondaryText}>View transaction on block explorer</Text></Pressable>
-          </View>}
+        {isChannel && (c.myRole === 'owner' || c.myRole === 'admin') && !c.isVerified && c.id !== 'ch_671d27c151fefc25c8e5' && <View style={styles.card}>
+          <Text style={styles.cardTitle}>Blue Star verification</Text>
+          <Text style={styles.verifyIntro}>Verify this channel with a quick wallet checkout.</Text>
+          <Pressable onPress={() => onOpenVerification?.('channel', c.id, c.name)} style={styles.verifyPay}><Text style={styles.verifyPayText}>★ Get Verified</Text></Pressable>
         </View>}
         {manager && <View style={styles.card}>
           <Text style={styles.cardTitle}>Add member</Text>
