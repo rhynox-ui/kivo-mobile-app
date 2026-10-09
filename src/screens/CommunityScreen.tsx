@@ -99,6 +99,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
             if (!socialReady()) { Alert.alert('Kivo wallet', 'Sign in to Kivo before paying.'); return; }
             setVerificationBusy(true);
             setVerificationProgress('waiting');
+            let pendingPaymentForAttempt = verificationPendingPayment;
             try {
               const selectedPlan = verificationPendingPayment?.plan ?? verificationPlan;
               const selectedChain = verificationPendingPayment?.chain ?? verificationChain;
@@ -143,8 +144,8 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
               void load();
             } catch (e) {
               setVerificationProgress('idle');
-              Alert.alert('Payment not confirmed', verificationPendingPayment
-                ? `Payment submitted (${verificationPendingPayment.txHash}). Retry verification; do not pay again. ${e instanceof Error ? e.message : ''}`
+              Alert.alert('Payment not confirmed', pendingPaymentForAttempt
+                ? `Payment submitted (${pendingPaymentForAttempt.txHash}). Retry verification; do not pay again. ${e instanceof Error ? e.message : ''}`
                 : (e instanceof Error ? e.message : 'Could not verify payment.'));
             } finally { setVerificationBusy(false); }
           }} style={styles.verifyPay}><Text style={styles.verifyPayText}{verificationBusy ? 'Paying securely…' : verificationPendingPayment ? 'Retry verification' : `Pay ${verificationPlan === 'annual' ? '5' : '1'} USDC & verify`}</Text></Pressable>}
