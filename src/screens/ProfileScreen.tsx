@@ -56,7 +56,6 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const [showVerification, setShowVerification] = useState(false);
   const [verificationPlan, setVerificationPlan] = useState<'monthly' | 'annual'>('annual');
   const [verificationChain, setVerificationChain] = useState<'ethereum' | 'base' | 'arbitrum' | 'solana'>('base');
-  const [verificationHash, setVerificationHash] = useState('');
   const [verificationStatus, setVerificationStatus] = useState<{isVerified: boolean; expiresAt: number | null; permanent: boolean} | null>(null);
   const [verificationReceipt, setVerificationReceipt] = useState<any>(null);
   const [verificationBusy, setVerificationBusy] = useState(false);
@@ -178,7 +177,6 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
                 const data = encodeFunctionData({abi: [{type:'function',name:'transfer',stateMutability:'nonpayable',inputs:[{name:'to',type:'address'},{name:'value',type:'uint256'}],outputs:[{type:'bool'}]}],functionName:'transfer',args:['0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5',parseUnits(verificationPlan === 'annual' ? '5' : '1', 6)]});
                 txHash = await signer.sendTransaction({to: usdc[verificationChain], data, value: 0n, chainId: chainIds[verificationChain]});
               }
-              setVerificationHash(txHash);
               setVerificationProgress('checking');
               let receipt: any;
               for (let attempt = 0; ; attempt++) {
