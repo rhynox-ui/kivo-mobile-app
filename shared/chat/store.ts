@@ -107,7 +107,7 @@ function merge(incoming: ApiMessage[]) {
     if (index >= 0) list[index] = local;
     else {
       list.push(local);
-      list.sort((a, b) => (a.seq || Number.MAX_SAFE_INTEGER) - (b.seq || Number.MAX_SAFE_INTEGER) || a.createdAt - b.createdAt);
+      list.sort((a, b) => a.createdAt - b.createdAt || (a.seq || Number.MAX_SAFE_INTEGER) - (b.seq || Number.MAX_SAFE_INTEGER));
     }
     next[message.conversationId] = cap(list);
   }
@@ -242,7 +242,7 @@ async function deliver(local: LocalMessage, payload: {text: string; mediaKey?: s
     const sent = await opts.api.send(local.conversationId, {...payload, clientId: local.id.replace(/^m_/, '')});
     const list = (state.messages[local.conversationId] ?? []).filter(m => m.id !== local.id && m.id !== sent.id);
     list.push({...sent, status: 'sent'});
-    list.sort((a, b) => (a.seq || Number.MAX_SAFE_INTEGER) - (b.seq || Number.MAX_SAFE_INTEGER));
+    list.sort((a, b) => a.createdAt - b.createdAt || (a.seq || Number.MAX_SAFE_INTEGER) - (b.seq || Number.MAX_SAFE_INTEGER));
     state = {...state, messages: {...state.messages, [local.conversationId]: cap(list)}, lastRead: {...state.lastRead, [local.conversationId]: Math.max(state.lastRead[local.conversationId] ?? 0, sent.seq)}};
     state = {...state, conversations: state.conversations.map(c => c.id === sent.conversationId ? {...c, lastSeq: sent.seq, lastPreview: sent.text ? sent.text.slice(0, 80) : '📷 Photo', lastSenderId: sent.senderId, lastActivityAt: sent.createdAt} : c).sort((a, b) => b.lastActivityAt - a.lastActivityAt)};
     emit();
@@ -285,6 +285,20 @@ export async function retryMessage(conversationId: string, id: string) {
 
 export function discardMessage(conversationId: string, id: string) {
   state = {...state, messages: {...state.messages, [conversationId]: (state.messages[conversationId] ?? []).filter(m => m.id !== id || m.status === 'sent')}};
+  emit();
+}
+
+export async function editMessage(conversationId: string, id: string, text: string) {
+  if (!opts) throw new Error('Chat is not ready.');
+  const trimmed = text.normalize('NFC').trim();
+  if (!trimmed) throw new Error('Message cannot be empty.');
+  if (trimmed.length > API_LIMITS.maxMessageChars) throw new Error(`Messages are limited to ${API_LIMITS.maxMessageChars} characters.`);
+  const original = state.messages[conversationId]?.find(m => m.id === id);
+  if (!original || original.senderId !== myUserId() || original.deleted || original.status !== 'sent') throw new Error('Only your sent messages can be edited.');
+  const updated = await opts.api.editMessage(id, trimmed);
+  const list = (state.messages[conversationId] ?? []).map(m => m.id === id ? {...updated, status: 'sent' as const} : m)
+    .sort((a, b) => a.createdAt - b.createdAt || (a.seq || Number.MAX_SAFE_INTEGER) - (b.seq || Number.MAX_SAFE_INTEGER));
+  state = {...state, messages: {...state.messages, [conversationId]: cap(list)}, conversations: state.conversations.map(c => c.id === conversationId && c.lastSeq <= updated.seq ? {...c, lastSeq: updated.seq, lastPreview: updated.text ? updated.text.slice(0, 80) : '📷 Photo', lastSenderId: updated.senderId} : c)};
   emit();
 }
 
