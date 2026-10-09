@@ -32,6 +32,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('Choose a plan and network to get started.');
   const [receipt, setReceipt] = useState<any>(null);
+  const [alreadyVerified, setAlreadyVerified] = useState(false);
   const storageKey = `kivo:verification-pending:${subjectType}:${subjectId}`;
 
   useEffect(() => {
@@ -63,6 +64,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
     void api.verificationStatus(subjectType, subjectId).then(current => {
       if (!active) return;
       if (current.isVerified) {
+        setAlreadyVerified(true);
         setStatus(current.permanent ? 'Blue Star verification is active.' : `Verified until ${current.expiresAt ? new Date(current.expiresAt).toLocaleDateString() : 'expiry unavailable'}.`);
         setPending(null);
         void storage.removeItem(storageKey).catch(() => {});
@@ -139,6 +141,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
       setPending(null);
       await storage.removeItem(storageKey).catch(() => {});
       setReceipt(result);
+      setAlreadyVerified(true);
       setStatus('Payment confirmed. Blue Star verification is active.');
       Alert.alert('Blue Star activated', 'Payment confirmed. Your verification receipt is ready.');
     } catch (error) {
@@ -164,7 +167,13 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         <View style={styles.headerCopy}><Text style={styles.title}>Blue Star verification</Text><Text style={styles.subtitle}>{subjectName}</Text></View>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
-        {!receipt ? (
+        {alreadyVerified && !receipt ? (
+          <View style={styles.card}>
+            <Text style={styles.successTitle}>★ Blue Star already active</Text>
+            <Text style={styles.description}>{status}</Text>
+            <Pressable style={styles.payButton} onPress={onBack}><Text style={styles.payText}>Done</Text></Pressable>
+          </View>
+        ) : !receipt ? (
           <View style={styles.card}>
             <Text style={styles.description}>Choose a plan. Your wallet will ask you to approve the USDC payment.</Text>
             <Text style={styles.label}>Plan</Text>
