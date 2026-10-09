@@ -66,7 +66,34 @@ export class KivoApi {
     return generation === this.sessionGeneration && Boolean(this.session);
   }
 
-  isSignedIn(address?: string | null): boolean { return Boolean(this.session && (!address || this.session.address === address.toLowerCase())); }
+  isSignedIn(address?: string | null): boolean { return Boolean(this.session && this.session.expiresAt > Date.now() && (!address || this.session.address === address.toLowerCase())); }
+
+  /** Auth headers for same-origin media only; never attach the session to local or foreign URLs. */
+  mediaHeaders(url?: string): Record<string, string> {
+    if (!this.session || this.session.expiresAt <= Date.now()) return {};
+    if (url) {
+      try {
+        const fallbackOrigin = typeof globalThis.location !== 'undefined' ? globalThis.location.origin : 'https://kivo-web.pages.dev';
+        const base = new URL(this.baseUrl || fallbackOrigin, fallbackOrigin);
+        const target = new URL(url, base);
+        if (target.origin !== base.origin || !target.pathname.startsWith('/api/media/')) return {};
+      } catch { return {}; }
+    }
+    return {authorization: `Bearer ${this.session.token}`};
+  }
+
+  /** Fetch private media with the current session; never send a bearer token off-origin. */
+  async fetchMedia(url: string): Promise<Blob> {
+    const fallbackOrigin = typeof globalThis.location !== 'undefined' ? globalThis.location.origin : 'https://kivo-web.pages.dev';
+    const base = new URL(this.baseUrl || fallbackOrigin, fallbackOrigin);
+    const target = new URL(url, base);
+    if (target.origin !== base.origin || !target.pathname.startsWith('/api/media/')) {
+      throw new ApiError(400, 'Invalid media URL.');
+    }
+    const response = await fetch(target.toString(), {headers: this.mediaHeaders(target.toString())});
+    if (!response.ok) throw new ApiError(response.status, response.status === 403 ? 'You no longer have access to this photo.' : 'Could not load this photo.');
+    return response.blob();
+  }
 
   async signIn(address: string, sign: (message: string) => Promise<string>): Promise<AuthSession> {
     const generation = ++this.sessionGeneration;
