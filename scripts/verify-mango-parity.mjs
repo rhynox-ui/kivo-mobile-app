@@ -116,4 +116,12 @@ check('Wallet removal locks signing before secret cleanup', () => {
   assert.ok(body.indexOf('session=null;unlockedMnemonic=null;emit();') < body.indexOf('await clearBiometricUnlock()'));
   assert.ok(body.indexOf('await clearBiometricUnlock()') < body.indexOf('await clearVault()'));
 });
+check('Wallet switch invalidates stale API session immediately', () => {
+  const s = read('src/state/session.ts');
+  const start = s.indexOf('subscribeToWallet(wallet =>');
+  const end = s.indexOf('walletActivationQueue = walletActivationQueue.then', start);
+  assert.ok(start >= 0 && end > start);
+  assert.ok(s.slice(start, end).includes('void api.restore(address);'));
+  assert.ok(s.slice(start, end).includes('stopChatSync();'));
+});
 console.log('\nMango parity gate: ' + n + ' checks passed');
