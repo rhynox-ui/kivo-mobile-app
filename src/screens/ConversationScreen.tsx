@@ -223,7 +223,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
               <Pressable onPress={() => setForwardingMessage(null)} hitSlop={10}><Text style={styles.forwardCancel}>Cancel</Text></Pressable>
             </View>
             <ScrollView style={styles.forwardList} keyboardShouldPersistTaps="handled">
-              {state.conversations.filter(c => c.id !== id && (c.kind === 'dm' || c.myRole === 'owner' || c.myRole === 'admin' || (c.kind === 'group' && !c.onlyAdminsPost))).map(c => (
+              {state.conversations.filter(c => c.id !== id && (c.kind === 'dm' || c.myRole === 'owner' || c.myRole === 'admin' || c.kind === 'group')).map(c => (
                 <Pressable key={c.id} style={styles.forwardDestination} onPress={() => {
                   const selected = forwardingMessage;
                   setForwardingMessage(null);
