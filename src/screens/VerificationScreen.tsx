@@ -136,6 +136,9 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         setStatus(current.permanent ? 'Blue Star verification is active.' : `Verified until ${current.expiresAt ? new Date(current.expiresAt).toLocaleDateString() : 'expiry unavailable'}.`);
         setPending(null);
         void clearPendingRecord(storageKey, keychainService);
+      } else {
+        // A locally saved receipt is history, not proof that a subscription is still active.
+        setAlreadyVerified(false);
       }
     }).catch(() => {});
     return () => { active = false; };
@@ -312,6 +315,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
             <ReceiptRow label="Valid until" value={new Date(receipt.expiresAt).toLocaleDateString()}/>
             <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: `Kivo Blue Star receipt\nStatus: Paid & Verified\nPlan: ${receipt.plan}\nAmount: ${receipt.amount} USDC\nNetwork: ${receipt.chain}\nTransaction: ${receipt.txHash}\nExplorer: ${receipt.explorerUrl}` })}><Text style={styles.secondaryText}>Share receipt</Text></Pressable>
             <Pressable style={styles.secondaryButton} onPress={() => Linking.openURL(receipt.explorerUrl).catch(() => Alert.alert('Kivo', 'Could not open the transaction explorer.'))}><Text style={styles.secondaryText}>View transaction</Text></Pressable>
+            {Number(receipt.expiresAt) <= Date.now() ? <Pressable style={styles.payButton} onPress={() => { setReceipt(null); setAlreadyVerified(false); setStatus('Your previous verification has expired. Choose a plan to renew.'); }}><Text style={styles.payText}>Renew Blue Star</Text></Pressable> : null}
             <Pressable style={styles.payButton} onPress={onBack}><Text style={styles.payText}>Done</Text></Pressable>
           </View>
         )}
