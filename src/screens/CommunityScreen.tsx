@@ -66,15 +66,27 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
     <View style={styles.root}>
       <Header title={c.name} verified={Boolean(c.isVerified) || isOfficialKivoChannel(c.id)} onBack={onBack} onShare={() => Share.share({ message: `Join ${c.name} on Kivo: https://kivotrade.site/${c.kind}/${c.id}` })} />
       <ScrollView contentContainerStyle={styles.body}>
-        <View style={styles.hero}>
-          <Avatar name={c.name} uri={c.avatarUrl} size={88} verified={isChannel && (c.isVerified === true || isOfficialKivoChannel(c.id))} />
-          <View style={styles.titleLine}><Text style={styles.title}>{c.name}</Text>{isChannel && (c.isVerified || c.id === 'ch_671d27c151fefc25c8e5') ? <Text accessibilityLabel="Verified channel" style={styles.verifiedBadge}>★</Text> : null}</View>
-          <Text style={styles.muted}>{c.visibility === 'private' ? 'Private' : 'Public'} {isChannel ? 'channel' : 'group'} · {c.memberCount} {isChannel ? 'subscribers' : 'members'} · {c.postCount} {isChannel ? 'posts' : 'messages'}</Text>
-          {c.description ? <Text style={styles.description}>{c.description}</Text> : null}
-          {c.myRole ? <Text style={styles.role}>{c.myRole.toUpperCase()}</Text> : null}
-          {c.myRole
-            ? <Pressable onPress={() => onOpenChat(c.id)} style={styles.primary}><Text style={styles.primaryText}>{isChannel ? 'Open channel' : 'Open chat'}</Text></Pressable>
-            : <Pressable onPress={run(() => api.join(c.id), () => onOpenChat(c.id))} style={styles.primary}><Text style={styles.primaryText}>{c.visibility === 'private' ? 'Private' : isChannel ? 'Subscribe' : 'Join group'}</Text></Pressable>}
+        <View style={styles.profileHero}>
+          <View style={styles.profileIdentity}>
+            <Avatar name={c.name} uri={c.avatarUrl} size={92} verified={isChannel && (c.isVerified === true || isOfficialKivoChannel(c.id))} />
+            <View style={styles.titleLine}><Text style={styles.title}>{c.name}</Text>{isChannel && (c.isVerified || c.id === 'ch_671d27c151fefc25c8e5') ? <Text accessibilityLabel="Verified channel" style={styles.verifiedBadge}>★</Text> : null}</View>
+            <Text style={styles.profileSubtitle}>{c.visibility === 'private' ? 'Private' : 'Public'} {isChannel ? 'channel' : 'group'} · {c.memberCount} {isChannel ? 'subscribers' : 'members'}</Text>
+            {c.myRole ? <Text style={styles.role}>{c.myRole.toUpperCase()}</Text> : null}
+          </View>
+          <View style={styles.profileActions}>
+            {c.myRole
+              ? <Pressable onPress={() => onOpenChat(c.id)} style={styles.actionButton}><Text style={styles.primaryText}>{isChannel ? 'Open channel' : 'Open chat'}</Text></Pressable>
+              : <Pressable onPress={run(() => api.join(c.id), () => onOpenChat(c.id))} style={styles.actionButton}><Text style={styles.primaryText}>{c.visibility === 'private' ? 'Private' : isChannel ? 'Subscribe' : 'Join group'}</Text></Pressable>}
+            <Pressable onPress={() => Share.share({ message: `Join ${c.name} on Kivo: https://kivotrade.site/${c.kind}/${c.id}` })} style={styles.shareButton}><Text style={styles.shareButtonText}>Share</Text></Pressable>
+          </View>
+          <View style={styles.profileDescription}>
+            <Text style={styles.cardTitle}>{isChannel ? 'Channel information' : 'About this group'}</Text>
+            <Text style={styles.description}>{c.description || (isChannel ? 'A Kivo channel.' : 'A Kivo group.')}</Text>
+            <View style={styles.profileStats}>
+              <Text style={styles.stat}><Text style={styles.statValue}>{c.memberCount}</Text> {isChannel ? 'subscribers' : 'members'}</Text>
+              <Text style={styles.stat}><Text style={styles.statValue}>{c.postCount}</Text> {isChannel ? 'posts' : 'messages'}</Text>
+            </View>
+          </View>
         </View>
 
         {isChannel && (c.myRole === 'owner' || c.myRole === 'admin') && !c.isVerified && c.id !== 'ch_671d27c151fefc25c8e5' && <View style={styles.card}>
@@ -147,10 +159,21 @@ const styles = StyleSheet.create({
   verifiedBadge: { overflow: 'hidden', color: '#2589F5', fontSize: 20, fontWeight: '900', textAlign: 'center', width: 20, height: 22 },
   share: { color: c.accent, fontWeight: '800' },
   body: { padding: 18, gap: 12, paddingBottom: 40 },
-  hero: { alignItems: 'center', gap: 8, paddingVertical: 8 },
+  profileHero: { padding: 16, borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, gap: 18 },
+  profileIdentity: { alignItems: 'center', gap: 9, paddingTop: 4 },
   titleLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
   title: { color: c.text, fontSize: 24, fontWeight: '800', textAlign: 'center', flexShrink: 1 },
-  description: { color: c.text, fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  profileSubtitle: { color: c.textMuted, fontSize: 12.5, lineHeight: 18, textAlign: 'center' },
+  profileActions: { flexDirection: 'row', gap: 10 },
+  actionButton: { flex: 1, minHeight: 46, borderRadius: 14, backgroundColor: c.cream, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  primary: { marginTop: 6, alignSelf: 'stretch', height: 50, borderRadius: 25, backgroundColor: c.cream, alignItems: 'center', justifyContent: 'center' },
+  shareButton: { flex: 1, minHeight: 46, borderRadius: 14, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  shareButtonText: { color: c.cream, fontWeight: '800' },
+  profileDescription: { borderTopWidth: 1, borderTopColor: c.border, paddingTop: 16, gap: 8 },
+  profileStats: { flexDirection: 'row', flexWrap: 'wrap', gap: 18 },
+  stat: { color: c.textMuted, fontSize: 12.5 },
+  statValue: { color: c.text, fontWeight: '800' },
+  description: { color: c.text, fontSize: 14, lineHeight: 20 },
   role: { color: c.accent, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
   muted: { color: c.textMuted, fontSize: 12.5, lineHeight: 18, textAlign: 'center' },
   small: { color: c.textMuted, fontSize: 11.5 },
