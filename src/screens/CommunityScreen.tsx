@@ -40,11 +40,11 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
 
   return (
     <View style={styles.root}>
-      <Header title={c.name} verified={isOfficialKivoChannel(c.id)} onBack={onBack} onShare={() => Share.share({ message: `Join ${c.name} on Kivo: https://kivotrade.site/${c.kind}/${c.id}` })} />
+      <Header title={c.name} verified={Boolean(c.isVerified) || isOfficialKivoChannel(c.id)} onBack={onBack} onShare={() => Share.share({ message: `Join ${c.name} on Kivo: https://kivotrade.site/${c.kind}/${c.id}` })} />
       <ScrollView contentContainerStyle={styles.body}>
         <View style={styles.hero}>
           <Avatar name={c.name} uri={c.avatarUrl} size={88} />
-          <View style={styles.titleLine}><Text style={styles.title}>{c.name}</Text>{isChannel && c.id === 'ch_671d27c151fefc25c8e5' ? <Text accessibilityLabel="Verified official Kivo channel" style={styles.verifiedBadge}>★</Text> : null}</View>
+          <View style={styles.titleLine}><Text style={styles.title}>{c.name}</Text>{isChannel && (c.isVerified || c.id === 'ch_671d27c151fefc25c8e5') ? <Text accessibilityLabel="Verified official Kivo channel" style={styles.verifiedBadge}>★</Text> : null}</View>
           <Text style={styles.muted}>{c.visibility === 'private' ? 'Private' : 'Public'} {isChannel ? 'channel' : 'group'} · {c.memberCount} {isChannel ? 'subscribers' : 'members'} · {c.postCount} {isChannel ? 'posts' : 'messages'}</Text>
           {c.description ? <Text style={styles.description}>{c.description}</Text> : null}
           {c.myRole ? <Text style={styles.role}>{c.myRole.toUpperCase()}</Text> : null}
