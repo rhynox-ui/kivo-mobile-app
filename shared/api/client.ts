@@ -56,7 +56,10 @@ export class KivoApi {
 
   private async request<T>(method: string, path: string, body?: unknown, auth = true, raw?: {body: Blob | ArrayBuffer | Uint8Array; type: string}): Promise<T> {
     const headers: Record<string, string> = {};
-    if (auth && this.session) headers.authorization = `Bearer ${this.session.token}`;
+    // Bind this request to the session it started with. A late 401 from an
+    // old wallet/session must not clear a newer session after account switching.
+    const sessionAtRequest = auth ? this.session : null;
+    if (sessionAtRequest) headers.authorization = `Bearer ${sessionAtRequest.token}`;
     let payload: RequestInit['body'] | undefined;
     if (raw) { headers['content-type'] = raw.type; payload = raw.body as RequestInit['body']; }
     else if (body !== undefined) { headers['content-type'] = 'application/json'; payload = JSON.stringify(body); }
@@ -65,7 +68,11 @@ export class KivoApi {
     catch { throw new ApiError(0, 'You appear to be offline. Kivo will retry when you are back.'); }
     const data = await response.json().catch(() => null) as (T & {error?: string}) | null;
     if (!response.ok) {
-      if (response.status === 401 && auth && this.session) { this.session = null; await this.storage.removeItem?.(SESSION_KEY); this.emit(); }
+      if (response.status === 401 && sessionAtRequest && this.session?.token === sessionAtRequest.token) {
+        this.session = null;
+        await this.sessionStorage.removeItem?.(SESSION_KEY);
+        this.emit();
+      }
       throw new ApiError(response.status, data?.error ?? `Request failed (${response.status}).`);
     }
     return data as T;

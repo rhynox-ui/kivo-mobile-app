@@ -71,3 +71,10 @@ Rules:
 - The shared API applies exact browser-origin CORS allowlisting at its boundary. Native React Native networking is not authorized by CORS; every API route still enforces server-side identity/permissions.
 - Auth challenge/verification, profile approval/update, media uploads, provider-backed fallback/Relay quotes, and sponsored Relay execution have bounded IP-scoped limits.
 - On HTTP 429, show the server's retry guidance and avoid immediate retry loops. Do not retry transaction submission automatically.
+
+
+## Session expiry and account switching
+
+- The shared API client stores mobile API sessions in the device-only Keychain. Sign-out and HTTP 401 clear that configured secure store, not AsyncStorage.
+- A delayed 401 from an old request must not clear a newer wallet/session after account switching.
+- Current-session server revocation is available through sign-out; device listing and revoke-other-session controls remain a separate product decision.
