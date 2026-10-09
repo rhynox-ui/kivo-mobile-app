@@ -19,9 +19,21 @@ export class KivoApi {
   private session: {token: string; expiresAt: number; address: string} | null = null;
   private sessionGeneration = 0;
   private activeAddress: string | null = null;
+  private sessionWriteQueue: Promise<void> = Promise.resolve();
   private listeners = new Set<() => void>();
 
   constructor(options: KivoApiOptions) { this.baseUrl = options.baseUrl.replace(/\/$/, ''); this.storage = options.storage; this.sessionStorage = options.sessionStorage ?? options.storage; this.client = options.client; }
+  private async writeSessionStorage(generation: number, value: string | null): Promise<boolean> {
+    const operation = this.sessionWriteQueue.then(async () => {
+      if (generation !== this.sessionGeneration) return false;
+      if (value === null) await this.sessionStorage.removeItem?.(SESSION_KEY);
+      else await this.sessionStorage.setItem(SESSION_KEY, value);
+      return generation === this.sessionGeneration;
+    });
+    this.sessionWriteQueue = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
   onSessionChange(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   private emit() { this.listeners.forEach(listener => listener()); }
 
@@ -33,6 +45,8 @@ export class KivoApi {
     this.emit();
     if (!normalizedAddress) return false;
     try {
+      await this.sessionWriteQueue;
+      if (generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) return false;
       const raw = await this.sessionStorage.getItem(SESSION_KEY);
       const saved = raw ? JSON.parse(raw) as {token: string; expiresAt: number; address: string} : null;
       if (generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) return false;
@@ -55,22 +69,23 @@ export class KivoApi {
     const session = await this.request<AuthSession>('POST', '/api/auth/verify', {address, nonce: challenge.nonce, signature}, false);
     if (generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) throw new ApiError(409, 'Wallet changed during sign-in. Please try again.');
     const nextSession = {token: session.token, expiresAt: session.expiresAt, address: normalizedAddress};
-    await this.sessionStorage.setItem(SESSION_KEY, JSON.stringify(nextSession));
-    if (generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) {
-      await this.sessionStorage.removeItem?.(SESSION_KEY);
-      throw new ApiError(409, 'Wallet changed during sign-in. Please try again.');
-    }
+    const persisted = await this.writeSessionStorage(generation, JSON.stringify(nextSession));
+    if (!persisted || generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) throw new ApiError(409, 'Wallet changed during sign-in. Please try again.');
     this.session = nextSession;
     this.emit();
     return session;
   }
 
   async signOut() {
-    ++this.sessionGeneration;
-    if (this.session) await this.request('POST', '/api/auth/signout', {}).catch(() => {});
+    const sessionAtSignOut = this.session;
+    const generation = ++this.sessionGeneration;
+    if (sessionAtSignOut) await this.request('POST', '/api/auth/signout', {}).catch(() => {});
+    // A wallet switch or newer sign-in while sign-out was in flight owns the
+    // new session; never clear it as a side effect of this older operation.
+    if (generation !== this.sessionGeneration || this.session?.token !== sessionAtSignOut?.token) return;
     this.session = null;
-    await this.sessionStorage.removeItem?.(SESSION_KEY);
-    this.emit();
+    await this.writeSessionStorage(generation, null);
+    if (generation === this.sessionGeneration) this.emit();
   }
 
   private async request<T>(method: string, path: string, body?: unknown, auth = true, raw?: {body: Blob | ArrayBuffer | Uint8Array; type: string}): Promise<T> {
@@ -88,9 +103,9 @@ export class KivoApi {
     const data = await response.json().catch(() => null) as (T & {error?: string}) | null;
     if (!response.ok) {
       if (response.status === 401 && sessionAtRequest && this.session?.token === sessionAtRequest.token) {
+        const generation = ++this.sessionGeneration;
         this.session = null;
-        await this.sessionStorage.removeItem?.(SESSION_KEY);
-        this.emit();
+        void this.writeSessionStorage(generation, null).then(() => { if (generation === this.sessionGeneration) this.emit(); });
       }
       throw new ApiError(response.status, data?.error ?? `Request failed (${response.status}).`);
     }
