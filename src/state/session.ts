@@ -47,6 +47,13 @@ export const api = new KivoApi({ baseUrl: KIVO_API_BASE_URL, storage, sessionSto
 
 let started = false;
 let lastAddress: string | null | undefined;
+// Wallet activations touch several shared stores and AsyncStorage. Serialize
+// them so a slow restore for wallet A cannot finish after wallet B is selected.
+let walletActivationQueue: Promise<void> = Promise.resolve();
+
+function isCurrentWallet(address: string | null): boolean {
+  return (getWalletSession()?.address ?? null)?.toLowerCase() === address?.toLowerCase();
+}
 
 function syncChatForAppState() {
   if (AppState.currentState === 'active' && socialReady()) {
@@ -91,10 +98,28 @@ export async function startKivoSession() {
     if (address?.toLowerCase() === lastAddress?.toLowerCase()) return;
     lastAddress = address;
     stopChatSync();
-    void (async () => {
+    walletActivationQueue = walletActivationQueue.then(async () => {
+      // Skip stale queued switches; only the currently selected wallet may
+      // restore the API session or restart background chat synchronization.
+      if (!isCurrentWallet(address)) return;
       await Promise.all([activateProfileForWallet(address), activateTradeHistory(address), activateChat(address)]);
-      if (await api.restore(address)) { void pullServerProfile(); syncChatForAppState(); }
-    })();
+      if (!isCurrentWallet(address)) {
+        stopChatSync();
+        return;
+      }
+      if (await api.restore(address)) {
+        if (!isCurrentWallet(address)) {
+          stopChatSync();
+          return;
+        }
+        void pullServerProfile();
+        syncChatForAppState();
+      }
+    }).catch(() => {
+      // A failed local-store activation must not leave background sync running
+      // against a wallet that is no longer selected.
+      if (!isCurrentWallet(address)) stopChatSync();
+    });
   });
 }
 
