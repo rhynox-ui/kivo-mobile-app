@@ -89,7 +89,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
       ]);
       return;
     }
-    if (message.status !== 'sent' || message.deleted || (message.senderId !== me && !canModerate)) return;
+    if (message.status !== 'sent' || message.deleted) return;
     Alert.alert('Message options', undefined, [
       ...(message.senderId === me ? [{ text: 'Edit', onPress: () => { setEditingMessageId(message.id); setDraft(message.text); }] } : []),
       { text: 'Forward', onPress: () => {
@@ -99,10 +99,10 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
           {text: 'Cancel', style: 'cancel' as const},
         ]);
       } },
-      { text: 'Delete', style: 'destructive', onPress: () => Alert.alert('Delete message', 'Delete this message for everyone?', [
+      ...(message.senderId === me || canModerate ? [{ text: 'Delete', style: 'destructive' as const, onPress: () => Alert.alert('Delete message', 'Delete this message for everyone?', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => deleteForEveryone(id, message.id).catch(error => Alert.alert('Delete', error instanceof Error ? error.message : 'Could not delete.')) },
-      ]) },
+      ]) }] : []),
       { text: 'Cancel', style: 'cancel' },
     ]);
   };
