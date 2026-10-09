@@ -31,6 +31,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
   const [verificationBusy, setVerificationBusy] = useState(false);
   const [verificationWalletReady, setVerificationWalletReady] = useState(false);
   const [verificationConfirming, setVerificationConfirming] = useState(false);
+  const [verificationPendingPayment, setVerificationPendingPayment] = useState<{txHash:string; chain:'ethereum'|'base'|'arbitrum'|'solana'; plan:'monthly'|'annual'} | null>(null);
   const [verificationProgress, setVerificationProgress] = useState<'idle' | 'waiting' | 'checking' | 'success'>('idle');
   const load = useCallback(() => api.community(id).then(setData).catch(e => setError(e instanceof Error ? e.message : 'Not available.')), [id]);
   useEffect(() => {
@@ -92,16 +93,18 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
             <Text style={styles.receiptText}>You will send: {verificationPlan === 'annual' ? '5' : '1'} USDC</Text>
             <Text style={styles.receiptText}>To: {verificationChain === 'solana' ? '2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki' : '0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5'}</Text>
             <Text style={styles.verifyIntro}>Only continue if the amount, network and recipient are correct. Your wallet will ask you to approve the transfer.</Text>
-            <Pressable disabled={verificationBusy} onPress={() => setVerificationConfirming(false)} style={styles.verifyConnect}><Text style={styles.secondaryText}>Back</Text></Pressable>
+            <Pressable disabled={verificationBusy} onPress={() => { if (verificationPendingPayment) { Alert.alert('Payment pending', 'Retry verification for the submitted transaction; do not pay again.'); return; } setVerificationConfirming(false); }} style={styles.verifyConnect}><Text style={styles.secondaryText}>Back</Text></Pressable>
           </View>}
           {verificationWalletReady && verificationConfirming && <Pressable disabled={verificationBusy} onPress={async () => {
             if (!socialReady()) { Alert.alert('Kivo wallet', 'Sign in to Kivo before paying.'); return; }
             setVerificationBusy(true);
             setVerificationProgress('waiting');
             try {
-              const amount = verificationPlan === 'annual' ? 5_000_000n : 1_000_000n;
-              let txHash = '';
-              if (verificationChain === 'solana') {
+              const selectedPlan = verificationPendingPayment?.plan ?? verificationPlan;
+              const selectedChain = verificationPendingPayment?.chain ?? verificationChain;
+              const amount = selectedPlan === 'annual' ? 5_000_000n : 1_000_000n;
+              let txHash = verificationPendingPayment?.txHash ?? '';
+              if (!verificationPendingPayment && selectedChain === 'solana') {
                 txHash = await withDeviceAccounts('Approve Blue Star USDC payment', async ({solana}) => {
                   const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
                   const mint = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGZwyTDt1v');
@@ -112,20 +115,20 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
                   const transaction = new Transaction().add(createTransferCheckedInstruction(sourceAta, mint, destinationAta.address, solana.publicKey, amount, 6));
                   return await sendAndConfirmTransaction(connection, transaction, [solana], {commitment: 'confirmed'});
                 });
-              } else {
+              } else if (!verificationPendingPayment) {
                 const chainIds = {ethereum: 1, base: 8453, arbitrum: 42161} as const;
                 const usdc = {ethereum: '0xA0b86991c6218b36c1d19d4a2e9Eb0cE3606eB48', base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831'} as const;
                 const signer = await localEvmSigner();
-                await signer.ensureChain(chainIds[verificationChain]);
+                await signer.ensureChain(chainIds[selectedChain]);
                 const data = encodeFunctionData({abi: [{type:'function',name:'transfer',stateMutability:'nonpayable',inputs:[{name:'to',type:'address'},{name:'value',type:'uint256'}],outputs:[{type:'bool'}]}],functionName:'transfer',args:['0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5',parseUnits(verificationPlan === 'annual' ? '5' : '1', 6)]});
-                txHash = await signer.sendTransaction({to: usdc[verificationChain], data, value: 0n, chainId: chainIds[verificationChain]});
+                txHash = await signer.sendTransaction({to: usdc[selectedChain], data, value: 0n, chainId: chainIds[verificationChain]});
               }
               setVerificationHash(txHash);
               setVerificationProgress('checking');
               let receipt: any;
               for (let attempt = 0; ; attempt++) {
                 try {
-                  receipt = await api.purchaseVerification({subjectType: 'channel', subjectId: c.id, plan: verificationPlan, chain: verificationChain, txHash});
+                  receipt = await api.purchaseVerification({subjectType: 'channel', subjectId: c.id, plan: selectedPlan, chain: selectedChain, txHash});
                   break;
                 } catch (e) {
                   const message = e instanceof Error ? e.message : '';
@@ -133,15 +136,18 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
                   await new Promise(resolve => setTimeout(resolve, Math.min(2500 + attempt * 1500, 9000)));
                 }
               }
+              setVerificationPendingPayment(null);
               setVerificationReceipt(receipt);
               setVerificationProgress('success');
               Alert.alert('🎉 Congratulations!', 'Payment confirmed. Your Blue Star verification is now active, and your receipt is ready below.');
               void load();
             } catch (e) {
               setVerificationProgress('idle');
-              Alert.alert('Payment not confirmed', e instanceof Error ? e.message : 'Could not verify payment. If a transaction was submitted, keep its hash and retry verification.');
+              Alert.alert('Payment not confirmed', verificationPendingPayment
+                ? `Payment submitted (${verificationPendingPayment.txHash}). Retry verification; do not pay again. ${e instanceof Error ? e.message : ''}`
+                : (e instanceof Error ? e.message : 'Could not verify payment.'));
             } finally { setVerificationBusy(false); }
-          }} style={styles.verifyPay}><Text style={styles.verifyPayText}>{verificationBusy ? 'Paying securely…' : `Pay $${verificationPlan === 'annual' ? '5' : '1'} USDC & verify`}</Text></Pressable>}
+          }} style={styles.verifyPay}><Text style={styles.verifyPayText}{verificationBusy ? 'Paying securely…' : verificationPendingPayment ? 'Retry verification' : `Pay ${verificationPlan === 'annual' ? '5' : '1'} USDC & verify`}</Text></Pressable>}
           {verificationBusy && <View style={styles.verifyProgress}><ActivityIndicator size="small" color={kivoTheme.colors.accent} /><Text style={styles.verifyProgressText}>{verificationProgress === 'checking' ? 'Waiting for blockchain verification…' : 'Waiting for wallet approval and transaction confirmation…'}</Text></View>}
           {verificationReceipt && <View style={styles.receipt}>
             <Text style={styles.cardTitle}>🎉 Congratulations! Blue Star activated</Text>
