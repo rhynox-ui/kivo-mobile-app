@@ -298,7 +298,7 @@ export async function editMessage(conversationId: string, id: string, text: stri
   const updated = await opts.api.editMessage(id, trimmed);
   const list = (state.messages[conversationId] ?? []).map(m => m.id === id ? {...updated, status: 'sent' as const} : m)
     .sort((a, b) => a.createdAt - b.createdAt || (a.seq || Number.MAX_SAFE_INTEGER) - (b.seq || Number.MAX_SAFE_INTEGER));
-  state = {...state, messages: {...state.messages, [conversationId]: cap(list)}, conversations: state.conversations.map(c => c.id === conversationId && c.lastSeq <= updated.seq ? {...c, lastSeq: updated.seq, lastPreview: updated.text ? updated.text.slice(0, 80) : '📷 Photo', lastSenderId: updated.senderId} : c)};
+  state = {...state, messages: {...state.messages, [conversationId]: cap(list)}, conversations: state.conversations.map(c => c.id === conversationId && c.lastSeq === original.seq ? {...c, lastSeq: updated.seq, lastPreview: updated.text ? updated.text.slice(0, 80) : '📷 Photo', lastSenderId: updated.senderId} : c)};
   emit();
 }
 
