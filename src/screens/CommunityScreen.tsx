@@ -71,6 +71,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
                 </Pressable>
                 {me && canPromoteGroupAdmin(me, target, group) && <Pressable onPress={run(() => api.setAdmin(c.id, target, true))} style={styles.chip}><Text style={styles.chipText}>Make admin</Text></Pressable>}
                 {me && canDemoteGroupAdmin(me, target, group) && <Pressable onPress={run(() => api.setAdmin(c.id, target, false))} style={styles.chip}><Text style={styles.chipText}>Remove admin</Text></Pressable>}
+                {manager && member.role === 'member' && <Pressable onPress={run(() => api.setMemberRestricted(c.id, target, !member.restricted))} style={styles.chip}><Text style={styles.chipText}>{member.restricted ? 'Allow posting' : 'Restrict posting'}</Text></Pressable>}
                 {me && canRemoveGroupMember(me, target, group) && <Pressable onPress={() => Alert.alert('Remove', `Remove ${memberName(member)}?`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: run(() => api.removeMember(c.id, target)) }])}><Text style={styles.danger}>Remove</Text></Pressable>}
               </View>
             );
