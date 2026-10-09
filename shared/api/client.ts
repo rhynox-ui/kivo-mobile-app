@@ -102,6 +102,10 @@ export class KivoApi {
   send(conversationId: string, input: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; replyTo?: string; clientId: string}) { return this.request<ApiMessage>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/messages`, input); }
   editMessage(id: string, text: string) { return this.request<ApiMessage>('PATCH', `/api/messages/${encodeURIComponent(id)}`, {text}); }
   forwardMessage(id: string, conversationId: string) { return this.request<ApiMessage>('POST', `/api/messages/${encodeURIComponent(id)}/forward`, {conversationId}); }
+  blockedUsers() { return this.request<string[]>('GET', '/api/blocks'); }
+  blockUser(userId: string) { return this.request<{ok: true}>('POST', `/api/blocks/${encodeURIComponent(userId)}`); }
+  unblockUser(userId: string) { return this.request<{ok: true}>('DELETE', `/api/blocks/${encodeURIComponent(userId)}`); }
+  setMemberRestricted(communityId: string, userId: string, restricted: boolean) { return this.request<{community: ApiCommunity; members: ApiMember[]}>(restricted ? 'POST' : 'DELETE', `/api/communities/${encodeURIComponent(communityId)}/restrictions/${encodeURIComponent(userId)}`, {}); }
   deleteMessage(id: string) { return this.request<{ok: true}>('DELETE', `/api/messages/${encodeURIComponent(id)}`); }
   sync(since: number) { return this.request<SyncResponse>('GET', `/api/sync?since=${since}`); }
 }
