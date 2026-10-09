@@ -89,7 +89,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson }: { id: 
 }
 
 function Header({ title, verified = false, onBack, onShare }: { title: string; verified?: boolean; onBack: () => void; onShare?: () => void }) {
-  return <View style={styles.header}><Pressable onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable><View style={styles.headerTitleLine}><Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>{verified ? <Text accessibilityLabel="Verified official Kivo channel" style={styles.verifiedBadge}>✓</Text> : null}</View>{onShare ? <Pressable onPress={onShare}><Text style={styles.share}>Share</Text></Pressable> : <View />}</View>;
+  return <View style={styles.header}><Pressable onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable><View style={styles.headerTitleLine}><Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>{verified ? <Text accessibilityLabel="Verified official Kivo channel" style={styles.verifiedBadge}>★</Text> : null}</View>{onShare ? <Pressable onPress={onShare}><Text style={styles.share}>Share</Text></Pressable> : <View />}</View>;
 }
 
 const c = kivoTheme.colors;
