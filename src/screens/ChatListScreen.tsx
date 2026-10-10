@@ -32,11 +32,12 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
   const [query, setQuery] = useState('');
   const [composing, setComposing] = useState(false);
   const [publicChannels, setPublicChannels] = useState<ApiCommunity[]>([]);
+  const [verificationRefreshTick, setVerificationRefreshTick] = useState(0);
 
-  // Subscription expiry is time-based, so refresh server-authoritative badge
-  // status periodically while the chat list is open and when the app resumes.
+  // One shared timer refreshes conversations and asks mounted rows to refresh
+  // verification. Avoid one timer and AppState listener per conversation row.
   useEffect(() => {
-    const refresh = () => { void refreshConversations().catch(() => {}); };
+    const refresh = () => { void refreshConversations().catch(() => {}); setVerificationRefreshTick(value => value + 1); };
     refresh();
     const timer = setInterval(refresh, 60_000);
     const subscription = AppState.addEventListener('change', state => {
@@ -86,7 +87,7 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
       <FlatList
         data={list}
         keyExtractor={item => item.id}
-        renderItem={({ item }) => <Row conversation={item} onPress={() => onOpenChat(item.id)} />}
+        renderItem={({ item }) => <Row conversation={item} verificationRefreshTick={verificationRefreshTick} onPress={() => onOpenChat(item.id)} />}
         ListEmptyComponent={filter === 'channel' && publicChannels.length ? undefined : <View style={styles.empty}><Text style={styles.emptyTitle}>{filter === 'channel' ? 'No channels yet' : 'No chats yet'}</Text><Text style={styles.muted}>Discover public channels or join communities to see them here.</Text></View>}
         ListFooterComponent={filter === 'channel' && publicChannels.length ? <View style={styles.discoverSection}>
           {publicChannels.map(c => <Pressable key={c.id} style={styles.row} onPress={async () => {
@@ -103,29 +104,21 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
   );
 }
 
-function Row({ conversation: c, onPress }: { conversation: ApiConversation; onPress: () => void }) {
+function Row({ conversation: c, verificationRefreshTick, onPress }: { conversation: ApiConversation; verificationRefreshTick: number; onPress: () => void }) {
   const unread = unreadCount(c.id);
   const [peerVerified, setPeerVerified] = useState(false);
+  useEffect(() => { setPeerVerified(false); }, [c.id, c.kind, c.peer?.userId]);
   useEffect(() => {
     let active = true;
-    const check = () => {
-      if (c.kind !== 'dm' || !c.peer?.userId) {
-        setPeerVerified(false);
-        return;
-      }
-      void api.verificationStatus('profile', c.peer.userId)
-        .then(status => { if (active) setPeerVerified(status.isVerified === true); })
-        .catch(() => { if (active) setPeerVerified(false); });
-    };
-    setPeerVerified(false);
-    check();
-    // Verification can expire or be revoked while this row remains mounted.
-    const timer = setInterval(check, 60_000);
-    const subscription = AppState.addEventListener('change', state => {
-      if (state === 'active') check();
-    });
-    return () => { active = false; clearInterval(timer); subscription.remove(); };
-  }, [c.id, c.kind, c.peer?.userId]);
+    if (c.kind !== 'dm' || !c.peer?.userId) {
+      setPeerVerified(false);
+      return () => { active = false; };
+    }
+    void api.verificationStatus('profile', c.peer.userId)
+      .then(status => { if (active) setPeerVerified(status.isVerified === true); })
+      .catch(() => { if (active) setPeerVerified(false); });
+    return () => { active = false; };
+  }, [c.id, c.kind, c.peer?.userId, verificationRefreshTick]);
   // A DM's cached conversation flag must never override the live profile
   // status: the avatar shape and star use the exact same verified boolean.
   const verified = c.kind === 'dm' ? peerVerified : c.isVerified === true;
