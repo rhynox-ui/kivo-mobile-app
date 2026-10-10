@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { type ApiProfile, type ProfileSocial, type PublicCommunityCard } from '@kivo/shared/api/types';
 import { openDirectMessage, rememberProfiles } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
@@ -23,23 +23,37 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
   }, [userId]);
   useEffect(() => {
     let active = true;
+    const refresh = () => {
+      const channelIds = groups.filter(group => group.kind === 'channel').map(group => group.id);
+      void Promise.all(channelIds.map(async id => {
+        try { return (await api.verificationStatus('channel', id)).isVerified === true ? id : null; }
+        catch { return null; }
+      })).then(ids => { if (active) setVerifiedChannels(new Set(ids.filter((id): id is string => Boolean(id)))); });
+    };
     setVerifiedChannels(new Set());
-    const channelIds = groups.filter(group => group.kind === 'channel').map(group => group.id);
-    void Promise.all(channelIds.map(async id => {
-      try { return (await api.verificationStatus('channel', id)).isVerified === true ? id : null; }
-      catch { return null; }
-    })).then(ids => { if (active) setVerifiedChannels(new Set(ids.filter((id): id is string => Boolean(id)))); });
-    return () => { active = false; };
+    refresh();
+    const timer = setInterval(refresh, 60_000);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') refresh();
+    });
+    return () => { active = false; clearInterval(timer); subscription.remove(); };
   }, [groups]);
   useEffect(() => {
     let active = true;
+    const refresh = () => {
+      // Badge state comes from the server's verified record, never profile metadata.
+      // Ignore late responses after navigating to a different user's profile.
+      void api.verificationStatus('profile', userId)
+        .then(status => { if (active) setVerificationStatus(status); })
+        .catch(() => { if (active) setVerificationStatus(null); });
+    };
     setVerificationStatus(null);
-    // Badge state comes from the server's verified record, never profile metadata.
-    // Ignore late responses after navigating to a different user's profile.
-    api.verificationStatus('profile', userId)
-      .then(status => { if (active) setVerificationStatus(status); })
-      .catch(() => { if (active) setVerificationStatus(null); });
-    return () => { active = false; };
+    refresh();
+    const timer = setInterval(refresh, 60_000);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') refresh();
+    });
+    return () => { active = false; clearInterval(timer); subscription.remove(); };
   }, [userId]);
   const guard = async (fn: () => Promise<void>) => {
     if (!socialReady()) { Alert.alert('Kivo', 'Turn on chats first (Chats tab).'); return; }
