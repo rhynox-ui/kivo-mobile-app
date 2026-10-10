@@ -353,6 +353,9 @@ export async function chartTotal(storage: KeyValueStorage, address: string, port
     // this reading (its coin and USDC are read directly), so the chart goes on.
     if (source !== 'indexer' && isIndexerSource(source)) { excluded.push(source); continue; }
     if (last && Number.isFinite(last.usd) && now - last.at <= LAST_KNOWN_MAX_AGE_MS) { total += last.usd; reused.push(source); }
+    // Never seen holding anything (e.g. an RPC that never answers): it does
+    // not hold up the chart. One that held value still does.
+    else if (!last || !(last.usd >= 0.01)) continue;
     else unknown.push(source);
   }
   void Promise.resolve(storage.setItem(key, JSON.stringify(known))).catch(() => {});

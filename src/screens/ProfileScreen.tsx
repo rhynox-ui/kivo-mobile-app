@@ -238,13 +238,8 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
             // One reading draws as a flat line: the value is known, it just hasn't moved yet.
             : points.length >= 2 ? <LineChart values={points.map(p => p.totalUsd)} />
             : points.length === 1 ? <LineChart values={[points[0].totalUsd, points[0].totalUsd]} />
-            : <Text style={styles.chartEmpty}>Your chart starts with the first full balance reading.</Text>}
+            : null}
         </View>
-        {portfolio && chart?.unknown.length ? <Text style={styles.small}>{missingSourceNames(chart.unknown)} did not respond, so this reading was not added to the chart. The total may be incomplete.</Text>
-          : portfolio && chart?.reused.length ? <Text style={styles.small}>{missingSourceNames(chart.reused)} did not respond; the total and chart use {chart.reused.length === 1 ? 'its' : 'their'} last confirmed reading from the past 6 hours.</Text>
-          : portfolio && chart?.excluded.length ? <Text style={styles.small}>Token lists for {missingSourceNames(chart.excluded)} were not available, so other tokens there are not counted yet. Coins and USDC on those networks are included.</Text>
-          : portfolio && !portfolio.complete ? <Text style={styles.small}>Some prices or networks did not respond — total may be incomplete.</Text>
-          : null}
       </View>
 
       <View style={styles.cashCard}>
