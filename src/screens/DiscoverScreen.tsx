@@ -90,7 +90,7 @@ function People({ onOpenPerson }: { onOpenPerson: (userId: string) => void }) {
       {isAddress && !people.length && <Pressable onPress={() => onOpenPerson('kivo:' + query.trim().toLowerCase())} style={styles.card}><Avatar name={query.trim().slice(2)} size={42} /><Text style={styles.name}>{query.trim().slice(0, 6)}…{query.trim().slice(-4)}</Text></Pressable>}
       {people.filter(p => p.address !== me).map(p => (
         <Pressable key={p.userId} onPress={() => onOpenPerson(p.userId)} style={styles.card}>
-          <Avatar name={p.username ?? p.address} uri={p.avatarUrl} size={42} />
+          <Avatar name={p.username ?? p.address} uri={p.avatarUrl} size={42} verified={verifiedPeople.has(p.userId)} />
           <View style={styles.flex}><View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{p.username ? '@' + p.username : p.address}</Text>{verifiedPeople.has(p.userId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>{p.bio ? <Text style={styles.small} numberOfLines={1}>{p.bio}</Text> : null}</View>
         </Pressable>
       ))}
