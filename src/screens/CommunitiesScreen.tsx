@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { launchImageLibrary, type Asset } from 'react-native-image-picker';
 import { type ApiCommunity, type CommunityKind } from '@kivo/shared/api/types';
 import { API_LIMITS } from '@kivo/shared/api/types';
@@ -32,6 +32,15 @@ export function CommunitiesScreen({ kind: initialKind = 'group', onOpenChat, onO
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not load communities.'); setMine([]); setDiscover([]); }
   }, [kind, query, ready]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
+  useEffect(() => {
+    // Community verification can expire or be revoked while these rows stay
+    // mounted; refresh server-owned community metadata periodically.
+    const timer = setInterval(() => { void load(); }, 60_000);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') void load();
+    });
+    return () => { clearInterval(timer); subscription.remove(); };
+  }, [load]);
 
   const join = async (c: ApiCommunity) => {
     if (!ready) { Alert.alert('Kivo', 'Turn on chats first (Chats tab).'); return; }
