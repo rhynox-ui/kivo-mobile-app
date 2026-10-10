@@ -15,7 +15,8 @@ export function EditProfileScreen({ onBack }: { onBack: () => void }) {
   const [name, setName] = useState(current.username);
   const [bio, setBio] = useState(current.bio);
   const [avatarUri, setAvatarUri] = useState<string | undefined>(current.avatarUri);
-  const [avatarFile, setAvatarFile] = useState<{ uri: string; type: string; size: number } | null>(null);
+  // The picked photo's bytes, read the moment it is chosen (see pickAvatar).
+  const [avatarFile, setAvatarFile] = useState<{ bytes: Blob; type: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const username = name.replace(/^@/, '').toLowerCase();
   const valid = validProfileUsername(username) && validBio(bio);
@@ -26,9 +27,20 @@ export function EditProfileScreen({ onBack }: { onBack: () => void }) {
     const result = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1, maxWidth: API_LIMITS.avatarEdge, maxHeight: API_LIMITS.avatarEdge, quality: 0.7 });
     const asset = result.assets?.[0];
     if (!asset?.uri) return;
-    if (asset.fileSize && asset.fileSize > API_LIMITS.maxAvatarBytes) { Alert.alert('Avatar', 'That photo is too large even after compression. Try another one.'); return; }
+    // Read the bytes NOW. Saving asks for the wallet signature (biometric /
+    // passcode) first; the picker's temporary file can be gone by then, which
+    // made the upload fail with an unreadable photo.
+    let bytes: Blob;
+    try {
+      bytes = await (await fetch(asset.uri)).blob();
+    } catch {
+      Alert.alert('Avatar', 'Kivo could not read this photo. Choose a JPG or PNG image.');
+      return;
+    }
+    if (!bytes.size) { Alert.alert('Avatar', 'This photo is empty. Choose another one.'); return; }
+    if (bytes.size > API_LIMITS.maxAvatarBytes) { Alert.alert('Avatar', 'That photo is too large even after compression. Try another one.'); return; }
     setAvatarUri(asset.uri);
-    setAvatarFile({ uri: asset.uri, type: asset.type === 'image/png' ? 'image/png' : 'image/jpeg', size: asset.fileSize ?? 0 });
+    setAvatarFile({ bytes, type: asset.type === 'image/png' ? 'image/png' : 'image/jpeg' });
   };
 
   const save = async () => {
@@ -41,8 +53,7 @@ export function EditProfileScreen({ onBack }: { onBack: () => void }) {
         const signature = await signMessageWithLocalWallet(approval.message);
         let avatarKey: string | null | undefined;
         if (avatarFile) {
-          const bytes = await (await fetch(avatarFile.uri)).blob();
-          const uploaded = await api.uploadImage(bytes, avatarFile.type, 'avatar');
+          const uploaded = await api.uploadImage(avatarFile.bytes, avatarFile.type, 'avatar');
           avatarKey = uploaded.key;
         } else if (avatarAction === 'remove') avatarKey = null;
         const saved = await api.updateProfile({
