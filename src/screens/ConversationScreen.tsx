@@ -7,6 +7,8 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { useActiveConversation, useChatState } from '../state/useChat';
 import { Avatar } from './ChatListScreen';
 import { api } from '../state/session';
+import { KivoModal } from '../components/KivoModal';
+import { BottomSheet } from '../components/BottomSheet';
 
 type Item = { type: 'day'; key: string; label: string } | { type: 'message'; key: string; message: LocalMessage; showName: boolean; showAvatar: boolean };
 
@@ -65,6 +67,9 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const messages = state.messages[id] ?? [];
   const [draft, setDraft] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  type MenuItem = { text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void };
+  const [optionsMenu, setOptionsMenu] = useState<MenuItem[] | null>(null);
+  const [replyingTo, setReplyingTo] = useState<LocalMessage | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<LocalMessage | null>(null);
   const list = useRef<FlatList<Item>>(null);
   const atBottom = useRef(true);
@@ -173,8 +178,9 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
         setEditingMessageId(null);
         setDraft('');
       } else {
-        await sendText(id, text);
+        await sendText(id, text, replyingTo?.id);
         setDraft('');
+        setReplyingTo(null);
       }
     } catch (error) { Alert.alert(editingId ? 'Edit message' : 'Message', error instanceof Error ? error.message : 'Not sent.'); }
     finally { sendingRef.current = false; setSending(false); }
@@ -196,10 +202,12 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
       return;
     }
     if (message.status !== 'sent' || message.deleted) return;
-    Alert.alert('Message options', undefined, [
-      ...(message.senderId === me ? [{ text: 'Edit', onPress: () => { setEditingMessageId(message.id); setDraft(message.text); } }] : []),
-      { text: 'Forward', onPress: () => setForwardingMessage(message) },
-      ...(message.senderId === me || canModerate ? [{ text: 'Delete', style: 'destructive' as const, onPress: () => Alert.alert('Delete message', 'Delete this message for everyone?', [
+    // Same options as the web app, in a Kivo-styled sheet instead of the system dialog.
+    setOptionsMenu([
+      ...(canPost ? [{ text: 'Reply', onPress: () => { setEditingMessageId(null); setReplyingTo(message); } }] : []),
+      ...(message.senderId === me ? [{ text: 'Edit message', onPress: () => { setReplyingTo(null); setEditingMessageId(message.id); setDraft(message.text); } }] : []),
+      { text: 'Forward message', onPress: () => setForwardingMessage(message) },
+      ...(message.senderId === me || canModerate ? [{ text: 'Delete message', style: 'destructive' as const, onPress: () => Alert.alert('Delete message', 'Delete this message for everyone?', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => deleteForEveryone(id, message.id).catch(error => Alert.alert('Delete', error instanceof Error ? error.message : 'Could not delete.')) },
       ]) }] : []),
@@ -225,7 +233,6 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
           ]);
         }).catch(error => Alert.alert('Moderation', error instanceof Error ? error.message : 'Could not load member.')); },
       }] : []),
-      { text: 'Cancel', style: 'cancel' },
     ]);
   };
 
@@ -233,7 +240,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const subtitle = !state.online ? 'Offline — will sync when back' : conversation?.kind === 'dm' ? (conversation.peer ? shortWallet(conversation.peer.address) : 'Direct message') : isChannel ? 'Channel' : 'Group';
 
   return (
-    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={styles.root} behavior="padding">
       <View style={styles.header}>
         <Pressable onPress={onBack} hitSlop={10} accessibilityLabel="Back"><Text style={styles.back}>‹</Text></Pressable>
         <Pressable onPress={() => conversation?.kind === 'dm' && conversation.peer?.userId ? onOpenPerson?.(conversation.peer.userId) : conversation && conversation.kind !== 'dm' ? onOpenInfo?.(id, conversation.kind) : undefined} accessibilityLabel={conversation?.kind === 'dm' ? 'View user profile' : 'Open conversation info'}>
@@ -290,6 +297,10 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
                 {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} />}
+                {message.replyTo && !message.deleted ? (() => {
+                  const quoted = messages.find(item => item.id === message.replyTo);
+                  return <View style={styles.replyQuote}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={2}>{quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available'}</Text></View>;
+                })() : null}
                 {message.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : message.text ? (() => {
                   // Long messages collapse after ~12 lines so one post can't take over the chat.
                   const long = messageLength(message.text) > 700 || message.text.split('\n').length > 12;
@@ -318,6 +329,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
       </View>
       {canPost ? (
         <View>
+        {replyingTo && !editingMessageId && <View style={styles.editingBar}><View style={{ flex: 1, marginRight: 12 }}><Text style={styles.editingLabel}>Replying to {displayName(replyingTo.senderId)}</Text><Text style={styles.replyBarText} numberOfLines={1}>{replyingTo.text || '📷 Photo'}</Text></View><Pressable onPress={() => setReplyingTo(null)} hitSlop={10}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
         {editingMessageId && <View style={styles.editingBar}><Text style={styles.editingLabel}>Editing message</Text><Pressable onPress={() => { setEditingMessageId(null); setDraft(''); }}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
         {showCounter ? (
           <View style={styles.limitRow} accessibilityLiveRegion="polite">
@@ -334,7 +346,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
       ) : (
         <View style={styles.readonly}><Text style={styles.readonlyText}>{conversation?.kind === 'group' ? '📢 Only admins can send messages.' : '📢 Only the channel owner and admins can post.'}</Text></View>
       )}
-      <Modal transparent visible={!!forwardingMessage} animationType="fade" onRequestClose={() => setForwardingMessage(null)}>
+      <KivoModal transparent visible={!!forwardingMessage} animationType="fade" onRequestClose={() => setForwardingMessage(null)}>
         <View style={styles.forwardOverlay}>
           <View style={styles.forwardSheet}>
             <View style={styles.forwardHeader}>
@@ -358,7 +370,16 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
             </ScrollView>
           </View>
         </View>
-      </Modal>
+      </KivoModal>
+      <BottomSheet visible={!!optionsMenu} onClose={() => setOptionsMenu(null)}>
+        <Text style={styles.sheetTitle}>Message options</Text>
+        {(optionsMenu ?? []).map(item => (
+          <Pressable key={item.text} style={styles.sheetRow} accessibilityRole="button" onPress={() => { setOptionsMenu(null); item.onPress?.(); }}>
+            <Text style={[styles.sheetRowText, item.style === 'destructive' && styles.sheetRowDanger]}>{item.text}</Text>
+          </Pressable>
+        ))}
+        <Pressable style={styles.sheetRow} accessibilityRole="button" onPress={() => setOptionsMenu(null)}><Text style={styles.sheetCancel}>Cancel</Text></Pressable>
+      </BottomSheet>
     </KeyboardAvoidingView>
   );
 }
@@ -379,6 +400,15 @@ const styles = StyleSheet.create({
   editingBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 7, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border },
   editingLabel: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
   editingCancel: { color: c.textMuted, fontSize: 12.5, fontWeight: '700' },
+  replyBarText: { color: c.textMuted, fontSize: 12.5, marginTop: 2 },
+  replyQuote: { borderLeftWidth: 3, borderLeftColor: c.accent, paddingLeft: 8, marginBottom: 6, opacity: 0.9 },
+  replyQuoteName: { color: c.accent, fontSize: 12, fontWeight: '800' },
+  replyQuoteText: { color: c.textMuted, fontSize: 12.5 },
+  sheetTitle: { color: c.text, fontSize: 18, fontWeight: '800', marginBottom: 6 },
+  sheetRow: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: c.border },
+  sheetRowText: { color: c.text, fontSize: 16, fontWeight: '700' },
+  sheetRowDanger: { color: '#E0443E' },
+  sheetCancel: { color: c.textMuted, fontSize: 16, fontWeight: '600' },
   jumpLatest: { position: 'absolute', right: 12, bottom: 18, minWidth: 44, height: 44, borderRadius: 22, paddingHorizontal: 5, backgroundColor: '#24394B', alignItems: 'center', justifyContent: 'center', elevation: 5, flexDirection: 'row', gap: 3 },
   jumpCount: { minWidth: 25, height: 25, borderRadius: 13, paddingHorizontal: 5, backgroundColor: '#55B7F3', alignItems: 'center', justifyContent: 'center' },
   jumpCountText: { color: '#FFFFFF', fontSize: 11.5, fontWeight: '900', fontVariant: ['tabular-nums'] },

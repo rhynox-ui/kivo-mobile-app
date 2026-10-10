@@ -113,11 +113,6 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
           </View>
         </View>
 
-        {isChannel && (c.myRole === 'owner' || c.myRole === 'admin') && !(c.isVerified === true) && <View style={styles.card}>
-          <Text style={styles.cardTitle}>Blue Star verification</Text>
-          <Text style={styles.verifyIntro}>Verify this channel with a quick wallet checkout.</Text>
-          <Pressable onPress={() => onOpenVerification?.('channel', c.id, c.name)} style={styles.verifyPay}><Text style={styles.verifyPayText}>★ Get Verified</Text></Pressable>
-        </View>}
         {manager && <View style={styles.card}>
           <Text style={styles.cardTitle}>Links ★</Text>
           {links == null && !linksError ? <ActivityIndicator color={kivoTheme.colors.accent} /> : null}
@@ -125,11 +120,11 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
           {links ? <>
             <LinkFields value={linkDraft} onChange={setLinkDraft} editable={links.eligible && !busy} telegramPlaceholder={isChannel ? '@channel' : '@group'} />
             <Text style={styles.small}>{links.eligible
-              ? `Shown on this ${isChannel ? 'channel' : 'group'}'s page while ${isChannel ? 'its or its owner’s' : 'its owner’s'} Blue Star is active.`
-              : isChannel ? 'Add a website, X and Telegram with Blue Star: verify this channel, or its owner gets Verified.' : 'Add a website, X and Telegram when the group owner has a Blue Star.'}</Text>
+              ? `Shown on this ${isChannel ? 'channel' : 'group'}'s page while its owner's Blue Star is active.`
+              : `Add a website, X and Telegram when the ${isChannel ? 'channel' : 'group'} owner has a Blue Star.`}</Text>
             {links.eligible
               ? <Pressable disabled={busy} onPress={saveLinks} style={[styles.secondary, busy && styles.disabled]}><Text style={styles.secondaryText}>Save links</Text></Pressable>
-              : isChannel && onOpenVerification ? <Pressable onPress={() => onOpenVerification('channel', c.id, c.name)} style={styles.secondary}><Text style={styles.secondaryText}>★ Verify channel</Text></Pressable> : null}
+              : null}
           </> : null}
         </View>}
         <View style={styles.card}>

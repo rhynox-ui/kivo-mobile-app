@@ -1,6 +1,6 @@
 import React, {useEffect, useRef} from 'react';
-import {Animated, Dimensions, Modal, PanResponder, StyleSheet, View} from 'react-native';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {Animated, Dimensions, PanResponder, StyleSheet, View} from 'react-native';
+import {KivoModal} from './KivoModal';
 import {kivoTheme} from '../theme/kivoTheme';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -8,7 +8,6 @@ const DISMISS_DISTANCE = 120;
 const DISMISS_VELOCITY = 0.8;
 
 export function BottomSheet({visible,onClose,children,maxHeight}:{visible:boolean;onClose:()=>void;children:React.ReactNode;maxHeight?:number}) {
-  const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
 
@@ -38,17 +37,17 @@ export function BottomSheet({visible,onClose,children,maxHeight}:{visible:boolea
 
   if (!visible) return null;
   return (
-    <Modal visible transparent animationType="none" onRequestClose={close}>
+    <KivoModal visible transparent animationType="none" onRequestClose={close}>
       <View style={styles.overlay}>
         <Animated.View style={[styles.backdrop,{opacity:backdropOpacity}]}>
           <View style={StyleSheet.absoluteFill} onTouchEnd={close}/>
         </Animated.View>
-        <Animated.View style={[styles.sheet,{maxHeight:maxHeight??SCREEN_HEIGHT*0.85,paddingBottom:28+insets.bottom,transform:[{translateY}]}]}>
+        <Animated.View style={[styles.sheet,{maxHeight:maxHeight??SCREEN_HEIGHT*0.85,paddingBottom:28,transform:[{translateY}]}]}>
           <View {...panResponder.panHandlers} style={styles.handleArea}><View style={styles.handle}/></View>
           {children}
         </Animated.View>
       </View>
-    </Modal>
+    </KivoModal>
   );
 }
 

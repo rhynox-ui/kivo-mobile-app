@@ -97,6 +97,8 @@ export type ApiConversation = {
   onlyAdminsPost?: boolean;
   /** Server-owned verified status for channel conversations. */
   isVerified?: boolean;
+  /** Kivo's permanently verified official channels: kept at the top of the chat list. */
+  pinned?: boolean;
   lastSeq: number;
   lastPreview: string;
   lastSenderId: string | null;

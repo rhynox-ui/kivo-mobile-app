@@ -39,6 +39,8 @@ let opts: Options | null = null;
 let state: ChatState = EMPTY();
 const listeners = new Set<(value: ChatState) => void>();
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+/** Official (pinned) channels first, then most recent activity. */
+const byPinnedThenRecent = (a: ApiConversation, b: ApiConversation) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.lastActivityAt - a.lastActivityAt;
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
 /** Last time a chat had activity (open, send, or a new message). A quiet open chat polls less often. */
 let lastChatActivityAt = 0;
@@ -185,7 +187,7 @@ export async function syncNow(): Promise<void> {
       state = {...state, conversations: state.conversations.map(c => {
         const last = byConv.get(c.id);
         return last ? {...c, lastSeq: last.seq, lastPreview: last.deleted ? 'Message deleted' : last.text ? last.text.slice(0, 80) : '📷 Photo', lastSenderId: last.senderId, lastActivityAt: last.createdAt} : c;
-      }).sort((a, b) => b.lastActivityAt - a.lastActivityAt)};
+      }).sort(byPinnedThenRecent)};
     }
     if (generation !== ownerGeneration) return;
     await loadSenderProfiles(fresh);
@@ -308,7 +310,7 @@ async function deliver(local: LocalMessage, payload: {text: string; mediaKey?: s
     list.push({...sent, status: 'sent'});
     list.sort((a, b) => a.createdAt - b.createdAt || (a.seq || Number.MAX_SAFE_INTEGER) - (b.seq || Number.MAX_SAFE_INTEGER));
     state = {...state, messages: {...state.messages, [local.conversationId]: cap(list)}, lastRead: {...state.lastRead, [local.conversationId]: Math.max(state.lastRead[local.conversationId] ?? 0, sent.seq)}};
-    state = {...state, conversations: state.conversations.map(c => c.id === sent.conversationId ? {...c, lastSeq: sent.seq, lastPreview: sent.text ? sent.text.slice(0, 80) : '📷 Photo', lastSenderId: sent.senderId, lastActivityAt: sent.createdAt} : c).sort((a, b) => b.lastActivityAt - a.lastActivityAt)};
+    state = {...state, conversations: state.conversations.map(c => c.id === sent.conversationId ? {...c, lastSeq: sent.seq, lastPreview: sent.text ? sent.text.slice(0, 80) : '📷 Photo', lastSenderId: sent.senderId, lastActivityAt: sent.createdAt} : c).sort(byPinnedThenRecent)};
     emit();
   } catch (error) {
     if (generation !== ownerGeneration) return;

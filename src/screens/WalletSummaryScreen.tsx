@@ -36,6 +36,8 @@ import { USDC_CHAINS, formatAmount, formatUsd, shortAddress } from '@kivo/tradin
 import { NetworkIcon } from '../wallet/NetworkIcon';
 import QRCode from 'react-native-qrcode-svg';
 import { normalizeAmountInput } from '../utils/amountInput';
+import { KivoModal } from '../components/KivoModal';
+import Clipboard from '@react-native-clipboard/clipboard';
 
 type Sheet = null | 'deposit' | 'withdraw';
 type DepositNetwork = ChainKey | 'near';
@@ -221,6 +223,7 @@ function DepositSheet({
   onClose: () => void;
 }) {
   const [network, setNetwork] = useState<DepositNetwork | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!visible) {
@@ -233,7 +236,7 @@ function DepositSheet({
 
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <KivoModal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={() => {}}>
           {!selected ? (
@@ -285,8 +288,11 @@ function DepositSheet({
                 {address || 'Address unavailable'}
               </Text>
               <View style={styles.addressActions}>
+                <Pressable disabled={!address} onPress={() => { Clipboard.setString(address); setCopied(true); setTimeout(() => setCopied(false), 2000); }} style={[styles.copyButton, !address && styles.disabled]} accessibilityLabel="Copy address">
+                  <Text style={styles.copyButtonText}>{copied ? 'Copied ✓' : 'Copy address'}</Text>
+                </Pressable>
                 <Pressable disabled={!address} onPress={() => Share.share({ message: address })} style={[styles.shareButton, !address && styles.disabled]}>
-                  <Text style={styles.shareButtonText}>Share address</Text>
+                  <Text style={styles.shareButtonText}>Share</Text>
                 </Pressable>
               </View>
 
@@ -306,7 +312,7 @@ function DepositSheet({
           )}
         </Pressable>
       </Pressable>
-    </Modal>
+    </KivoModal>
   );
 }
 
@@ -435,8 +441,8 @@ This transfer cannot be reversed.`,
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={() => { if (!busy) onClose(); }}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KivoModal visible={visible} transparent animationType="slide" onRequestClose={() => { if (!busy) onClose(); }}>
+      <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable style={styles.backdrop} onPress={() => { if (!busy) onClose(); }}>
           <Pressable style={styles.sheet} onPress={() => {}}>
             {!review ? (
@@ -555,7 +561,7 @@ This transfer cannot be reversed.`,
           </Pressable>
         </Pressable>
       </KeyboardAvoidingView>
-    </Modal>
+    </KivoModal>
   );
 }
 
@@ -623,6 +629,8 @@ const styles = StyleSheet.create({
   addressActions: { flexDirection: 'row', gap: 8, marginTop: 8 },
   shareButton: { flex: 1, height: 44, borderRadius: 14, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' },
   shareButtonText: { color: c.text, fontWeight: '800', fontSize: 13 },
+  copyButton: { flex: 1, height: 44, borderRadius: 14, backgroundColor: c.cream, alignItems: 'center', justifyContent: 'center', marginRight: 8 },
+  copyButtonText: { color: c.backgroundDeep, fontWeight: '800', fontSize: 13 },
   addressFull: { color: c.text, fontSize: 14, fontWeight: '600', marginTop: 8, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
   label: { color: c.textMuted, fontSize: 11, fontWeight: '900', letterSpacing: 1, marginTop: 12, textTransform: 'uppercase' },
   input: { height: 48, borderRadius: 14, paddingHorizontal: 14, backgroundColor: c.backgroundDeep, color: c.text, fontSize: 15, borderWidth: 1, borderColor: c.border, marginTop: 7 },

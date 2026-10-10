@@ -317,6 +317,12 @@ export type ChartTotal = {
   reused: string[];
   /** Sources with no recent reading (why there is no chart point). */
   unknown: string[];
+  /**
+   * Networks whose token list the index could not return. Native coins and
+   * USDC on those networks are still read directly from the chain, so this
+   * does not stop the chart; the UI says which networks' extra tokens are left out.
+   */
+  excluded: string[];
 };
 
 const isIndexerSource = (source: string) => source === 'indexer' || source.startsWith('indexer:') || source.endsWith(':indexer');
@@ -340,22 +346,31 @@ export async function chartTotal(storage: KeyValueStorage, address: string, port
   let total = portfolio.holdings.reduce((sum, item) => sum + (missing.has(item.key) || (indexerDown && item.source === 'indexer') ? 0 : item.valueUsd ?? 0), 0);
   const reused: string[] = [];
   const unknown: string[] = [];
+  const excluded: string[] = [];
   for (const source of missing) {
     const last = known[source];
-    // A partly answered index has no per-network reading to reuse.
-    if (source !== 'indexer' && isIndexerSource(source)) { unknown.push(source); continue; }
+    // A partly answered index: that network's extra tokens are left out of
+    // this reading (its coin and USDC are read directly), so the chart goes on.
+    if (source !== 'indexer' && isIndexerSource(source)) { excluded.push(source); continue; }
     if (last && Number.isFinite(last.usd) && now - last.at <= LAST_KNOWN_MAX_AGE_MS) { total += last.usd; reused.push(source); }
     else unknown.push(source);
   }
   void Promise.resolve(storage.setItem(key, JSON.stringify(known))).catch(() => {});
-  return {totalUsd: unknown.length ? null : total, reused, unknown};
+  return {totalUsd: unknown.length ? null : total, reused, unknown, excluded};
+}
+
+/** The index names networks its own way ("stable-mainnet", "bsc"); map them to Kivo's chain keys. */
+function indexerNetworkToChain(network: string): string {
+  const base = network.toLowerCase().replace(/[-_]mainnet$/, '');
+  const aliases: Record<string, string> = {bsc: 'bnb', 'binance-smart-chain': 'bnb', 'arbitrum-one': 'arbitrum', arb: 'arbitrum', avax: 'avalanche', 'x-layer': 'xlayer', okx: 'xlayer', hyperliquid: 'hyperevm', eth: 'ethereum', mainnet: 'ethereum'};
+  return aliases[base] ?? base;
 }
 
 /** "Base, BNB Chain and the token index" from missing source keys, for UI notes. */
 export function missingSourceNames(sources: string[]): string {
   const names = [...new Set(sources.map(source => {
     if (source === 'indexer' || source.startsWith('indexer:')) return 'the token index';
-    const chain = source.split(':')[0];
+    const chain = indexerNetworkToChain(source.split(':')[0]);
     if (chain === 'near') return tradeChainLabel('near');
     return CHAIN_LABEL[chain as ChainKey] ?? chain;
   }))];

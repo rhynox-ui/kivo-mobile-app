@@ -20,6 +20,7 @@ import { MAINNET_CHAIN_IDS } from '@kivo/trading/core/chainData';
 import { checkSolanaTokenSecurity, checkTokenSecurity } from '@kivo/trading/core/goplusTokenSecurity';
 import { NearTradePanel } from './NearTradePanel';
 import { normalizeAmountInput } from '../utils/amountInput';
+import { KivoModal } from '../components/KivoModal';
 
 type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
 type ExecResult = { tone: 'success' | 'pending' | 'error'; message: string; hashes: string[]; chainIds: number[]; requestId: string | null };
@@ -395,7 +396,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
           </>
         )}
 
-      <Modal visible={chainOpen} transparent animationType="slide" onRequestClose={() => setChainOpen(false)}>
+      <KivoModal visible={chainOpen} transparent animationType="slide" onRequestClose={() => setChainOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setChainOpen(false)}>
           <Pressable style={styles.sheet} onPress={() => {}}>
             <Text style={styles.sheetTitle}>Your cash</Text>
@@ -413,9 +414,9 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
             {plan && plan.legs.length > 1 && side === 'buy' && <Text style={styles.small}>This buy is split across {plan.legs.length} networks, each part checked by the firewall and signed together.</Text>}
           </Pressable>
         </Pressable>
-      </Modal>
+      </KivoModal>
 
-      <Modal visible={settingsOpen} transparent animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
+      <KivoModal visible={settingsOpen} transparent animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setSettingsOpen(false)}>
           <Pressable style={[styles.sheet, styles.settingsSheet]} onPress={() => {}}>
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -449,8 +450,8 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
             </ScrollView>
           </Pressable>
         </Pressable>
-      </Modal>
-      <Modal visible={reviewOpen} transparent animationType="slide" onRequestClose={closeReview}>
+      </KivoModal>
+      <KivoModal visible={reviewOpen} transparent animationType="slide" onRequestClose={closeReview}>
         <View style={styles.sheetBackdrop}>
           <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>Confirm {side}</Text>
@@ -488,15 +489,17 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
               <Pressable onPress={closeReview} style={styles.secondaryButton}><Text style={styles.secondaryText}>Close</Text></Pressable>
             ) : (
               <>
-                <Pressable disabled={running || !preflight?.ok} onPress={execute} style={[styles.primaryButton, side === 'sell' && styles.sellButton, (running || !preflight?.ok) && styles.disabled]}>
-                  <Text style={styles.primaryText}>{running ? 'Working…' : 'Confirm and sign'}</Text>
+                <Pressable disabled={running || !preflight?.ok} onPress={execute} style={({ pressed }) => [styles.primaryButton, side === 'sell' && styles.sellButton, (running || !preflight?.ok) && styles.disabled, pressed && styles.pressed]}>
+                  {/* Immediate feedback: the first tap is enough (the safety check and wallet unlock take a moment). */}
+                  {running ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep} /> : null}
+                  <Text style={styles.primaryText}>{running ? (update?.stage === 'awaiting-signature' ? 'Signing…' : update?.stage === 'filling' ? 'Submitting…' : 'Checking…') : 'Confirm and sign'}</Text>
                 </Pressable>
                 {!running && <Pressable onPress={closeReview} style={styles.ghostButton}><Text style={styles.secondaryText}>Cancel</Text></Pressable>}
               </>
             )}
           </View>
         </View>
-      </Modal>
+      </KivoModal>
     </ScrollView>
   );
 }
@@ -612,8 +615,9 @@ const styles = StyleSheet.create({
   chipTextActive: { color: c.backgroundDeep },
   error: { color: c.danger, fontSize: 12, lineHeight: 18, marginTop: 6 },
   okText: { color: c.success, fontSize: 12, lineHeight: 18, marginTop: 10 },
-  primaryButton: { marginTop: 12, height: 48, borderRadius: 24, backgroundColor: c.success, alignItems: 'center', justifyContent: 'center' },
+  primaryButton: { marginTop: 12, height: 48, borderRadius: 24, backgroundColor: c.success, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
   sellButton: { backgroundColor: c.danger },
+  pressed: { opacity: 0.75 },
   primaryText: { color: c.backgroundDeep, fontWeight: '800', fontSize: 14.5, textTransform: 'capitalize' },
   secondaryButton: { marginTop: 12, height: 48, borderRadius: 24, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
   ghostButton: { marginTop: 8, height: 44, alignItems: 'center', justifyContent: 'center' },
