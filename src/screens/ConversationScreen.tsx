@@ -71,8 +71,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const previousMessageCount = useRef(messages.length);
   const [unseenMessages, setUnseenMessages] = useState(0);
   const me = myUserId();
-  // Message length: 500 characters without Blue Star, effectively unlimited with
-  // it. The server enforces this; the counter only helps before sending.
+  // Message length: 200 characters without Blue Star, 5,000 with it.
+  // The server enforces this; the counter only helps before sending.
   const [verifiedSender, setVerifiedSender] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   useEffect(() => {
@@ -304,7 +304,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
         {showCounter ? (
           <View style={styles.limitRow} accessibilityLiveRegion="polite">
             <Text style={[styles.limitCount, overLimit && styles.limitOver]}>{draftLength.toLocaleString()}/{charLimit.toLocaleString()}</Text>
-            {overLimit && !verifiedSender ? <Text style={styles.limitHint}>★ Get Verified for unlimited length</Text> : null}
+            {overLimit && !verifiedSender ? <Text style={styles.limitHint}>★ Get Verified for up to 5,000 characters</Text> : null}
           </View>
         ) : null}
         <View style={styles.composer}>

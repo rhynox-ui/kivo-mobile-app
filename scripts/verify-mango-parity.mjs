@@ -110,7 +110,9 @@ check('Mango Convert execution parity', () => {
   assert.ok(s.includes('useGaslessTrading:true'));
   assert.ok(s.includes('recordTrade'));
   assert.ok(s.includes('NetworkIcon'));
-  assert.ok(s.includes("from==='arc'"));
+  // Arc's gas reserve is kept by the shared spendableCash() (trading/core/usdcBalances.ts).
+  assert.ok(s.includes('spendableCash('));
+  assert.ok(read('trading/core/usdcBalances.ts').includes('ARC_GAS_RESERVE_USDC'));
 });
 check('Critical trading files are typechecked', () => {
   assert.equal(Object.prototype.hasOwnProperty.call(JSON.parse(read('tsconfig.json')), 'exclude'), false);

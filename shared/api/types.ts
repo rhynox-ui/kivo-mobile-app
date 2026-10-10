@@ -10,13 +10,18 @@
 export const API_LIMITS = {
   /** Server keeps messages this long; devices keep their own history. */
   messageTtlDays: 30,
-  /** Hard technical ceiling for one message (verified accounts' "unlimited"). */
-  maxMessageChars: 50_000,
+  /** Per-message length for accounts with an active Blue Star. */
+  maxMessageChars: 5_000,
   /** Per-message length for accounts without an active Blue Star. */
-  maxMessageCharsUnverified: 500,
+  maxMessageCharsUnverified: 200,
   maxUsernameChars: 32,
   maxBioChars: 160,
   maxCommunityNameChars: 48,
+  /** Groups/channels one account may own: 1 each without Blue Star, 10 each with it (server enforced). */
+  maxOwnedChannels: 10,
+  maxOwnedGroups: 10,
+  maxOwnedChannelsUnverified: 1,
+  maxOwnedGroupsUnverified: 1,
   maxCommunityDescriptionChars: 280,
   /** Upload caps after client-side compression. */
   maxImageBytes: 160 * 1024,
@@ -152,7 +157,7 @@ export function messageLength(text: string): number {
   return Array.from(text).length;
 }
 
-/** Characters one message may hold: 500 without Blue Star, effectively unlimited with it. */
+/** Characters one message may hold: 200 without Blue Star, 5,000 with it. */
 export function messageCharLimit(verified: boolean): number {
   return verified ? API_LIMITS.maxMessageChars : API_LIMITS.maxMessageCharsUnverified;
 }
