@@ -108,15 +108,27 @@ function Row({ conversation: c, onPress }: { conversation: ApiConversation; onPr
   const [peerVerified, setPeerVerified] = useState(false);
   useEffect(() => {
     let active = true;
-    setPeerVerified(false);
-    if (c.kind === 'dm' && c.peer?.userId) {
-      api.verificationStatus('profile', c.peer.userId)
+    const check = () => {
+      if (c.kind !== 'dm' || !c.peer?.userId) {
+        setPeerVerified(false);
+        return;
+      }
+      void api.verificationStatus('profile', c.peer.userId)
         .then(status => { if (active) setPeerVerified(status.isVerified === true); })
         .catch(() => { if (active) setPeerVerified(false); });
-    }
-    return () => { active = false; };
+    };
+    setPeerVerified(false);
+    check();
+    // Verification can expire or be revoked while this row remains mounted.
+    const timer = setInterval(check, 60_000);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') check();
+    });
+    return () => { active = false; clearInterval(timer); subscription.remove(); };
   }, [c.id, c.kind, c.peer?.userId]);
-  const verified = c.isVerified === true || peerVerified;
+  // A DM's cached conversation flag must never override the live profile
+  // status: the avatar shape and star use the exact same verified boolean.
+  const verified = c.kind === 'dm' ? peerVerified : c.isVerified === true;
   const me = myUserId();
   const prefix = c.lastSenderId && c.kind !== 'channel' && c.lastPreview ? (c.lastSenderId === me ? 'You: ' : c.kind === 'group' ? `${displayName(c.lastSenderId)}: ` : '') : '';
   return (
@@ -137,7 +149,7 @@ function Row({ conversation: c, onPress }: { conversation: ApiConversation; onPr
 }
 
 export function Avatar({ name, uri, size, verified = false }: { name: string; uri?: string | null; size: number; verified?: boolean }) {
-  // Verification is supplied only by the server-owned status endpoint or the official-channel allowlist.
+  // Callers pass only a server-confirmed verification status.
   const borderRadius = verified ? 6 : size / 2;
   return (
     <View style={{ width: size, height: size, position: 'relative', overflow: 'visible' }}>
