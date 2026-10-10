@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import type { ApiProfile, ProfileSocial, PublicCommunityCard } from '@kivo/shared/api/types';
+import { isOfficialKivoChannel, type ApiProfile, type ProfileSocial, type PublicCommunityCard } from '@kivo/shared/api/types';
 import { openDirectMessage, rememberProfiles } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { api, socialReady } from '../state/session';
@@ -63,7 +63,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
         <Text style={styles.section}>Joined groups</Text>
         {groups.length === 0 ? <Text style={styles.note}>No public groups yet.</Text> : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
-            {groups.map(g => <Pressable key={g.id} onPress={() => onOpenCommunity(g.id)} style={styles.tile}><Avatar name={g.name} uri={g.avatarUrl} size={40} /><Text style={styles.tileName} numberOfLines={1}>{g.name}</Text><Text style={styles.note}>{g.memberCount} {g.kind === 'channel' ? 'subscribers' : 'members'}</Text></Pressable>)}
+            {groups.map(g => { const verified = g.kind === 'channel' && isOfficialKivoChannel(g.id); return <Pressable key={g.id} onPress={() => onOpenCommunity(g.id)} style={styles.tile}><Avatar name={g.name} uri={g.avatarUrl} size={40} verified={verified} /><View style={styles.tileNameLine}><Text style={styles.tileName} numberOfLines={1}>{g.name}</Text>{verified ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View><Text style={styles.note}>{g.memberCount} {g.kind === 'channel' ? 'subscribers' : 'members'}</Text></Pressable>; })}
           </ScrollView>
         )}
       </ScrollView>
@@ -106,5 +106,6 @@ const styles = StyleSheet.create({
   section: { alignSelf: 'flex-start', color: c.text, fontSize: 17, fontWeight: '800', marginTop: 12 },
   strip: { gap: 10 },
   tile: { width: 140, padding: 12, borderRadius: 16, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, gap: 6 },
+  tileNameLine: { flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: 150 },
   tileName: { color: c.text, fontWeight: '800' },
 });
