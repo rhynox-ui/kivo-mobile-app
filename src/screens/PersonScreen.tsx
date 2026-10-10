@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { isOfficialKivoChannel, type ApiProfile, type ProfileSocial, type PublicCommunityCard } from '@kivo/shared/api/types';
+import { type ApiProfile, type ProfileSocial, type PublicCommunityCard } from '@kivo/shared/api/types';
 import { openDirectMessage, rememberProfiles } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { api, socialReady } from '../state/session';
@@ -63,7 +63,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
         <Text style={styles.section}>Joined groups</Text>
         {groups.length === 0 ? <Text style={styles.note}>No public groups yet.</Text> : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
-            {groups.map(g => { const verified = g.kind === 'channel' && isOfficialKivoChannel(g.id); return <Pressable key={g.id} onPress={() => onOpenCommunity(g.id)} style={styles.tile}><Avatar name={g.name} uri={g.avatarUrl} size={40} verified={verified} /><View style={styles.tileNameLine}><Text style={styles.tileName} numberOfLines={1}>{g.name}</Text>{verified ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View><Text style={styles.note}>{g.memberCount} {g.kind === 'channel' ? 'subscribers' : 'members'}</Text></Pressable>; })}
+            {groups.map(g => { const verified = false; return <Pressable key={g.id} onPress={() => onOpenCommunity(g.id)} style={styles.tile}><Avatar name={g.name} uri={g.avatarUrl} size={40} verified={verified} /><View style={styles.tileNameLine}><Text style={styles.tileName} numberOfLines={1}>{g.name}</Text>{verified ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View><Text style={styles.note}>{g.memberCount} {g.kind === 'channel' ? 'subscribers' : 'members'}</Text></Pressable>; })}
           </ScrollView>
         )}
       </ScrollView>
