@@ -128,6 +128,18 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon -PVERSION_CODE=${{ github.run_number }} -PVERSION_NAME="${{ inputs.version_name }}"
 
+      - name: Check APK (Google Play 16 KB pages, size, checksum)
+        id: apk_check
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          python3 scripts/check-apk-16kb.py "$APK"
+          SIZE=$(stat -c %s "$APK")
+          SHA=$(sha256sum "$APK" | cut -d' ' -f1)
+          echo "APK size: $SIZE bytes, sha256: $SHA"
+          echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v6
         with:
@@ -153,6 +165,9 @@ jobs:
             Signed Kivo release build.
             APK: direct Android installation/testing.
             AAB: Google Play upload.
+
+            APK size: ${{ steps.apk_check.outputs.size }} bytes. If the downloaded file is smaller, the download was cut short; download it again.
+            APK sha256: ${{ steps.apk_check.outputs.sha }}
           files: |
             android/app/build/outputs/apk/release/*.apk
             android/app/build/outputs/bundle/release/*.aab
