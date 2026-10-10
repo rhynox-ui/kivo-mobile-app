@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
+import { Alert, AppState, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { API_LIMITS } from '@kivo/shared/api/types';
 import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
