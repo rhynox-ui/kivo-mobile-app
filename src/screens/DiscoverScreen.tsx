@@ -66,6 +66,15 @@ function Communities({ kind, onOpenChat, onOpenCommunity }: { kind: 'group' | 'c
 function People({ onOpenPerson }: { onOpenPerson: (userId: string) => void }) {
   const [query, setQuery] = useState('');
   const [people, setPeople] = useState<ApiProfile[]>([]);
+  const [verifiedPeople, setVerifiedPeople] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    let active = true;
+    void Promise.all(people.map(async person => {
+      try { const status = await api.verificationStatus('profile', person.userId); return status.isVerified === true ? person.userId : null; }
+      catch { return null; }
+    })).then(results => { if (active) setVerifiedPeople(new Set(results.filter((id): id is string => Boolean(id)))); });
+    return () => { active = false; };
+  }, [people]);
   useEffect(() => {
     const q = query.trim();
     if (!q) { setPeople([]); return; }
@@ -82,7 +91,7 @@ function People({ onOpenPerson }: { onOpenPerson: (userId: string) => void }) {
       {people.filter(p => p.address !== me).map(p => (
         <Pressable key={p.userId} onPress={() => onOpenPerson(p.userId)} style={styles.card}>
           <Avatar name={p.username ?? p.address} uri={p.avatarUrl} size={42} />
-          <View style={styles.flex}><Text style={styles.name}>{p.username ? '@' + p.username : p.address}</Text>{p.bio ? <Text style={styles.small} numberOfLines={1}>{p.bio}</Text> : null}</View>
+          <View style={styles.flex}><View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{p.username ? '@' + p.username : p.address}</Text>{verifiedPeople.has(p.userId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>{p.bio ? <Text style={styles.small} numberOfLines={1}>{p.bio}</Text> : null}</View>
         </Pressable>
       ))}
     </ScrollView>
