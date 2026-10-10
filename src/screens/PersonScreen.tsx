@@ -11,6 +11,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
   const [person, setPerson] = useState<ApiProfile | null>(null);
   const [stats, setStats] = useState<ProfileSocial | null>(null);
   const [groups, setGroups] = useState<PublicCommunityCard[]>([]);
+  const [verifiedChannels, setVerifiedChannels] = useState<Set<string>>(() => new Set());
   const [blocked, setBlocked] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<{isVerified: boolean; expiresAt: number | null; permanent: boolean} | null>(null);
   const address = userId.replace(/^kivo:/, '');
@@ -20,6 +21,16 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
     api.publicCommunitiesOf(userId).then(setGroups).catch(() => {});
     api.blockedUsers().then(ids => setBlocked(ids.includes(userId))).catch(() => {});
   }, [userId]);
+  useEffect(() => {
+    let active = true;
+    setVerifiedChannels(new Set());
+    const channelIds = groups.filter(group => group.kind === 'channel').map(group => group.id);
+    void Promise.all(channelIds.map(async id => {
+      try { return (await api.verificationStatus('channel', id)).isVerified === true ? id : null; }
+      catch { return null; }
+    })).then(ids => { if (active) setVerifiedChannels(new Set(ids.filter((id): id is string => Boolean(id)))); });
+    return () => { active = false; };
+  }, [groups]);
   useEffect(() => {
     let active = true;
     setVerificationStatus(null);
@@ -63,7 +74,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
         <Text style={styles.section}>Joined groups</Text>
         {groups.length === 0 ? <Text style={styles.note}>No public groups yet.</Text> : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
-            {groups.map(g => { const verified = false; return <Pressable key={g.id} onPress={() => onOpenCommunity(g.id)} style={styles.tile}><Avatar name={g.name} uri={g.avatarUrl} size={40} verified={verified} /><View style={styles.tileNameLine}><Text style={styles.tileName} numberOfLines={1}>{g.name}</Text>{verified ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View><Text style={styles.note}>{g.memberCount} {g.kind === 'channel' ? 'subscribers' : 'members'}</Text></Pressable>; })}
+            {groups.map(g => { const verified = g.kind === 'channel' && verifiedChannels.has(g.id); return <Pressable key={g.id} onPress={() => onOpenCommunity(g.id)} style={styles.tile}><Avatar name={g.name} uri={g.avatarUrl} size={40} verified={verified} /><View style={styles.tileNameLine}><Text style={styles.tileName} numberOfLines={1}>{g.name}</Text>{verified ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View><Text style={styles.note}>{g.memberCount} {g.kind === 'channel' ? 'subscribers' : 'members'}</Text></Pressable>; })}
           </ScrollView>
         )}
       </ScrollView>
