@@ -19,6 +19,7 @@ import { TokenChartPanel } from '../components/TokenChartPanel';
 import { MAINNET_CHAIN_IDS } from '@kivo/trading/core/chainData';
 import { checkSolanaTokenSecurity, checkTokenSecurity } from '@kivo/trading/core/goplusTokenSecurity';
 import { NearTradePanel } from './NearTradePanel';
+import { normalizeAmountInput } from '../utils/amountInput';
 
 type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
 type ExecResult = { tone: 'success' | 'pending' | 'error'; message: string; hashes: string[]; chainIds: number[]; requestId: string | null };
@@ -358,7 +359,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
               <Text style={styles.cardLabel}>YOU PAY</Text>
               <View style={styles.cardRow}>
                 <AssetChip symbol={side === 'buy' ? 'USDC' : token!.symbol} uri={side === 'buy' ? null : token!.imageUrl} />
-                <TextInput ref={amountRef} editable={!disabledInput} value={amount} onChangeText={value => setAmount(value.replace(',', '.'))} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.amountInput} accessibilityLabel={side === 'buy' ? 'USDC to spend' : `${token!.symbol} to sell`} />
+                <TextInput ref={amountRef} editable={!disabledInput} value={amount} onChangeText={value => setAmount(normalizeAmountInput(value))} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.amountInput} accessibilityLabel={side === 'buy' ? 'USDC to spend' : `${token!.symbol} to sell`} />
               </View>
               <Text style={styles.avail}>{!wallet ? '' : available != null ? `${formatAmount(available)} avail.` : side === 'sell' && balanceError ? 'Balance unavailable' : 'Reading balance…'}</Text>
             </View>

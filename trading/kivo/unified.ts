@@ -62,7 +62,7 @@ export async function planUnifiedBuy(params: {
       const legUsd = Math.min(remainingUsd, contributor.balance);
       if (legUsd < MIN_LEG_USD) throw new Error('leg too small');
       const quote = await requestKivoQuote({
-        side: 'buy', token, amount: legUsd.toFixed(Math.max(2, contributor.decimals)), userAddress, payChain: contributor.chainKey,
+        side: 'buy', token, amount: floorUsdAmount(legUsd, contributor.decimals), userAddress, payChain: contributor.chainKey,
         payAsset: {chainKey: contributor.chainKey, address: contributor.address, symbol: contributor.symbol, decimals: contributor.decimals},
         recipientAddress: token.chainKey === 'solana' ? solanaAddress : userAddress,
         tokenDecimals, slippageBps, execution: 'gasless',
@@ -130,4 +130,17 @@ export function combinedView(legs: UnifiedLeg[]): KivoQuoteView {
     transactionCount: views.reduce((acc, v) => acc + v.transactionCount, 0),
     unsupportedReason: views.find(v => v.unsupportedReason)?.unsupportedReason ?? null,
   };
+}
+
+/**
+ * A dollar amount as a decimal string that never exceeds the float it came
+ * from. toFixed(18) on a float invents digits (1.1 -> 1.100000000000000089),
+ * which asked to spend more than an 18-decimal balance (BNB Chain USDC) held.
+ */
+export function floorUsdAmount(value: number, decimals: number): string {
+  const places = Math.min(6, Math.max(2, decimals));
+  const scale = 10 ** places;
+  // The tiny epsilon only absorbs float noise (0.3 * 1e6 = 299999.99999999994).
+  const floored = Math.floor(value * scale + 1e-6) / scale;
+  return Math.max(0, floored).toFixed(places);
 }

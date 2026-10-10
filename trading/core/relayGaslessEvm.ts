@@ -57,6 +57,9 @@ const CALIBUR_EIP712_TYPES = {
 
 type RelayExecuteResponse = {requestId?: string; error?: string; message?: string};
 
+/** How long a signed gasless batch stays valid (Relay normally lands it within seconds). */
+const GASLESS_BATCH_TTL_SECONDS = 15 * 60;
+
 async function postRelayExecute(body: Record<string, unknown>): Promise<RelayExecuteResponse> {
   if (!RELAY_EXECUTE_PROXY_URL) throw new Error('Gasless execution is not configured in this build.');
   const res = await fetch(RELAY_EXECUTE_PROXY_URL, {
@@ -241,7 +244,9 @@ export async function sendEvmCallsViaRelayGasless(params: {
     nonce: caliburNonce,
     keyHash: ROOT_KEY_HASH,
     executor: '0x0000000000000000000000000000000000000000' as Address,
-    deadline: 0n,
+    // Expires instead of staying valid forever: a batch Relay never landed
+    // (e.g. a trade shown as pending) can't be submitted by anyone much later.
+    deadline: BigInt(Math.floor(Date.now() / 1000) + GASLESS_BATCH_TTL_SECONDS),
   };
 
   const signature = await walletClient.signTypedData({

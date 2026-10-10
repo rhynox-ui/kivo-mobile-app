@@ -7,6 +7,7 @@ import { getWalletSession, walletKind } from '../state/walletStore';
 import { LineChart } from '../components/LineChart';
 import { MAINNET_CHAIN_IDS } from '@kivo/trading/core/chainData';
 import { checkSolanaTokenSecurity, checkTokenSecurity, type TokenSecuritySummary } from '@kivo/trading/core/goplusTokenSecurity';
+import { openHttpsUrl } from '../utils/openExternal';
 
 const RANGES: ChartRange[] = ['1H', '1D', '1W', '1M'];
 
@@ -105,8 +106,8 @@ export function TokenDetailScreen({ token, onBuy, onSell, onBack, onMarket }: {
           <Stat label="24h trades" value={market.buys24h == null ? '—' : `${market.buys24h} buys · ${market.sells24h ?? 0} sells`} />
           <Stat label="Pool" value={`${market.dexId ?? 'DEX'} · ${shortAddress(market.pairAddress)}`} />
           <View style={styles.links}>
-            {market.socialLinks.map(link => <Pressable key={link.url} onPress={() => Linking.openURL(link.url)}><Text style={styles.link}>{link.kind === 'x' ? 'X' : link.kind === 'telegram' ? 'Telegram' : 'Website'}</Text></Pressable>)}
-            <Pressable onPress={() => Linking.openURL(market.dexScreenerUrl)}><Text style={styles.link}>DexScreener</Text></Pressable>
+            {market.socialLinks.map(link => <Pressable key={link.url} onPress={() => openHttpsUrl(link.url)}><Text style={styles.link}>{link.kind === 'x' ? 'X' : link.kind === 'telegram' ? 'Telegram' : 'Website'}</Text></Pressable>)}
+            <Pressable onPress={() => openHttpsUrl(market.dexScreenerUrl)}><Text style={styles.link}>DexScreener</Text></Pressable>
           </View>
         </View>
       )}

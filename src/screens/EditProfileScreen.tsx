@@ -5,7 +5,7 @@ import { API_LIMITS, normalizeProfileLinks, shortWallet, type ProfileLinks } fro
 import { validBio, validProfileUsername } from '../domain/socialValidation';
 import { getProfile, updateProfile } from '../state/profileStore';
 import { api, socialReady } from '../state/session';
-import { signMessageWithLocalWallet } from '../state/walletStore';
+import { signKivoMessage } from '../state/signGuard';
 import { getWalletSession } from '../state/walletStore';
 import { KivoMark } from '../components/KivoMark';
 import { LinkFields, linkDraftFrom, type LinkDraft } from '../components/ProfileLinks';
@@ -78,7 +78,7 @@ export function EditProfileScreen({ onBack, onOpenVerification }: { onBack: () =
         const avatarAction: 'keep' | 'remove' | 'upload' = avatarFile ? 'upload' : avatarUri ? 'keep' : 'remove';
         // Links are part of the signed approval text, exactly as on web and the server.
         const approval = await api.requestProfileApproval({ username, bio, avatarAction, ...(links ? { links } : {}) });
-        const signature = await signMessageWithLocalWallet(approval.message);
+        const signature = await signKivoMessage(approval.message, 'profile');
         let avatarKey: string | null | undefined;
         if (avatarFile) {
           const uploaded = await api.uploadImage(avatarFile.bytes, avatarFile.type, 'avatar');

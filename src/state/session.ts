@@ -14,7 +14,8 @@ import { activateChat, configureChat, startChatSync, stopChatSync } from '@kivo/
 import { activateProfileForWallet, configureProfileStore, getProfile, updateProfile } from '@kivo/shared/profile/store';
 import { activateTradeHistory, configureTradeHistory } from '@kivo/trading/kivo/history';
 import { addNotification, setNotificationOwner } from './notificationStore';
-import { getWalletSession, signMessageWithLocalWallet, subscribeToWallet } from './walletStore';
+import { getWalletSession, subscribeToWallet } from './walletStore';
+import { signKivoMessage } from './signGuard';
 import { loadSettings } from './settingsStore';
 
 /** Same Cloudflare Pages project as the web app (stable URL). */
@@ -133,7 +134,7 @@ export async function startKivoSession() {
 export async function enableSocial() {
   const wallet = getWalletSession();
   if (!wallet) throw new Error('Set up a wallet first.');
-  await api.signIn(wallet.address, signMessageWithLocalWallet);
+  await api.signIn(wallet.address, message => signKivoMessage(message, 'sign-in'));
   await pullServerProfile();
   syncChatForAppState();
 }

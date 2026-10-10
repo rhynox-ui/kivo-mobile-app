@@ -97,7 +97,8 @@ export async function fundNearUsdcForTrade(
     const sourceAsset = findOneClickAssetId(tokens, blockchain, sourceContract);
     if (!sourceAsset) continue;
     const decimals = assetDecimalsForChain(sourceChain, 'USDC') ?? NEAR_USDC_DECIMALS;
-    const availableUnits = BigInt(Math.floor(source.balance * 10 ** decimals));
+    // Whole micro-dollars only: float * 10**18 can round above the real balance.
+    const availableUnits = BigInt(Math.max(0, Math.floor(source.balance * 1e6 + 1e-6))) * 10n ** BigInt(Math.max(0, decimals - 6));
     if (availableUnits <= 0n) continue;
 
     for (const factor of factors) {

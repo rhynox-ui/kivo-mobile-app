@@ -35,6 +35,7 @@ import { fetchGaslessStatus, type GaslessStatus } from '@kivo/trading/kivo/gasle
 import { USDC_CHAINS, formatAmount, formatUsd, shortAddress } from '@kivo/trading/kivo/tokens';
 import { NetworkIcon } from '../wallet/NetworkIcon';
 import QRCode from 'react-native-qrcode-svg';
+import { normalizeAmountInput } from '../utils/amountInput';
 
 type Sheet = null | 'deposit' | 'withdraw';
 type DepositNetwork = ChainKey | 'near';
@@ -334,7 +335,7 @@ function WithdrawSheet({
   const [review, setReview] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string; hash?: string; chainId?: number } | null>(null);
 
-  // Mango parity: the withdrawal picker always shows every supported cash network, not only networks with a positive balance. The selected network then shows its live available balance (including 0), so users can still choose the network before funding it.\n  const chains = useMemo<WithdrawNetwork[]>(() => { const supported: WithdrawNetwork[] = [...CASH_CHAINS]; if (wallet.nearAddress && nearCashMoveChains().length > 0) supported.push('near'); return [...new Set<WithdrawNetwork>(supported)]; }, [wallet.nearAddress]);
+  // Mango parity: the withdrawal picker always shows every supported cash network, not only networks with a positive balance. The selected network then shows its live available balance (including 0), so users can still choose the network before funding it.
   const row = chain && chain !== 'near' ? rows?.find(r => r.chainKey === chain) : null;
   const available = chain === 'near' ? nearBalance : (row?.status === 'ok' ? row.balance.amount : 0);
   const parsed = Number(amount);
@@ -355,7 +356,8 @@ function WithdrawSheet({
     setChain(null);
     const nearChains = nearCashMoveChains();
     setDestination(current => nearChains.includes(current) ? current : (nearChains[0] ?? 'base'));
-  }, [visible, rows?.length, nearBalance]);
+    // Only when the sheet opens: balances arriving later must not wipe what was typed.
+  }, [visible]);
 
   const problem = !chain
     ? 'Choose a network.'
@@ -381,7 +383,7 @@ function WithdrawSheet({
       const outcome = await withDeviceAccounts(`Send ${amount} USDC`, async accounts => {
         if (chain !== 'near') return withdrawUsdc(chain, accounts.evm, accounts.solana, to.trim(), amount);
         const tokens = await fetchOneClickTokens();
-        const move = nearCashMoveRequest({direction: 'from-near', chainKey: destination, amountBaseUnits: parseUnits(amount, NEAR_USDC_DECIMALS).toString(), session: accounts.relay, tokens, dry: false});
+        const move = nearCashMoveRequest({direction: 'from-near', chainKey: destination, amountBaseUnits: parseUnits(amount, NEAR_USDC_DECIMALS).toString(), session: accounts.relay, tokens, dry: false, recipient: to.trim()});
         const response = await requestOneClickQuote(move.request);
         const record = await fundOneClickQuote({
           response, expected: move.expected, originChainKey: 'near', originSymbol: 'USDC', originDecimals: NEAR_USDC_DECIMALS,
@@ -393,15 +395,16 @@ function WithdrawSheet({
             return sent.hash;
           },
         });
-        return {hash: record.depositTxHash ?? ''};
+        return {hash: record.depositTxHash || undefined};
       });
       clearCashBalanceCache();
       setResult({
         ok: true,
-        message: chain === 'near' ? `Sent ${amount} USDC from NEAR to ${CHAIN_LABEL[destination]}.` : `Sent ${amount} USDC on ${CHAIN_LABEL[chain]}.`,
+        // A NEAR withdrawal is delivered by NEAR Intents after the deposit lands; it is not "sent" yet.
+        message: chain === 'near' ? `Submitted: ${amount} USDC from NEAR to ${shortAddress(to.trim())} on ${CHAIN_LABEL[destination]}. NEAR Intents delivers it in a few minutes.` : `Sent ${amount} USDC on ${CHAIN_LABEL[chain]}.`,
         hash: outcome.hash,
       });
-      addNotification('Withdrawal sent', `${amount} USDC to ${shortAddress(to.trim())}`);
+      addNotification(chain === 'near' ? 'Withdrawal submitted' : 'Withdrawal sent', `${amount} USDC to ${shortAddress(to.trim())}`);
       setAmount('');
       setTo('');
       setReview(false);
@@ -469,7 +472,7 @@ This transfer cannot be reversed.`,
                         <NetworkBadge network={chain} />
                         <View style={{flex:1}}>
                           <Text style={styles.selectedNetworkTitle}>{chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}</Text>
-                          <Text style={styles.selectedNetworkBalance}>Available · {'$'}{formatUsd(available)}</Text>
+                          <Text style={styles.selectedNetworkBalance}>Available · {formatUsd(available)}</Text>
                         </View>
                         <Pressable onPress={() => {setChain(null);setTo('');setAmount('');setResult(null);}} hitSlop={10}>
                           <Text style={styles.changeText}>Change</Text>
@@ -497,7 +500,7 @@ This transfer cannot be reversed.`,
                     <View style={styles.amountRow}>
                       <TextInput
                         value={amount}
-                        onChangeText={v => setAmount(v.replace(',', '.'))}
+                        onChangeText={v => setAmount(normalizeAmountInput(v))}
                         keyboardType="decimal-pad"
                         placeholder="0.00"
                         placeholderTextColor={kivoTheme.colors.textMuted}

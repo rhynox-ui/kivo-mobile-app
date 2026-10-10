@@ -7,6 +7,7 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { dexScreenerEmbedUrl, resolveDexScreenerPair, type ResolvedPair } from '@kivo/trading/core/dexScreener';
 import { checkSolanaTokenSecurity, checkTokenSecurity, type TokenSecuritySummary } from '@kivo/trading/core/goplusTokenSecurity';
 import type { KivoToken } from '@kivo/trading/kivo/tokens';
+import { openHttpsUrl } from '../utils/openExternal';
 
 const COLORS = {
   background: kivoTheme.colors.background,
@@ -72,7 +73,7 @@ export function TokenChartPanel({ token }: { token: KivoToken }) {
             {socialLinks.map(link => (
               <Pressable
                 key={link.url}
-                onPress={() => Linking.openURL(link.url)}
+                onPress={() => openHttpsUrl(link.url)}
                 style={styles.socialIconButton}
                 accessibilityLabel={link.kind}>
                 <Text style={styles.socialIconText}>

@@ -65,6 +65,11 @@ function chainAddress(session: DerivedAccounts, chainKey: ChainKey): string {
  * The 1Click quote request for a cash move, and exactly what the signed
  * quote must echo back before anything is sent (assertOneClickQuoteSafeToFund).
  */
+// Shape check only (the withdraw screen validates fully before this runs).
+function looksLikeRecipient(chainKey: ChainKey, address: string): boolean {
+  return chainKey === 'solana' ? /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address) : /^0x[0-9a-fA-F]{40}$/.test(address);
+}
+
 export function nearCashMoveRequest({
   direction,
   chainKey,
@@ -72,6 +77,7 @@ export function nearCashMoveRequest({
   session,
   tokens,
   dry,
+  recipient,
   now = Date.now(),
 }: {
   direction: NearCashMoveDirection;
@@ -80,12 +86,15 @@ export function nearCashMoveRequest({
   session: DerivedAccounts;
   tokens: OneClickToken[];
   dry: boolean;
+  /** Withdrawals from NEAR only: deliver to this address instead of the user's own wallet on chainKey. Refunds always go back to the user. */
+  recipient?: string;
   now?: number;
 }): {request: OneClickQuoteRequest; expected: Omit<OneClickExpectation, 'now'>} {
   if (!session.near) throw new Error('This wallet has no NEAR account.');
   if (!/^\d+$/.test(amountBaseUnits) || BigInt(amountBaseUnits) <= 0n) throw new Error('Enter an amount.');
   const {near, chain} = nearCashMoveAssets(tokens, chainKey);
   const toNear = direction === 'to-near';
+  if (recipient !== undefined && (toNear || !looksLikeRecipient(chainKey, recipient.trim()))) throw new Error('Enter a valid recipient address for this network.');
   const request: OneClickQuoteRequest = {
     dry,
     swapType: 'EXACT_INPUT',
@@ -96,7 +105,7 @@ export function nearCashMoveRequest({
     amount: amountBaseUnits,
     refundTo: toNear ? chainAddress(session, chainKey) : session.near.address,
     refundType: 'ORIGIN_CHAIN',
-    recipient: toNear ? session.near.address : chainAddress(session, chainKey),
+    recipient: toNear ? session.near.address : (recipient?.trim() || chainAddress(session, chainKey)),
     recipientType: 'DESTINATION_CHAIN',
     deadline: new Date(now + NEAR_CASH_MOVE_DEADLINE_MS).toISOString(),
     appFees: [],
