@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { API_LIMITS, isOfficialKivoChannel } from '@kivo/shared/api/types';
+import { API_LIMITS } from '@kivo/shared/api/types';
 import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useActiveConversation, useChatState } from '../state/useChat';
@@ -178,10 +178,10 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
       <View style={styles.header}>
         <Pressable onPress={onBack} hitSlop={10} accessibilityLabel="Back"><Text style={styles.back}>‹</Text></Pressable>
         <Pressable onPress={() => conversation?.kind === 'dm' && conversation.peer?.userId ? onOpenPerson?.(conversation.peer.userId) : conversation && conversation.kind !== 'dm' ? onOpenInfo?.(id, conversation.kind) : undefined} accessibilityLabel={conversation?.kind === 'dm' ? 'View user profile' : 'Open conversation info'}>
-          <Avatar name={title} uri={conversation?.avatarUrl} size={40} verified={conversation?.kind === 'dm' ? peerVerified : conversation?.isVerified === true || (conversation?.kind === 'channel' && isOfficialKivoChannel(conversation.id))} />
+          <Avatar name={title} uri={conversation?.avatarUrl} size={40} verified={conversation?.kind === 'dm' ? peerVerified : conversation?.isVerified === true} />
         </Pressable>
         <Pressable style={styles.headerCopy} disabled={!conversation} onPress={() => conversation?.kind === 'dm' && conversation.peer?.userId ? onOpenPerson?.(conversation.peer.userId) : conversation && conversation.kind !== 'dm' ? onOpenInfo?.(id, conversation.kind) : undefined}>
-          <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{title}</Text>{conversation?.kind !== 'dm' && (conversation?.isVerified === true || (conversation?.kind === 'channel' && isOfficialKivoChannel(conversation.id))) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
+          <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{title}</Text>{conversation?.kind !== 'dm' && (conversation?.isVerified === true) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
           <Text style={styles.status}>{subtitle}</Text>
         </Pressable>
         {conversation?.kind === 'dm' && conversation.peer?.userId && <Pressable onPress={() => {
@@ -275,9 +275,9 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
                   setForwardingMessage(null);
                   if (selected) void forwardMessage(id, selected.id, c.id).then(() => Alert.alert('Forwarded', 'Message sent to ' + c.title + '.')).catch(error => Alert.alert('Forward', error instanceof Error ? error.message : 'Could not forward.'));
                 }}>
-                  <Avatar name={c.title} uri={c.avatarUrl} size={38} verified={c.kind !== 'dm' && (c.isVerified === true || (c.kind === 'channel' && isOfficialKivoChannel(c.id)))} />
+                  <Avatar name={c.title} uri={c.avatarUrl} size={38} verified={c.kind !== 'dm' && (c.isVerified === true || (c.kind === 'channel' && false))} />
                   <View style={styles.forwardDestinationCopy}>
-                    <View style={styles.forwardDestinationTitleLine}><Text style={styles.forwardDestinationTitle} numberOfLines={1}>{c.title}</Text>{c.kind !== 'dm' && (c.isVerified === true || (c.kind === 'channel' && isOfficialKivoChannel(c.id))) ? <Text accessibilityLabel="Verified community" style={styles.forwardVerifiedBadge}>★</Text> : null}</View>
+                    <View style={styles.forwardDestinationTitleLine}><Text style={styles.forwardDestinationTitle} numberOfLines={1}>{c.title}</Text>{c.kind !== 'dm' && (c.isVerified === true || (c.kind === 'channel' && false)) ? <Text accessibilityLabel="Verified community" style={styles.forwardVerifiedBadge}>★</Text> : null}</View>
                     <Text style={styles.forwardDestinationKind}>{c.kind === 'dm' ? 'Direct message' : c.kind === 'group' ? 'Group' : 'Channel'}</Text>
                   </View>
                 </Pressable>

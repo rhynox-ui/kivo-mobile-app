@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
-import { isOfficialKivoChannel, type ApiCommunity, type ApiMember } from '@kivo/shared/api/types';
+import { type ApiCommunity, type ApiMember } from '@kivo/shared/api/types';
 import { canDemoteGroupAdmin, canPromoteGroupAdmin, canRemoveGroupMember } from '@kivo/shared/social/rules';
 import type { KivoGroup } from '@kivo/shared/social/types';
 import { refreshConversations } from '@kivo/shared/chat/store';
@@ -65,12 +65,12 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
 
   return (
     <View style={styles.root}>
-      <Header title={c.name} verified={Boolean(c.isVerified) || isOfficialKivoChannel(c.id)} onBack={onBack} onShare={() => Share.share({ message: `Join ${c.name} on Kivo: https://kivotrade.site/${c.kind}/${c.id}` })} />
+      <Header title={c.name} verified={Boolean(c.isVerified)} onBack={onBack} onShare={() => Share.share({ message: `Join ${c.name} on Kivo: https://kivotrade.site/${c.kind}/${c.id}` })} />
       <ScrollView contentContainerStyle={styles.body}>
         <View style={styles.profileHero}>
           <View style={styles.profileIdentity}>
-            <Avatar name={c.name} uri={c.avatarUrl} size={92} verified={c.isVerified === true || isOfficialKivoChannel(c.id)} />
-            <View style={styles.titleLine}><Text style={styles.title}>{c.name}</Text>{(c.isVerified === true || isOfficialKivoChannel(c.id)) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
+            <Avatar name={c.name} uri={c.avatarUrl} size={92} verified={c.isVerified === true} />
+            <View style={styles.titleLine}><Text style={styles.title}>{c.name}</Text>{(c.isVerified === true) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
             <Text style={styles.profileSubtitle}>{c.visibility === 'private' ? 'Private' : 'Public'} {isChannel ? 'channel' : 'group'} · {c.memberCount} {isChannel ? 'subscribers' : 'members'}</Text>
             {c.myRole ? <Text style={styles.role}>{c.myRole.toUpperCase()}</Text> : null}
           </View>
@@ -91,7 +91,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
           </View>
         </View>
 
-        {isChannel && (c.myRole === 'owner' || c.myRole === 'admin') && !(c.isVerified === true || isOfficialKivoChannel(c.id)) && <View style={styles.card}>
+        {isChannel && (c.myRole === 'owner' || c.myRole === 'admin') && !(c.isVerified === true) && <View style={styles.card}>
           <Text style={styles.cardTitle}>Blue Star verification</Text>
           <Text style={styles.verifyIntro}>Verify this channel with a quick wallet checkout.</Text>
           <Pressable onPress={() => onOpenVerification?.('channel', c.id, c.name)} style={styles.verifyPay}><Text style={styles.verifyPayText}>★ Get Verified</Text></Pressable>
