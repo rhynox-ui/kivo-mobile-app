@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Image, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { KivoMark } from '../components/KivoMark';
 import { LineChart } from '../components/LineChart';
 import { kivoTheme } from '../theme/kivoTheme';
@@ -52,6 +52,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const [convertOpen, setConvertOpen] = useState(false);
   const [filter, setFilter] = useState<PositionFilter>('all');
   const [verificationStatus, setVerificationStatus] = useState<{isVerified: boolean; expiresAt: number | null; permanent: boolean} | null>(null);
+  const [verifiedChannels, setVerifiedChannels] = useState<Set<string>>(() => new Set());
   useEffect(() => subscribeToWallet(setWallet), []);
   useEffect(() => subscribeToTradeHistory(setTrades), []);
   useEffect(() => { if (socialReady) api.social(profile.userId).then(setSocial).catch(() => {}); }, [socialReady, profile.userId]);
@@ -61,6 +62,9 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
     api.verificationStatus('profile', profile.userId).then(setVerificationStatus).catch(() => setVerificationStatus(null));
   }, [profile.userId]);
   useEffect(() => {
+    // Never carry the previous account's verified presentation across an
+    // account switch while the new server status is still loading.
+    setVerificationStatus(null);
     loadVerification();
     // Keep the profile badge in sync shortly after checkout activates a subscription.
     const timer = setInterval(loadVerification, 5_000);
@@ -83,6 +87,25 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
 
   const groups = chat.conversations.filter(c => c.kind === 'group');
   const channels = chat.conversations.filter(c => c.kind === 'channel');
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      const ids = chat.conversations.filter(c => c.kind === 'channel').map(c => c.id);
+      void Promise.all(ids.map(async id => {
+        try { return (await api.verificationStatus('channel', id)).isVerified === true ? id : null; }
+        catch { return null; }
+      })).then(results => {
+        if (active) setVerifiedChannels(new Set(results.filter((id): id is string => Boolean(id))));
+      });
+    };
+    setVerifiedChannels(new Set());
+    refresh();
+    const timer = setInterval(refresh, 60_000);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') refresh();
+    });
+    return () => { active = false; clearInterval(timer); subscription.remove(); };
+  }, [chat.conversations]);
   const chats = chat.conversations.filter(c => c.kind === 'dm').length;
   const points = filterHistoryByRange(history, range);
   const change = computePortfolioChange(points);
@@ -215,13 +238,16 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
       </View>
       {[...groups, ...channels].length ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
-          {[...groups, ...channels].map(g => (
-            <Pressable key={g.id} onPress={() => onOpenChat?.(g.id)} style={styles.groupCard}>
-              <View style={[styles.groupIcon, { borderRadius: g.isVerified === true ? 8 : 21 }]}>{g.avatarUrl ? <Image source={{ uri: g.avatarUrl }} style={[styles.tokenImage, { borderRadius: g.isVerified === true ? 8 : 21 }]} /> : <Text style={styles.groupIconText}>{g.title.slice(0, 1).toUpperCase()}</Text>}</View>
-              <View style={styles.groupNameLine}><Text style={styles.groupName} numberOfLines={1}>{g.title}</Text>{(g.isVerified === true) ? <Text accessibilityLabel="Verified community" style={styles.blueStarBadge}>★</Text> : null}</View>
-              <Text style={styles.small}>{g.kind === 'channel' ? 'Channel' : 'Group'} · {g.myRole === 'owner' ? 'Owner' : g.myRole === 'admin' ? 'Admin' : 'Member'}</Text>
-            </Pressable>
-          ))}
+          {[...groups, ...channels].map(g => {
+            const verified = g.kind === 'channel' ? verifiedChannels.has(g.id) : g.isVerified === true;
+            return (
+              <Pressable key={g.id} onPress={() => onOpenChat?.(g.id)} style={styles.groupCard}>
+                <View style={[styles.groupIcon, { borderRadius: verified ? 8 : 21 }]}>{g.avatarUrl ? <Image source={{ uri: g.avatarUrl }} style={[styles.tokenImage, { borderRadius: verified ? 8 : 21 }]} /> : <Text style={styles.groupIconText}>{g.title.slice(0, 1).toUpperCase()}</Text>}</View>
+                <View style={styles.groupNameLine}><Text style={styles.groupName} numberOfLines={1}>{g.title}</Text>{verified ? <Text accessibilityLabel="Verified community" style={styles.blueStarBadge}>★</Text> : null}</View>
+                <Text style={styles.small}>{g.kind === 'channel' ? 'Channel' : 'Group'} · {g.myRole === 'owner' ? 'Owner' : g.myRole === 'admin' ? 'Admin' : 'Member'}</Text>
+              </Pressable>
+            );
+          })}
       </ScrollView>
       ) : <Empty title="No groups yet" body={socialReady ? 'Join communities to make your profile social, not just financial.' : 'Turn on chats to join groups and channels.'} />}
       <ConvertCashSheet visible={convertOpen} onClose={() => setConvertOpen(false)} onConverted={() => { void load(true); }} />

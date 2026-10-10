@@ -32,11 +32,12 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
   const [query, setQuery] = useState('');
   const [composing, setComposing] = useState(false);
   const [publicChannels, setPublicChannels] = useState<ApiCommunity[]>([]);
+  const [verificationRefreshTick, setVerificationRefreshTick] = useState(0);
 
-  // Subscription expiry is time-based, so refresh server-authoritative badge
-  // status periodically while the chat list is open and when the app resumes.
+  // One shared timer refreshes conversations and asks mounted rows to refresh
+  // verification. Avoid one timer and AppState listener per conversation row.
   useEffect(() => {
-    const refresh = () => { void refreshConversations().catch(() => {}); };
+    const refresh = () => { void refreshConversations().catch(() => {}); setVerificationRefreshTick(value => value + 1); };
     refresh();
     const timer = setInterval(refresh, 60_000);
     const subscription = AppState.addEventListener('change', state => {
@@ -86,7 +87,7 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
       <FlatList
         data={list}
         keyExtractor={item => item.id}
-        renderItem={({ item }) => <Row conversation={item} onPress={() => onOpenChat(item.id)} />}
+        renderItem={({ item }) => <Row conversation={item} verificationRefreshTick={verificationRefreshTick} onPress={() => onOpenChat(item.id)} />}
         ListEmptyComponent={filter === 'channel' && publicChannels.length ? undefined : <View style={styles.empty}><Text style={styles.emptyTitle}>{filter === 'channel' ? 'No channels yet' : 'No chats yet'}</Text><Text style={styles.muted}>Discover public channels or join communities to see them here.</Text></View>}
         ListFooterComponent={filter === 'channel' && publicChannels.length ? <View style={styles.discoverSection}>
           {publicChannels.map(c => <Pressable key={c.id} style={styles.row} onPress={async () => {
@@ -94,7 +95,7 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
             catch (e) { Alert.alert(c.name, e instanceof Error ? e.message : 'Unable to subscribe to channel.'); }
           }}>
             <Avatar name={c.name} uri={c.avatarUrl} size={52} verified={c.isVerified === true} />
-            <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>📢 {c.name}{(c.isVerified) ? ' ★' : ''}</Text></View><Text style={styles.preview}>Public channel · Tap to subscribe</Text></View>
+            <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>📢 {c.name}{c.isVerified === true ? ' ★' : ''}</Text></View><Text style={styles.preview}>Public channel · Tap to subscribe</Text></View>
           </Pressable>)}
         </View> : undefined}
         contentContainerStyle={styles.listContent}
@@ -103,20 +104,24 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
   );
 }
 
-function Row({ conversation: c, onPress }: { conversation: ApiConversation; onPress: () => void }) {
+function Row({ conversation: c, verificationRefreshTick, onPress }: { conversation: ApiConversation; verificationRefreshTick: number; onPress: () => void }) {
   const unread = unreadCount(c.id);
   const [peerVerified, setPeerVerified] = useState(false);
+  useEffect(() => { setPeerVerified(false); }, [c.id, c.kind, c.peer?.userId]);
   useEffect(() => {
     let active = true;
-    setPeerVerified(false);
-    if (c.kind === 'dm' && c.peer?.userId) {
-      api.verificationStatus('profile', c.peer.userId)
-        .then(status => { if (active) setPeerVerified(status.isVerified === true); })
-        .catch(() => { if (active) setPeerVerified(false); });
+    if (c.kind !== 'dm' || !c.peer?.userId) {
+      setPeerVerified(false);
+      return () => { active = false; };
     }
+    void api.verificationStatus('profile', c.peer.userId)
+      .then(status => { if (active) setPeerVerified(status.isVerified === true); })
+      .catch(() => { if (active) setPeerVerified(false); });
     return () => { active = false; };
-  }, [c.id, c.kind, c.peer?.userId]);
-  const verified = c.isVerified === true || peerVerified;
+  }, [c.id, c.kind, c.peer?.userId, verificationRefreshTick]);
+  // A DM's cached conversation flag must never override the live profile
+  // status: the avatar shape and star use the exact same verified boolean.
+  const verified = c.kind === 'dm' ? peerVerified : c.isVerified === true;
   const me = myUserId();
   const prefix = c.lastSenderId && c.kind !== 'channel' && c.lastPreview ? (c.lastSenderId === me ? 'You: ' : c.kind === 'group' ? `${displayName(c.lastSenderId)}: ` : '') : '';
   return (
@@ -137,7 +142,7 @@ function Row({ conversation: c, onPress }: { conversation: ApiConversation; onPr
 }
 
 export function Avatar({ name, uri, size, verified = false }: { name: string; uri?: string | null; size: number; verified?: boolean }) {
-  // Verification is supplied only by the server-owned status endpoint or the official-channel allowlist.
+  // Callers pass only a server-confirmed verification status.
   const borderRadius = verified ? 6 : size / 2;
   return (
     <View style={{ width: size, height: size, position: 'relative', overflow: 'visible' }}>
