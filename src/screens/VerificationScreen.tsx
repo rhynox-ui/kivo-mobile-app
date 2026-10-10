@@ -27,7 +27,7 @@ const CHAIN_META: Record<Chain, { label: string; color: string; subtitle: string
 };
 const EVM_RECIPIENT = '0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5';
 const SOLANA_RECIPIENT = '2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki';
-const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGZwyTDt1v';
+const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
 // Local stores only help recover a submitted hash; the server must still verify it on-chain.
 const PENDING_KEYCHAIN_SERVICE = 'com.kivo.verification-pending';
@@ -79,6 +79,15 @@ const EXPECTED_SECONDS: Record<Chain, number> = { base: 45, arbitrum: 10, ethere
 const VERIFY_DEADLINE_MS = 20 * 60_000;
 const CHAIN_IDS = { ethereum: 1, base: 8453, arbitrum: 42161 } as const;
 const EVM_USDC = { ethereum: '0xA0b86991c6218b36c1d19d4a2e9Eb0cE3606eB48', base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' } as const;
+// Solana's own public RPC often refuses requests; use the first endpoint that answers.
+const SOLANA_RPCS = ['https://rpc.solanatracker.io/public', 'https://solana-rpc.publicnode.com', 'https://api.mainnet-beta.solana.com'];
+async function workingSolanaConnection(): Promise<Connection> {
+  for (const url of SOLANA_RPCS) {
+    const connection = new Connection(url, 'confirmed');
+    try { await connection.getLatestBlockhash('confirmed'); return connection; } catch { /* try the next endpoint */ }
+  }
+  throw new Error('Could not reach the Solana network. Try again in a moment; nothing was sent.');
+}
 const MEMO_PROGRAM_ID = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
 
 function explorerTx(chain: Chain, hash: string): string {
@@ -233,15 +242,18 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
     try {
       if (chain === 'solana') {
         txHash = await withDeviceAccounts('Approve Blue Star USDC payment', async ({ solana }) => {
-          const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+          const connection = await workingSolanaConnection();
           const mint = new PublicKey(USDC_MINT);
           const recipient = new PublicKey(SOLANA_RECIPIENT);
           const sourceAta = await getAssociatedTokenAddress(mint, solana.publicKey);
-          if (!(await connection.getAccountInfo(sourceAta))) throw new Error('Your Kivo wallet has no Solana USDC. Add USDC on Solana before paying.');
+          const priceRaw = plan === 'annual' ? 5_000_000n : 1_000_000n;
+          const usdc = await connection.getTokenAccountBalance(sourceAta).then(r => BigInt(r.value.amount)).catch(() => 0n);
+          if (usdc < priceRaw) throw new Error(`Your Kivo wallet has ${(Number(usdc) / 1e6).toFixed(2)} USDC on Solana; ${plan === 'annual' ? 5 : 1} USDC is needed. Nothing was sent.`);
+          if ((await connection.getBalance(solana.publicKey)) < 20_000) throw new Error('Your Kivo wallet needs a little SOL for the Solana network fee. Nothing was sent.');
           const destinationAta = await getAssociatedTokenAddress(mint, recipient);
           const transaction = new Transaction();
           if (!(await connection.getAccountInfo(destinationAta))) transaction.add(createAssociatedTokenAccountInstruction(solana.publicKey, destinationAta, recipient, mint));
-          transaction.add(createTransferCheckedInstruction(sourceAta, mint, destinationAta, solana.publicKey, plan === 'annual' ? 5_000_000n : 1_000_000n, 6));
+          transaction.add(createTransferCheckedInstruction(sourceAta, mint, destinationAta, solana.publicKey, priceRaw, 6));
           // Binds the payment to this Kivo account and subject; the server rejects Solana payments without it.
           transaction.add(new TransactionInstruction({ programId: new PublicKey(MEMO_PROGRAM_ID), keys: [{ pubkey: solana.publicKey, isSigner: true, isWritable: false }], data: Buffer.from(verificationPaymentMemo(buyer, subjectType, subjectId), 'utf8') }));
           const { blockhash } = await connection.getLatestBlockhash('confirmed');
