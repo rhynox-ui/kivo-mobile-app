@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { isOfficialKivoChannel, type ApiCommunity, type ApiConversation, type ApiProfile } from '@kivo/shared/api/types';
+import { type ApiCommunity, type ApiConversation, type ApiProfile } from '@kivo/shared/api/types';
 import { displayName, myUserId, openDirectMessage, rememberProfiles, unreadCount } from '@kivo/shared/chat/store';
 import { KivoMark } from '../components/KivoMark';
 import { kivoTheme } from '../theme/kivoTheme';
@@ -93,8 +93,8 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
             try { await api.join(c.id); await refreshConversations().catch(() => {}); onOpenChat(c.id); }
             catch (e) { Alert.alert(c.name, e instanceof Error ? e.message : 'Unable to subscribe to channel.'); }
           }}>
-            <Avatar name={c.name} uri={c.avatarUrl} size={52} verified={c.isVerified === true || isOfficialKivoChannel(c.id)} />
-            <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>📢 {c.name}{(c.isVerified || isOfficialKivoChannel(c.id)) ? ' ★' : ''}</Text></View><Text style={styles.preview}>Public channel · Tap to subscribe</Text></View>
+            <Avatar name={c.name} uri={c.avatarUrl} size={52} verified={c.isVerified === true} />
+            <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>📢 {c.name}{(c.isVerified) ? ' ★' : ''}</Text></View><Text style={styles.preview}>Public channel · Tap to subscribe</Text></View>
           </Pressable>)}
         </View> : undefined}
         contentContainerStyle={styles.listContent}
@@ -116,7 +116,7 @@ function Row({ conversation: c, onPress }: { conversation: ApiConversation; onPr
     }
     return () => { active = false; };
   }, [c.id, c.kind, c.peer?.userId]);
-  const verified = c.isVerified === true || isOfficialKivoChannel(c.id) || peerVerified;
+  const verified = c.isVerified === true || peerVerified;
   const me = myUserId();
   const prefix = c.lastSenderId && c.kind !== 'channel' && c.lastPreview ? (c.lastSenderId === me ? 'You: ' : c.kind === 'group' ? `${displayName(c.lastSenderId)}: ` : '') : '';
   return (
@@ -124,7 +124,7 @@ function Row({ conversation: c, onPress }: { conversation: ApiConversation; onPr
       <Avatar name={c.title} uri={c.avatarUrl} size={52} verified={verified} />
       <View style={styles.rowMain}>
         <View style={styles.rowTop}>
-          <View style={styles.rowTitleLine}><Text style={styles.rowTitle} numberOfLines={1}>{c.kind === 'channel' ? '📢 ' : c.kind === 'group' ? '👥 ' : ''}{c.title}</Text>{c.kind === 'dm' && peerVerified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}{c.kind !== 'dm' && (c.isVerified === true || isOfficialKivoChannel(c.id)) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
+          <View style={styles.rowTitleLine}><Text style={styles.rowTitle} numberOfLines={1}>{c.kind === 'channel' ? '📢 ' : c.kind === 'group' ? '👥 ' : ''}{c.title}</Text>{c.kind === 'dm' && peerVerified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}{c.kind !== 'dm' && (c.isVerified === true) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
           <Text style={[styles.time, unread > 0 && styles.timeUnread]}>{timeLabel(c.lastActivityAt)}</Text>
         </View>
         <View style={styles.rowTop}>
