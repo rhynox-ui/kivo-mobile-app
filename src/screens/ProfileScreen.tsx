@@ -59,7 +59,8 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   // Verification status is public profile metadata; it must not depend on
   // enabling the separate social/chat session.
   const loadVerification = useCallback(() => {
-    api.verificationStatus('profile', profile.userId).then(setVerificationStatus).catch(() => setVerificationStatus(null));
+    // A failed refresh keeps the last server answer instead of flickering the badge or the Get Verified button.
+    api.verificationStatus('profile', profile.userId).then(setVerificationStatus).catch(() => {});
   }, [profile.userId]);
   useEffect(() => {
     // Never carry the previous account's verified presentation across an
@@ -153,9 +154,12 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
         </View>
       </View>
       <View style={styles.verificationEntry}>
-        {verificationStatus?.isVerified
+        {verificationStatus?.isVerified === true
           ? <Text style={styles.verificationActive}>★ Blue Star Verified · valid until {verificationStatus.expiresAt ? new Date(verificationStatus.expiresAt).toLocaleDateString() : 'permanent'}</Text>
-          : <Pressable style={styles.verificationButton} onPress={() => onOpenVerification?.(profile.userId, `@${profile.username}`)}><Text style={styles.verificationButtonText}>★ Get Verified</Text></Pressable>}
+          // Only offer Get Verified once the server has confirmed this profile is NOT verified.
+          : verificationStatus?.isVerified === false
+            ? <Pressable style={styles.verificationButton} onPress={() => onOpenVerification?.(profile.userId, `@${profile.username}`)}><Text style={styles.verificationButtonText}>★ Get Verified</Text></Pressable>
+            : null}
       </View>
       <View style={styles.divider} />
 
