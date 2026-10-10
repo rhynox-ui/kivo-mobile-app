@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { isOfficialKivoChannel, type ApiCommunity, type ApiProfile } from '@kivo/shared/api/types';
+import { type ApiCommunity, type ApiProfile } from '@kivo/shared/api/types';
 import { rememberProfiles } from '@kivo/shared/chat/store';
 import type { KivoToken } from '@kivo/trading/kivo/tokens';
 import { SearchScreen } from './SearchScreen';
@@ -50,9 +50,9 @@ function Communities({ kind, onOpenChat, onOpenCommunity }: { kind: 'group' | 'c
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {items == null ? <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 20 }} /> : items.length === 0 ? <Text style={styles.muted}>No public {kind}s yet.</Text> : items.map(c => (
         <Pressable key={c.id} onPress={() => (c.myRole ? onOpenChat(c.id) : onOpenCommunity(c.id))} style={styles.card}>
-          <Avatar name={c.name} uri={c.avatarUrl} size={48} verified={c.isVerified === true || isOfficialKivoChannel(c.id)} />
+          <Avatar name={c.name} uri={c.avatarUrl} size={48} verified={c.isVerified === true} />
           <View style={styles.flex}>
-            <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{c.name}</Text>{(c.isVerified === true || isOfficialKivoChannel(c.id)) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
+            <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{c.name}</Text>{(c.isVerified === true) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
             <Text style={styles.small}>{c.memberCount} {kind === 'channel' ? 'subscribers' : 'members'} · {c.postCount} {kind === 'channel' ? 'posts' : 'messages'}</Text>
             {c.description ? <Text style={styles.small} numberOfLines={2}>{c.description}</Text> : null}
           </View>
