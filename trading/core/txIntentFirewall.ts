@@ -124,6 +124,18 @@ const ERC20_APPROVE_SELECTOR = '0x095ea7b3';
 // sits at a different offset. Relay routes through Permit2 on chains
 // where it is deployed.
 const PERMIT2_APPROVE_SELECTOR = '0x87517c45';
+// Other ways a signed call could hand out spending rights. With gasless
+// (EIP-7702) execution every call runs as the user's own account, so none of
+// these may ever appear in a route Kivo signs.
+const ALLOWANCE_GRANT_SELECTORS: Record<string, string> = {
+  '0x39509351': 'increaseAllowance',
+  '0xd505accf': 'permit (EIP-2612)',
+  '0xa22cb465': 'setApprovalForAll',
+  '0x2b67b570': 'Permit2 permit',
+  '0x2a2d80d1': 'Permit2 permit (batch)',
+  '0x36c78516': 'Permit2 transferFrom',
+  '0x0d58b1db': 'Permit2 transferFrom (batch)',
+};
 
 const NATIVE_SENTINELS = new Set([
   '0x0000000000000000000000000000000000000000',
@@ -453,6 +465,14 @@ export function assertTransactionItemsMatchIntent(items: RelayTransactionItem[] 
           'A real route never needs your wallet to call transfer/transferFrom itself — only a contract you already approved does that internally.',
       );
     }
+    if (selector && ALLOWANCE_GRANT_SELECTORS[selector]) {
+      fail(`The routing service asked you to sign ${ALLOWANCE_GRANT_SELECTORS[selector]} on ${to}. Kivo only signs exact-amount approvals for the token you're spending.`);
+    }
+    // The token you're spending may only be called to approve it; any other
+    // call on it from your account is not part of a swap.
+    if (intent.originCurrency && !intent.originIsNative && to === intent.originCurrency && selector !== ERC20_APPROVE_SELECTOR) {
+      fail('The route asks your wallet to call the token you are spending for something other than an approval.');
+    }
     if (selector === ERC20_APPROVE_SELECTOR || selector === PERMIT2_APPROVE_SELECTOR) {
       // ERC-20: approve(spender, amount)                  -> spender word 0, amount word 1.
       // Permit2: approve(token, spender, amount, expiry)  -> spender word 1, amount word 2.
@@ -492,10 +512,9 @@ export function assertTransactionItemsMatchIntent(items: RelayTransactionItem[] 
       fail(`The transactions would send ${totalNativeValue} base units of native currency, more than the ${intent.amount} you entered.`);
     }
   } else if (totalNativeValue > 0n) {
-    warnings.push(
-      `This route attaches ${totalNativeValue} base units of native currency to a trade that spends a token, ` +
-        'which is usually a protocol fee but is worth knowing about.',
-    );
+    // A token trade never needs your native coin: with gasless execution any
+    // attached value would come straight out of your account.
+    fail(`This route would also send ${totalNativeValue} base units of your native coin on a trade that spends a token. It was stopped before signing.`);
   }
 
   return warnings;

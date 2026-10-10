@@ -72,6 +72,16 @@ async function postRelayExecute(body: Record<string, unknown>): Promise<RelayExe
   return parsed;
 }
 
+/** Relay accepted the signed batch but has not confirmed it yet. It may still land: never show this as failed or retry it. */
+export class RelayGaslessPendingError extends Error {
+  readonly requestId: string;
+  constructor(requestId: string) {
+    super('Submitted. Relay has not confirmed it yet, so it is still settling. Do not retry; check Activity in a few minutes.');
+    this.name = 'RelayGaslessPendingError';
+    this.requestId = requestId;
+  }
+}
+
 async function pollRelayStatus(requestId: string): Promise<string> {
   const started = Date.now();
   while (Date.now() - started < 10 * 60 * 1000) {
@@ -85,7 +95,7 @@ async function pollRelayStatus(requestId: string): Promise<string> {
     }
     await new Promise<void>(resolve => setTimeout(() => resolve(), 2000));
   }
-  throw new Error('Relay gasless execution timed out after submission; do not retry automatically.');
+  throw new RelayGaslessPendingError(requestId);
 }
 
 function isCaliburDelegated(code: string | undefined): boolean {

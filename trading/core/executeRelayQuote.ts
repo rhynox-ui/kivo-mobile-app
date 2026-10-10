@@ -38,7 +38,7 @@ import {assertSolanaTransactionMatchesIntent} from './solanaTxIntent.ts';
 import {SOLANA_NATIVE_SPEND, assertSolanaSpendWithinIntentWeb3, isInsufficientSolSimulation, type SolanaSpendIntent} from './solanaSpendGuard.ts';
 import {intentForQuote, type RelayQuote, type RelayTransactionStepItem} from './relayQuote.ts';
 import {TOKEN_ADDRESSES, ASSET_ONCHAIN_DECIMALS, ARC_USDC, MAINNET_CHAIN_IDS} from './chainData.ts';
-import {preflightRelayGaslessEvm, sendEvmCallsViaRelayGasless} from './relayGaslessEvm.ts';
+import {RelayGaslessPendingError, preflightRelayGaslessEvm, sendEvmCallsViaRelayGasless} from './relayGaslessEvm.ts';
 import {fetchWalletPrices} from './walletPrices.ts';
 import type {DerivedAccounts} from '../wallet/keys';
 
@@ -133,18 +133,31 @@ export async function solanaOutputVerificationFor(quote: RelayQuote, intent: Tra
     throw new Error('The Solana output could not be verified safely — refusing to sign this trade.');
   }
 }
-async function pollRelayStatus(requestId: string, {intervalMs = 2000, timeoutMs = 10 * 60 * 1000}: {intervalMs?: number; timeoutMs?: number} = {}): Promise<void> {
+export type RelaySettlement = 'success' | 'pending' | 'refunded';
+
+/**
+ * Waits for Relay to settle a request that was already broadcast. A slow
+ * fill is NOT a failure: after the timeout the trade is reported as pending
+ * (it may still land), never as failed, so the user doesn't retry and buy twice.
+ */
+async function pollRelayStatus(requestId: string, {intervalMs = 2000, timeoutMs = 10 * 60 * 1000}: {intervalMs?: number; timeoutMs?: number} = {}): Promise<RelaySettlement> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const res = await fetch(`${RELAY_STATUS_URL}?requestId=${requestId}`);
-    if (res.ok) {
-      const data = (await res.json()) as {status?: string};
-      if (data.status === 'success') return;
-      if (data.status === 'failure') throw new Error("Relay reported this trade failed — check the requestId on relay.link for details.");
+    try {
+      const res = await fetch(`${RELAY_STATUS_URL}?requestId=${requestId}`);
+      if (res.ok) {
+        const data = (await res.json()) as {status?: string};
+        if (data.status === 'success') return 'success';
+        if (data.status === 'refund' || data.status === 'refunded') return 'refunded';
+        if (data.status === 'failure') throw new Error('Relay reported this trade failed — check the requestId on relay.link for details.');
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Relay reported')) throw error;
+      // Network blip while polling: keep waiting.
     }
     await new Promise<void>(r => setTimeout(r, intervalMs));
   }
-  throw new Error('Timed out waiting for Relay to confirm completion. Your transaction was broadcast — check status manually using the requestId before retrying.');
+  return 'pending';
 }
 
 /**
@@ -794,7 +807,7 @@ async function signAndSendRelaySolanaStepViaParticle(item: RelayTransactionStepI
   }
 }
 
-export type ExecuteRelayQuoteResult = {txHashes: string[]; warnings: string[]};
+export type ExecuteRelayQuoteResult = {txHashes: string[]; warnings: string[]; status?: RelaySettlement; requestId?: string | null};
 
 // Real gap this closes: a multi-step Relay quote (more than one
 // transaction to sign/broadcast) that fails on step 2+ used to just
@@ -963,6 +976,8 @@ export async function executeRelayQuote(
   onStep?.('signing');
   const isGoogleSession = session.authMethod === 'google';
   const txHashes: string[] = [];
+  // Set when Relay accepted a gasless batch but has not confirmed it yet.
+  let gaslessPendingRequestId: string | null = null;
   try {
     // Relay's official Calibur/EIP-7702 flow batches the quote's origin-chain
     // transaction items (typically approve + deposit) into ONE atomic
@@ -998,12 +1013,15 @@ export async function executeRelayQuote(
       }
     }
 
+    // Only the route's last Solana step delivers the bought token; earlier
+    // steps (account setup, wrapping) are checked for spend limits only.
+    const lastSolanaUnit = [...units].reverse().find(u => u.kind === 'solana');
     for (const unit of units) {
       if (unit.kind === 'solana') {
         const item = unit.item;
         const spendIntent = {
           ...solanaSpendIntentFor(tagged.intent),
-          ...await solanaOutputVerificationFor(quote, tagged.intent, session.solana.address),
+          ...(unit === lastSolanaUnit ? await solanaOutputVerificationFor(quote, tagged.intent, session.solana.address) : {}),
         };
         const {signature, warnings: solanaStepWarnings} = isGoogleSession
           ? await signAndSendRelaySolanaStepViaParticle(item, session.solana.address, spendIntent)
@@ -1035,24 +1053,44 @@ export async function executeRelayQuote(
         data: (item.data?.data || '0x') as `0x${string}`,
       }));
 
-      const relayResult = await sendEvmCallsViaRelayGasless({
-        chain: viemChain,
-        fromAddress: owner.address,
-        account: owner,
-        calls,
-        requestId,
-      });
-      txHashes.push(relayResult.hash);
+      try {
+        const relayResult = await sendEvmCallsViaRelayGasless({
+          chain: viemChain,
+          fromAddress: owner.address,
+          account: owner,
+          calls,
+          requestId,
+        });
+        txHashes.push(relayResult.hash);
+      } catch (err) {
+        // Accepted by Relay but not confirmed yet: stop here (later steps
+        // depend on it) and report the trade as still settling.
+        if (err instanceof RelayGaslessPendingError) {
+          gaslessPendingRequestId = err.requestId;
+          break;
+        }
+        throw err;
+      }
     }
   } catch (err) {
     attachPartialTxHashes(err, txHashes);
     throw err;
   }
+  if (gaslessPendingRequestId) {
+    onStep?.('done');
+    return {txHashes, warnings, status: 'pending', requestId: requestId ?? gaslessPendingRequestId};
+  }
 
+  let status: RelaySettlement = 'success';
   if (requestId) {
     onStep?.('filling');
-    await pollRelayStatus(requestId);
+    try {
+      status = await pollRelayStatus(requestId);
+    } catch (err) {
+      attachPartialTxHashes(err, txHashes);
+      throw err;
+    }
   }
   onStep?.('done');
-  return {txHashes, warnings};
+  return {txHashes, warnings, status, requestId: requestId ?? null};
 }
