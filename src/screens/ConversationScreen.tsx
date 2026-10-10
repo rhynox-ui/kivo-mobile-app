@@ -77,22 +77,40 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const senderKey = senderIds.join('|');
   useEffect(() => {
     let active = true;
-    const ids = senderKey ? senderKey.split('|') : [];
-    Promise.all(ids.map(async userId => {
-      try { return (await api.verificationStatus('profile', userId)).isVerified === true ? userId : null; }
-      catch { return null; }
-    })).then(results => { if (active) setVerifiedSenders(new Set(results.filter((userId): userId is string => Boolean(userId)))); });
-    return () => { active = false; };
+    const refresh = () => {
+      const ids = senderKey ? senderKey.split('|') : [];
+      void Promise.all(ids.map(async userId => {
+        try { return (await api.verificationStatus('profile', userId)).isVerified === true ? userId : null; }
+        catch { return null; }
+      })).then(results => {
+        if (active) setVerifiedSenders(new Set(results.filter((userId): userId is string => Boolean(userId))));
+      });
+    };
+    refresh();
+    const timer = setInterval(refresh, 60_000);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') refresh();
+    });
+    return () => { active = false; clearInterval(timer); subscription.remove(); };
   }, [senderKey]);
   useEffect(() => {
     let active = true;
-    setPeerVerified(false);
-    if (conversation?.kind === 'dm' && conversation.peer?.userId) {
-      api.verificationStatus('profile', conversation.peer.userId)
+    const refresh = () => {
+      if (conversation?.kind !== 'dm' || !conversation.peer?.userId) {
+        setPeerVerified(false);
+        return;
+      }
+      void api.verificationStatus('profile', conversation.peer.userId)
         .then(status => { if (active) setPeerVerified(status.isVerified === true); })
         .catch(() => { if (active) setPeerVerified(false); });
-    }
-    return () => { active = false; };
+    };
+    setPeerVerified(false);
+    refresh();
+    const timer = setInterval(refresh, 60_000);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') refresh();
+    });
+    return () => { active = false; clearInterval(timer); subscription.remove(); };
   }, [conversation?.kind, conversation?.peer?.userId]);
   const isChannel = conversation?.kind === 'channel';
   const canPost = !isChannel || conversation?.myRole === 'owner' || conversation?.myRole === 'admin';
