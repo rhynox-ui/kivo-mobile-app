@@ -61,6 +61,9 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
     api.verificationStatus('profile', profile.userId).then(setVerificationStatus).catch(() => setVerificationStatus(null));
   }, [profile.userId]);
   useEffect(() => {
+    // Never carry the previous account's verified presentation across an
+    // account switch while the new server status is still loading.
+    setVerificationStatus(null);
     loadVerification();
     // Keep the profile badge in sync shortly after checkout activates a subscription.
     const timer = setInterval(loadVerification, 5_000);
