@@ -176,10 +176,10 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
       <View style={styles.header}>
         <Pressable onPress={onBack} hitSlop={10} accessibilityLabel="Back"><Text style={styles.back}>‹</Text></Pressable>
         <Pressable onPress={() => conversation?.kind === 'dm' && conversation.peer?.userId ? onOpenPerson?.(conversation.peer.userId) : conversation && conversation.kind !== 'dm' ? onOpenInfo?.(id, conversation.kind) : undefined} accessibilityLabel={conversation?.kind === 'dm' ? 'View user profile' : 'Open conversation info'}>
-          <Avatar name={title} uri={conversation?.avatarUrl} size={40} verified={conversation?.kind === 'channel' ? (conversation.isVerified === true || isOfficialKivoChannel(conversation.id)) : conversation?.kind === 'dm' ? peerVerified : false} />
+          <Avatar name={title} uri={conversation?.avatarUrl} size={40} verified={conversation?.kind === 'dm' ? peerVerified : conversation?.isVerified === true || (conversation?.kind === 'channel' && isOfficialKivoChannel(conversation.id))} />
         </Pressable>
         <Pressable style={styles.headerCopy} disabled={!conversation} onPress={() => conversation?.kind === 'dm' && conversation.peer?.userId ? onOpenPerson?.(conversation.peer.userId) : conversation && conversation.kind !== 'dm' ? onOpenInfo?.(id, conversation.kind) : undefined}>
-          <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{title}</Text>{conversation?.kind === 'channel' && (conversation.isVerified || isOfficialKivoChannel(conversation.id)) ? <Text accessibilityLabel="Verified channel" style={styles.verifiedBadge}>★</Text> : null}</View>
+          <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{title}</Text>{conversation?.kind !== 'dm' && (conversation?.isVerified === true || (conversation?.kind === 'channel' && isOfficialKivoChannel(conversation.id))) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
           <Text style={styles.status}>{subtitle}</Text>
         </Pressable>
         {conversation?.kind === 'dm' && conversation.peer?.userId && <Pressable onPress={() => {
@@ -227,7 +227,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
               {conversation?.kind === 'group' && !mine ? <View style={styles.avatarColumn}>{item.showAvatar ? <Avatar name={displayName(message.senderId)} uri={state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /> : null}</View> : null}
               <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
-                {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View></Pressable>}
+                {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
                 {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} />}
                 {message.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : message.text ? <Text style={styles.text}>{renderLinkedText(message.text)}</Text> : null}
                 <Text style={styles.meta}>
@@ -320,7 +320,7 @@ const styles = StyleSheet.create({
   post: { maxWidth: '96%', borderRadius: 16 },
   deleted: { opacity: 0.6 },
   senderLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  verifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 9, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 14, height: 14, borderRadius: 7, overflow: 'hidden' },
+  senderVerifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 9, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 14, height: 14, borderRadius: 7, overflow: 'hidden' },
   sender: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
   forwardedLabel: { color: c.textMuted, fontSize: 11, fontStyle: 'italic', fontWeight: '700' },
   forwardOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.62)', justifyContent: 'center', padding: 22 },
