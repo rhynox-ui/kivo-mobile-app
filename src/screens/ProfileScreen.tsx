@@ -103,7 +103,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
       <View style={styles.identity}>
         <View style={styles.avatarRow}>
           <Pressable onPress={onEditProfile} style={styles.avatarWrap} accessibilityLabel="Edit profile">
-            {profile.avatarUri ? <Image source={{ uri: profile.avatarUri }} style={styles.avatar} /> : <View style={styles.avatar}><KivoMark size={70} /></View>}
+            {profile.avatarUri ? <Image source={{ uri: profile.avatarUri }} style={[styles.avatar, { borderRadius: verificationStatus?.isVerified === true ? 8 : 38 }]} /> : <View style={[styles.avatar, { borderRadius: verificationStatus?.isVerified === true ? 8 : 38 }]}><KivoMark size={70} /></View>}
             <View style={styles.editDot}><Text style={styles.editDotText}>✎</Text></View>
           </Pressable>
           <View style={styles.identityActions}>
