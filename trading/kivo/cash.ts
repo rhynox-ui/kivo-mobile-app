@@ -65,10 +65,28 @@ async function sendSolanaUsdc(
   const fromAta = await splToken.getAssociatedTokenAddress(mint, from);
   const toAta = await splToken.getAssociatedTokenAddress(mint, to);
   const toAtaInfo = await connection.getAccountInfo(toAta);
-  const instructions = [];
+  const instructions: InstanceType<typeof import('@solana/web3.js').TransactionInstruction>[] = [];
   if (!toAtaInfo) instructions.push(splToken.createAssociatedTokenAccountInstruction(from, toAta, to, mint));
   const amountRaw = parseUnits(amountUsdc, 6);
   instructions.push(splToken.createTransferInstruction(fromAta, toAta, from, amountRaw));
+  const signer: SolanaTransactionSigner = {
+    publicKey: from,
+    async sign(versioned) {
+      versioned.sign([solanaKeypair]);
+      return versioned;
+    },
+  };
+  const sponsoredSend = async () => {
+    const sponsored = await signAndSendSponsoredSolanaStep(instructions, [], signer, connection, {spend: mintAddress, maxSpend: amountRaw});
+    return {hash: sponsored.signature};
+  };
+  // A USDC-only wallet (the normal Kivo case) holds no SOL at all. Solana
+  // then rejects with "no record of a prior credit" instead of "insufficient
+  // lamports", so check the balance first: fee plus new-account rent.
+  const needLamports = 10_000 + (toAtaInfo ? 0 : await connection.getMinimumBalanceForRentExemption(165));
+  const haveLamports = await connection.getBalance(from, 'confirmed');
+  if (haveLamports < needLamports) return sponsoredSend();
+
   const {blockhash, lastValidBlockHeight} = await connection.getLatestBlockhash('confirmed');
   const transaction = new Transaction({recentBlockhash: blockhash, feePayer: from});
   transaction.add(...instructions);
@@ -78,23 +96,10 @@ async function sendSolanaUsdc(
     await connection.confirmTransaction({signature, blockhash, lastValidBlockHeight}, 'confirmed');
     return {hash: signature};
   } catch (error) {
+    // Rejected in preflight, so nothing was broadcast: safe to sponsor instead.
     const message = error instanceof Error ? error.message : String(error);
-    if (!/insufficient lamports/i.test(message)) throw error;
-    const signer: SolanaTransactionSigner = {
-      publicKey: from,
-      async sign(versioned) {
-        versioned.sign([solanaKeypair]);
-        return versioned;
-      },
-    };
-    const sponsored = await signAndSendSponsoredSolanaStep(
-      instructions,
-      [],
-      signer,
-      connection,
-      {spend: mintAddress, maxSpend: amountRaw},
-    );
-    return {hash: sponsored.signature};
+    if (!/insufficient lamports|no record of a prior credit|AccountNotFound|InsufficientFundsFor(Fee|Rent)/i.test(message)) throw error;
+    return sponsoredSend();
   }
 }
 

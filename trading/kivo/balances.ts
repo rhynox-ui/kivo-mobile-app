@@ -91,6 +91,11 @@ function validDecimals(d: unknown): d is number {
  * for decimals already verified in chainData (e.g. USDC), which skips the read.
  */
 export async function readTokenBalance(chainKey: ChainKey, tokenAddress: string, owner: string, symbolHint?: string, decimalsHint?: number): Promise<TokenBalance> {
+  // Solana is not EVM: base58 owners and SPL mints need the Solana readers.
+  if (chainKey === 'solana') {
+    if (tokenAddress === '11111111111111111111111111111111') return readSolanaNativeBalance(owner, {forceFresh: true});
+    return readSolanaTokenBalance(tokenAddress, owner, symbolHint);
+  }
   const client = balanceClientForChainId(MAINNET_CHAIN_IDS[chainKey]);
   const account = getAddress(owner) as Address;
   if (isNativeTokenAddress(tokenAddress)) {

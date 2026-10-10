@@ -98,7 +98,9 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       setCash(rows);
     });
     if (side === 'sell') {
-      readTokenBalance(token.chainKey, token.tokenAddress, address, token.symbol)
+      const owner = token.chainKey === 'solana' ? wallet?.solanaAddress : address;
+      if (!owner) { setBalanceError('This wallet has no Solana address.'); return () => { cancelled = true; }; }
+      readTokenBalance(token.chainKey, token.tokenAddress, owner, token.symbol)
         .then(balance => { if (!cancelled) setTokenBalance(balance); })
         .catch(error => { if (!cancelled) setBalanceError(error instanceof Error ? error.message : 'Balance unavailable.'); });
     }
@@ -123,7 +125,9 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       const next: UnifiedPlan = side === 'buy'
         ? await planUnifiedBuy({ token, amountUsd: parsed, userAddress: address, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined, cash: cash!, tokenDecimals, slippageBps: settings.slippageBps ?? undefined })
         : await (async () => {
-            const single = await requestKivoQuote({ side, token, amount, userAddress: address, payChain: token.chainKey, tokenDecimals: tokenBalance?.decimals ?? 18, slippageBps: settings.slippageBps ?? undefined, execution: gaslessTradingEnabled ? 'gasless' : 'wallet' });
+            const solanaOwner = token.chainKey === 'solana' ? wallet?.solanaAddress : undefined;
+            if (token.chainKey === 'solana' && !solanaOwner) throw new Error('This wallet has no Solana address.');
+            const single = await requestKivoQuote({ side, token, amount, userAddress: solanaOwner ?? address, recipientAddress: solanaOwner ?? address, payChain: token.chainKey, tokenDecimals: tokenBalance?.decimals ?? 18, slippageBps: settings.slippageBps ?? undefined, execution: gaslessTradingEnabled ? 'gasless' : 'wallet' });
             return { legs: [{ chainKey: token.chainKey, amountUsd: single.view.pay.usd ?? 0, quote: single }], view: single.view };
           })();
       if (seq !== quoteSeq.current) return;
@@ -201,11 +205,14 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
         for (let index = 0; index < plan.legs.length; index++) {
           const leg = plan.legs[index];
           try {
+            // Same as Mango Pro: if the pool moved before anything was sent,
+            // re-run this leg's exact quote request once.
+            const requote = () => requestKivoQuote(leg.quote.request).then(next => next.quote);
             const hasSolanaStep = (leg.quote.quote.steps ?? []).some(step => (step.items ?? []).some(item => Boolean(item.data?.instructions)));
             const legResult = hasSolanaStep
-              ? await executeRelayQuote(leg.quote.quote, session, step => setUpdate({stage: step === 'build' ? 'preflight' : step === 'signing' ? 'awaiting-signature' : step === 'filling' ? 'filling' : 'success', step: index + 1, totalSteps: plan.legs.length, txHashes: [...done.txHashes], requestId: done.requestId, message: step === 'done' ? 'Trade complete.' : 'Processing trade…'}))
+              ? await executeRelayQuote(leg.quote.quote, session, step => setUpdate({stage: step === 'build' ? 'preflight' : step === 'signing' ? 'awaiting-signature' : step === 'filling' ? 'filling' : 'success', step: index + 1, totalSteps: plan.legs.length, txHashes: [...done.txHashes], requestId: done.requestId, message: step === 'done' ? 'Trade complete.' : 'Processing trade…'}), {requote})
               : await (async () => {
-                  return executeRelayQuote(leg.quote.quote, session, step => setUpdate({stage: step === 'build' ? 'preflight' : step === 'signing' ? 'awaiting-signature' : step === 'filling' ? 'filling' : 'success', step: index + 1, totalSteps: plan.legs.length, txHashes: [...done.txHashes], requestId: done.requestId, message: step === 'done' ? 'Trade complete.' : 'Processing trade…'}), {useGaslessTrading: gaslessTradingEnabled});
+                  return executeRelayQuote(leg.quote.quote, session, step => setUpdate({stage: step === 'build' ? 'preflight' : step === 'signing' ? 'awaiting-signature' : step === 'filling' ? 'filling' : 'success', step: index + 1, totalSteps: plan.legs.length, txHashes: [...done.txHashes], requestId: done.requestId, message: step === 'done' ? 'Trade complete.' : 'Processing trade…'}), {useGaslessTrading: gaslessTradingEnabled, requote});
                 })();
             done.txHashes.push(...legResult.txHashes);
             // A leg Relay hasn't settled yet (or refunded) makes the whole trade not-yet-successful.
