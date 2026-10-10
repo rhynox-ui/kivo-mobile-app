@@ -8,7 +8,7 @@ import { getWalletSession, subscribeToWallet, type WalletSession } from '../stat
 import { api, storage, useSocialReady } from '../state/session';
 import { useChatState } from '../state/useChat';
 import { updateSettings, useSettings } from '../state/settingsStore';
-import { isOfficialKivoChannel, type ProfileSocial } from '@kivo/shared/api/types';
+import { type ProfileSocial } from '@kivo/shared/api/types';
 import { CHAIN_LABEL, tradeChainLabel } from '@kivo/trading/core/chainData';
 import { subscribeToTradeHistory, type TradeRecord } from '@kivo/trading/kivo/history';
 import { closedPositions, computePortfolioChange, fetchPortfolio, filterHistoryByRange, getPortfolioHistory, openHoldings, recordPortfolioSnapshot, type Portfolio, type PortfolioRange, type PortfolioSnapshot } from '@kivo/trading/kivo/portfolio';
@@ -217,8 +217,8 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
           {[...groups, ...channels].map(g => (
             <Pressable key={g.id} onPress={() => onOpenChat?.(g.id)} style={styles.groupCard}>
-              <View style={[styles.groupIcon, { borderRadius: g.isVerified === true || isOfficialKivoChannel(g.id) ? 8 : 21 }]}>{g.avatarUrl ? <Image source={{ uri: g.avatarUrl }} style={[styles.tokenImage, { borderRadius: g.isVerified === true || isOfficialKivoChannel(g.id) ? 8 : 21 }]} /> : <Text style={styles.groupIconText}>{g.title.slice(0, 1).toUpperCase()}</Text>}</View>
-              <View style={styles.groupNameLine}><Text style={styles.groupName} numberOfLines={1}>{g.title}</Text>{(g.isVerified === true || isOfficialKivoChannel(g.id)) ? <Text accessibilityLabel="Verified community" style={styles.blueStarBadge}>★</Text> : null}</View>
+              <View style={[styles.groupIcon, { borderRadius: g.isVerified === true ? 8 : 21 }]}>{g.avatarUrl ? <Image source={{ uri: g.avatarUrl }} style={[styles.tokenImage, { borderRadius: g.isVerified === true ? 8 : 21 }]} /> : <Text style={styles.groupIconText}>{g.title.slice(0, 1).toUpperCase()}</Text>}</View>
+              <View style={styles.groupNameLine}><Text style={styles.groupName} numberOfLines={1}>{g.title}</Text>{(g.isVerified === true) ? <Text accessibilityLabel="Verified community" style={styles.blueStarBadge}>★</Text> : null}</View>
               <Text style={styles.small}>{g.kind === 'channel' ? 'Channel' : 'Group'} · {g.myRole === 'owner' ? 'Owner' : g.myRole === 'admin' ? 'Admin' : 'Member'}</Text>
             </Pressable>
           ))}
