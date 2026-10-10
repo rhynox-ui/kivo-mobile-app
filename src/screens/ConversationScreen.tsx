@@ -74,14 +74,16 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const [peerVerified, setPeerVerified] = useState(false);
   const [verifiedSenders, setVerifiedSenders] = useState<Set<string>>(() => new Set());
   const senderIds = useMemo(() => Array.from(new Set(messages.filter(message => message.senderId !== me).map(message => message.senderId))), [messages, me]);
+  const senderKey = senderIds.join('|');
   useEffect(() => {
     let active = true;
-    Promise.all(senderIds.map(async userId => {
+    const ids = senderKey ? senderKey.split('|') : [];
+    Promise.all(ids.map(async userId => {
       try { return (await api.verificationStatus('profile', userId)).isVerified === true ? userId : null; }
       catch { return null; }
     })).then(results => { if (active) setVerifiedSenders(new Set(results.filter((userId): userId is string => Boolean(userId)))); });
     return () => { active = false; };
-  }, [senderIds.join('|')]);
+  }, [senderKey]);
   useEffect(() => {
     let active = true;
     setPeerVerified(false);
