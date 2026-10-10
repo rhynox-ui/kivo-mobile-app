@@ -40,7 +40,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
       <View style={styles.header}><Pressable onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.headerTitle}>Profile</Text></View>
       <ScrollView contentContainerStyle={styles.body}>
         <Avatar name={name} uri={person?.avatarUrl} size={96} />
-        <Text style={styles.name}>{name}</Text>
+        <View style={styles.nameLine}><Text style={styles.name}>{name}</Text>{verificationStatus?.isVerified === true ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>
         {verificationStatus?.isVerified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verificationBadge}>★ Blue Star Verified · {verificationStatus.permanent || !verificationStatus.expiresAt ? 'permanent' : `valid until ${new Date(verificationStatus.expiresAt).toLocaleDateString()}`}</Text> : null}
         {person?.bio ? <Text style={styles.bio}>{person.bio}</Text> : null}
         <Text style={styles.address}>{address.slice(0, 10)}…{address.slice(-8)}</Text>
@@ -82,6 +82,8 @@ const styles = StyleSheet.create({
   back: { color: c.cream, fontSize: 36, width: 24 },
   headerTitle: { color: c.text, fontSize: 17, fontWeight: '800' },
   body: { padding: 20, alignItems: 'center', gap: 10, paddingBottom: 40 },
+  nameLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  verifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 11, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 18, height: 18, borderRadius: 9, overflow: 'hidden' },
   name: { color: c.text, fontSize: 26, fontWeight: '800' },
   verificationBadge: { color: '#C9F7A6', fontSize: 12, fontWeight: '900', textAlign: 'center', backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: '#C9F7A6', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
   bio: { color: c.text, fontSize: 14, textAlign: 'center' },
