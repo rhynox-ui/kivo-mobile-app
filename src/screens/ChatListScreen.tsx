@@ -95,7 +95,7 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
             catch (e) { Alert.alert(c.name, e instanceof Error ? e.message : 'Unable to subscribe to channel.'); }
           }}>
             <Avatar name={c.name} uri={c.avatarUrl} size={52} verified={c.isVerified === true} />
-            <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>📢 {c.name}{(c.isVerified) ? ' ★' : ''}</Text></View><Text style={styles.preview}>Public channel · Tap to subscribe</Text></View>
+            <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>📢 {c.name}{c.isVerified === true ? ' ★' : ''}</Text></View><Text style={styles.preview}>Public channel · Tap to subscribe</Text></View>
           </Pressable>)}
         </View> : undefined}
         contentContainerStyle={styles.listContent}
