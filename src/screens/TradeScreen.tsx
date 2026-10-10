@@ -205,11 +205,14 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
         for (let index = 0; index < plan.legs.length; index++) {
           const leg = plan.legs[index];
           try {
+            // Same as Mango Pro: if the pool moved before anything was sent,
+            // re-run this leg's exact quote request once.
+            const requote = () => requestKivoQuote(leg.quote.request).then(next => next.quote);
             const hasSolanaStep = (leg.quote.quote.steps ?? []).some(step => (step.items ?? []).some(item => Boolean(item.data?.instructions)));
             const legResult = hasSolanaStep
-              ? await executeRelayQuote(leg.quote.quote, session, step => setUpdate({stage: step === 'build' ? 'preflight' : step === 'signing' ? 'awaiting-signature' : step === 'filling' ? 'filling' : 'success', step: index + 1, totalSteps: plan.legs.length, txHashes: [...done.txHashes], requestId: done.requestId, message: step === 'done' ? 'Trade complete.' : 'Processing trade…'}))
+              ? await executeRelayQuote(leg.quote.quote, session, step => setUpdate({stage: step === 'build' ? 'preflight' : step === 'signing' ? 'awaiting-signature' : step === 'filling' ? 'filling' : 'success', step: index + 1, totalSteps: plan.legs.length, txHashes: [...done.txHashes], requestId: done.requestId, message: step === 'done' ? 'Trade complete.' : 'Processing trade…'}), {requote})
               : await (async () => {
-                  return executeRelayQuote(leg.quote.quote, session, step => setUpdate({stage: step === 'build' ? 'preflight' : step === 'signing' ? 'awaiting-signature' : step === 'filling' ? 'filling' : 'success', step: index + 1, totalSteps: plan.legs.length, txHashes: [...done.txHashes], requestId: done.requestId, message: step === 'done' ? 'Trade complete.' : 'Processing trade…'}), {useGaslessTrading: gaslessTradingEnabled});
+                  return executeRelayQuote(leg.quote.quote, session, step => setUpdate({stage: step === 'build' ? 'preflight' : step === 'signing' ? 'awaiting-signature' : step === 'filling' ? 'filling' : 'success', step: index + 1, totalSteps: plan.legs.length, txHashes: [...done.txHashes], requestId: done.requestId, message: step === 'done' ? 'Trade complete.' : 'Processing trade…'}), {useGaslessTrading: gaslessTradingEnabled, requote});
                 })();
             done.txHashes.push(...legResult.txHashes);
             // A leg Relay hasn't settled yet (or refunded) makes the whole trade not-yet-successful.
