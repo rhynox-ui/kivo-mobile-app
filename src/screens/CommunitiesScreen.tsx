@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { launchImageLibrary, type Asset } from 'react-native-image-picker';
-import { isOfficialKivoChannel, type ApiCommunity, type CommunityKind } from '@kivo/shared/api/types';
+import { type ApiCommunity, type CommunityKind } from '@kivo/shared/api/types';
 import { API_LIMITS } from '@kivo/shared/api/types';
 import { refreshConversations } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
@@ -75,9 +75,9 @@ export function CommunitiesScreen({ kind: initialKind = 'group', onOpenChat, onO
 function Row({ community: c, onPress, onInfo, action }: { community: ApiCommunity; onPress: () => void; onInfo?: () => void; action?: React.ReactNode }) {
   return (
     <Pressable onPress={onPress} style={styles.row}>
-      <Avatar name={c.name} uri={c.avatarUrl} size={46} verified={c.isVerified === true || isOfficialKivoChannel(c.id)} />
+      <Avatar name={c.name} uri={c.avatarUrl} size={46} verified={c.isVerified === true} />
       <View style={styles.flex}>
-        <View style={styles.rowTitleLine}><Text style={styles.rowTitle} numberOfLines={1}>{c.name}</Text>{(c.isVerified === true || isOfficialKivoChannel(c.id)) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
+        <View style={styles.rowTitleLine}><Text style={styles.rowTitle} numberOfLines={1}>{c.name}</Text>{(c.isVerified === true) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
         <Text style={styles.small} numberOfLines={1}>{c.memberCount} {c.kind === 'channel' ? 'subscribers' : 'members'}{c.myRole ? ` · ${c.myRole === 'owner' ? 'Owner' : c.myRole === 'admin' ? 'Admin' : c.kind === 'channel' ? 'Subscribed' : 'Member'}` : ''}</Text>
       </View>
       {action ?? (onInfo ? <Pressable onPress={onInfo} hitSlop={8}><Text style={styles.infoIcon}>ⓘ</Text></Pressable> : null)}
