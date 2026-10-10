@@ -205,7 +205,56 @@ export function messageLength(text: string): number {
 
 /** Characters one message may hold: 200 without Blue Star, 5,000 with it. */
 export function messageCharLimit(verified: boolean): number {
-  return verified ? API_LIMITS.maxMessageChars : API_LIMITS.maxMessageCharsUnverified;
+  return verified ? liveLimits.messageChars.verified : liveLimits.messageChars.unverified;
+}
+
+// ---------------------------------------------------------------------------
+// Live Blue Star rules. The server enforces them on every request and serves
+// them at GET /api/limits; the app applies them at start-up so a rule change
+// reaches phones without an app update. Built-in values are only a fallback.
+
+export type ClientLimits = {
+  version: 1;
+  messageChars: {verified: number; unverified: number};
+  ownedGroups: {verified: number; unverified: number};
+  ownedChannels: {verified: number; unverified: number};
+  profileLinksRequireBlueStar: boolean;
+};
+
+const BUILT_IN_LIMITS: ClientLimits = {
+  version: 1,
+  messageChars: {verified: API_LIMITS.maxMessageChars, unverified: API_LIMITS.maxMessageCharsUnverified},
+  ownedGroups: {verified: API_LIMITS.maxOwnedGroups, unverified: API_LIMITS.maxOwnedGroupsUnverified},
+  ownedChannels: {verified: API_LIMITS.maxOwnedChannels, unverified: API_LIMITS.maxOwnedChannelsUnverified},
+  profileLinksRequireBlueStar: true,
+};
+let liveLimits: ClientLimits = BUILT_IN_LIMITS;
+
+/** Validates a /api/limits payload; null when it is not a sane version-1 answer. */
+export function parseClientLimits(value: unknown): ClientLimits | null {
+  const v = value as Partial<ClientLimits> | null;
+  const pair = (p: unknown, max: number) => {
+    const q = p as {verified?: unknown; unverified?: unknown} | null;
+    const ok = (n: unknown) => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= max;
+    return q && ok(q.verified) && ok(q.unverified) ? {verified: q.verified as number, unverified: q.unverified as number} : null;
+  };
+  if (!v || v.version !== 1) return null;
+  const messageChars = pair(v.messageChars, 100_000);
+  const ownedGroups = pair(v.ownedGroups, 1_000);
+  const ownedChannels = pair(v.ownedChannels, 1_000);
+  if (!messageChars || !ownedGroups || !ownedChannels) return null;
+  return {version: 1, messageChars, ownedGroups, ownedChannels, profileLinksRequireBlueStar: v.profileLinksRequireBlueStar !== false};
+}
+
+/** Applies the server's rules (ignored when invalid). Returns whether they were applied. */
+export function applyClientLimits(value: unknown): boolean {
+  const parsed = parseClientLimits(value);
+  if (parsed) liveLimits = parsed;
+  return Boolean(parsed);
+}
+
+export function currentClientLimits(): ClientLimits {
+  return liveLimits;
 }
 
 export function dmConversationId(a: string, b: string): string {
@@ -291,8 +340,8 @@ export function profileLinksApprovalLine(links: ProfileLinks): string {
 
 /** How many groups or channels an account may own: 1 each without Blue Star, 10 each with it. */
 export function ownedCommunityLimit(kind: 'group' | 'channel', verified: boolean): number {
-  if (kind === 'channel') return verified ? API_LIMITS.maxOwnedChannels : API_LIMITS.maxOwnedChannelsUnverified;
-  return verified ? API_LIMITS.maxOwnedGroups : API_LIMITS.maxOwnedGroupsUnverified;
+  const limits = kind === 'channel' ? liveLimits.ownedChannels : liveLimits.ownedGroups;
+  return verified ? limits.verified : limits.unverified;
 }
 
 /** The message shown when an account has reached its group/channel limit. */

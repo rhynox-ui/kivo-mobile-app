@@ -169,6 +169,8 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         }
         try {
           const result = await api.purchaseVerification({ subjectType, subjectId, plan: current.plan, chain: current.chain, txHash: current.txHash });
+          // Show the new Blue Star everywhere right away instead of after the cache minute.
+          api.forgetVerification(subjectType, subjectId);
           await clearPendingRecord(storageKey, keychainService);
           await Promise.resolve(storage.setItem(receiptStorageKey, JSON.stringify(result))).catch(() => {});
           if (!mountedRef.current) return;

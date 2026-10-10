@@ -71,7 +71,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const previousMessageCount = useRef(messages.length);
   const [unseenMessages, setUnseenMessages] = useState(0);
   const me = myUserId();
-  // Message length: 200 characters without Blue Star, 5,000 with it.
+  // Message length comes from the server's live Blue Star rules (GET /api/limits).
   // The server enforces this; the counter only helps before sending.
   const [verifiedSender, setVerifiedSender] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -161,7 +161,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
     const text = draft;
     if (!text.trim()) return;
     if (overLimit) {
-      Alert.alert('Message', verifiedSender ? 'This message is too long.' : `Messages are limited to ${charLimit} characters. Blue Star accounts can send up to 5,000 characters.`);
+      Alert.alert('Message', verifiedSender ? 'This message is too long.' : `Messages are limited to ${charLimit} characters. Blue Star accounts can send up to ${messageCharLimit(true).toLocaleString()} characters.`);
       return;
     }
     const editingId = editingMessageId;
@@ -322,12 +322,12 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
         {showCounter ? (
           <View style={styles.limitRow} accessibilityLiveRegion="polite">
             <Text style={[styles.limitCount, overLimit && styles.limitOver]}>{draftLength.toLocaleString()}/{charLimit.toLocaleString()}</Text>
-            {overLimit && !verifiedSender ? <Text style={styles.limitHint}>★ Get Verified for up to 5,000 characters</Text> : null}
+            {overLimit && !verifiedSender ? <Text style={styles.limitHint}>★ Get Verified for up to {messageCharLimit(true).toLocaleString()} characters</Text> : null}
           </View>
         ) : null}
         <View style={styles.composer}>
           <Pressable onPress={attach} hitSlop={8} style={styles.attach} accessibilityLabel="Attach photo"><Text style={styles.attachText}>＋</Text></Pressable>
-          <TextInput value={draft} onChangeText={setDraft} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={API_LIMITS.maxMessageChars * 2} style={styles.input} />
+          <TextInput value={draft} onChangeText={setDraft} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={messageCharLimit(true) * 2} style={styles.input} />
           <Pressable disabled={!draft.trim() || sending} onPress={send} style={[styles.send, (!draft.trim() || overLimit || sending) && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
         </View>
         </View>

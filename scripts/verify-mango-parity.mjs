@@ -158,3 +158,9 @@ check('Recovery phrase and private keys render inside FLAG_SECURE-protected scre
   }
   assert.ok(read('src/screens/RecoveryBackupScreen.tsx').includes('setScreenSecure(true)'));
 });
+check('Blue Star rules come from the server at start-up (no app update for rule changes)', () => {
+  const t = read('shared/api/types.ts');
+  assert.ok(t.includes('export function applyClientLimits') && t.includes('liveLimits.messageChars'));
+  assert.ok(read('src/state/session.ts').includes('applyClientLimits('));
+  assert.ok(read('shared/api/client.ts').includes("'/api/limits'"));
+});

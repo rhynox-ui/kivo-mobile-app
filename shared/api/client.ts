@@ -11,6 +11,8 @@ export class ApiError extends Error {
 
 export type KivoApiOptions = {baseUrl: string; storage: KeyValueStorage; sessionStorage?: KeyValueStorage; client: 'web' | 'mobile'};
 const SESSION_KEY = 'kivo:api-session:v1';
+const VERIFICATION_TTL_MS = 60_000;
+export type VerificationStatus = {isVerified: boolean; permanent: boolean; expiresAt: number | null; plan: 'monthly' | 'annual' | null; chain?: string};
 
 export class KivoApi {
   private baseUrl: string;
@@ -19,6 +21,8 @@ export class KivoApi {
   private client: 'web' | 'mobile';
   private session: {token: string; expiresAt: number; address: string} | null = null;
   private sessionGeneration = 0;
+  private verificationCache = new Map<string, {at: number; value: VerificationStatus}>();
+  private verificationInFlight = new Map<string, Promise<VerificationStatus>>();
   private activeAddress: string | null = null;
   private sessionWriteQueue: Promise<void> = Promise.resolve();
   private listeners = new Set<() => void>();
@@ -196,9 +200,30 @@ export class KivoApi {
       recipient: string; paidAt: number; expiresAt: number; explorerUrl: string; status: string;
     } | null>('GET', `/api/verification/receipt?subjectType=${subjectType}&subjectId=${encodeURIComponent(subjectId)}`);
   }
-  verificationStatus(subjectType: 'profile' | 'channel', subjectId: string) {
-    return this.request<{isVerified: boolean; permanent: boolean; expiresAt: number | null; plan: 'monthly' | 'annual' | null; chain?: string}>('GET', `/api/verification/status?subjectType=${subjectType}&subjectId=${encodeURIComponent(subjectId)}`);
+  /**
+   * Blue Star status, shared by every screen. A confirmed answer is reused for
+   * up to a minute (so a busy group doesn't ask once per sender, and an
+   * expired Blue Star still disappears within a minute); concurrent asks share
+   * one request; failures are never cached.
+   */
+  verificationStatus(subjectType: 'profile' | 'channel', subjectId: string): Promise<VerificationStatus> {
+    const key = `${subjectType}:${subjectId}`;
+    const hit = this.verificationCache.get(key);
+    if (hit && Date.now() - hit.at < VERIFICATION_TTL_MS) return Promise.resolve(hit.value);
+    const pending = this.verificationInFlight.get(key);
+    if (pending) return pending;
+    const promise = this.request<VerificationStatus>('GET', `/api/verification/status?subjectType=${subjectType}&subjectId=${encodeURIComponent(subjectId)}`)
+      .then(value => { this.verificationCache.set(key, {at: Date.now(), value}); return value; })
+      .finally(() => { this.verificationInFlight.delete(key); });
+    this.verificationInFlight.set(key, promise);
+    return promise;
   }
+  /** Drop a cached Blue Star answer (after buying or renewing one). */
+  forgetVerification(subjectType: 'profile' | 'channel', subjectId: string): void {
+    this.verificationCache.delete(`${subjectType}:${subjectId}`);
+  }
+  /** The Blue Star rules the server currently enforces (public, no session needed). */
+  limits() { return this.request<unknown>('GET', '/api/limits', undefined, false); }
   purchaseVerification(input: {subjectType: 'profile' | 'channel'; subjectId: string; plan: 'monthly' | 'annual'; chain: 'ethereum' | 'base' | 'arbitrum' | 'solana'; txHash: string}) {
     return this.request<{id: string; plan: string; chain: string; token: 'USDC'; amount: string; txHash: string; payer: string; recipient: string; paidAt: number; expiresAt: number; explorerUrl: string; blockNumber: number; status: string}>('POST', '/api/verification/purchase', input);
   }

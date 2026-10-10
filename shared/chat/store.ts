@@ -8,7 +8,7 @@
 
 import type {KivoApi} from '../api/client';
 import type {ApiConversation, ApiMessage, ApiProfile} from '../api/types';
-import {API_LIMITS, kivoUserIdForWallet, messageLength, normalizeWalletAddress, shortWallet, walletAddressOfUserId} from '../api/types';
+import {kivoUserIdForWallet, messageCharLimit, messageLength, normalizeWalletAddress, shortWallet, walletAddressOfUserId} from '../api/types';
 import type {KeyValueStorage} from '../storage';
 
 export type LocalMessage = ApiMessage & {status: 'sent' | 'pending' | 'failed'; error?: string};
@@ -319,7 +319,7 @@ async function deliver(local: LocalMessage, payload: {text: string; mediaKey?: s
 export async function sendText(conversationId: string, text: string, replyTo?: string) {
   const trimmed = text.normalize('NFC').trim();
   if (!trimmed) return;
-  if (messageLength(trimmed) > API_LIMITS.maxMessageChars) throw new Error('This message is too long.');
+  if (messageLength(trimmed) > messageCharLimit(true)) throw new Error('This message is too long.');
   const me = myUserId();
   if (!me) throw new Error('Connect your wallet to chat.');
   const local: LocalMessage = {seq: 0, id: 'm_' + clientId(), conversationId, senderId: me, text: trimmed, media: null, replyTo: replyTo ?? null, createdAt: Date.now(), deleted: false, status: 'pending'};
@@ -361,7 +361,7 @@ export async function editMessage(conversationId: string, id: string, text: stri
   if (!opts) throw new Error('Chat is not ready.');
   const trimmed = text.normalize('NFC').trim();
   if (!trimmed) throw new Error('Message cannot be empty.');
-  if (messageLength(trimmed) > API_LIMITS.maxMessageChars) throw new Error('This message is too long.');
+  if (messageLength(trimmed) > messageCharLimit(true)) throw new Error('This message is too long.');
   const original = state.messages[conversationId]?.find(m => m.id === id);
   if (!original || original.senderId !== myUserId() || original.deleted || original.status !== 'sent') throw new Error('Only your sent messages can be edited.');
   const updated = await opts.api.editMessage(id, trimmed);

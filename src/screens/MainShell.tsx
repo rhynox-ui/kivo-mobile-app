@@ -4,6 +4,7 @@ import { ChatListScreen } from './ChatListScreen';
 import { ConversationScreen } from './ConversationScreen';
 import { CommunitiesScreen } from './CommunitiesScreen';
 import { CommunityScreen } from './CommunityScreen';
+import { CommunitySettingsScreen } from './CommunitySettingsScreen';
 import { PersonScreen } from './PersonScreen';
 import { TradeScreen } from './TradeScreen';
 import { TokenDetailScreen } from './TokenDetailScreen';
@@ -27,6 +28,7 @@ type View_ =
   | { name: 'main' }
   | { name: 'conversation'; id: string }
   | { name: 'community'; id: string }
+  | { name: 'communitySettings'; id: string }
   | { name: 'communities'; kind: CommunityKind }
   | { name: 'person'; userId: string }
   | { name: 'token' }
@@ -54,7 +56,8 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
   switch (view.name) {
     case 'verification': return <VerificationScreen subjectType={view.subjectType} subjectId={view.subjectId} subjectName={view.subjectName} onBack={back} />;
     case 'conversation': return <ConversationScreen id={view.id} onBack={back} onOpenInfo={id => openCommunity(id)} onOpenPerson={userId => push({ name: 'person', userId })} />;
-    case 'community': return <CommunityScreen id={view.id} onBack={back} onOpenChat={openChat} onOpenPerson={userId => push({ name: 'person', userId })} onOpenVerification={(subjectType, subjectId, subjectName) => push({ name: 'verification', subjectType, subjectId, subjectName })} />;
+    case 'community': return <CommunityScreen id={view.id} onBack={back} onOpenChat={openChat} onOpenPerson={userId => push({ name: 'person', userId })} onOpenVerification={(subjectType, subjectId, subjectName) => push({ name: 'verification', subjectType, subjectId, subjectName })} onOpenManage={id => push({ name: 'communitySettings', id })} />;
+    case 'communitySettings': return <CommunitySettingsScreen id={view.id} onBack={back} onDeleted={() => home('Chats')} onOpenPerson={userId => push({ name: 'person', userId })} />;
     case 'communities': return <CommunitiesScreen kind={view.kind} onBack={back} onOpenChat={openChat} onOpenInfo={openCommunity} onOpenVerification={subjectId => push({ name: 'verification', subjectType: 'profile', subjectId, subjectName: 'your profile' })} />;
     case 'person': return <PersonScreen userId={view.userId} onBack={back} onOpenChat={openChat} onOpenCommunity={openCommunity} />;
     case 'token': return <TokenDetailScreen token={selectedToken} onMarket={setSelectedToken} onBack={back} onBuy={() => { setTradeSide('buy'); home('Trade'); }} onSell={() => { setTradeSide('sell'); home('Trade'); }} />;
