@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, AppState, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { api, storage, useSocialReady } from '../state/session';
 import { getWalletSession, localEvmSigner, withDeviceAccounts } from '../state/walletStore';
-import { createPublicClient, encodeFunctionData, parseUnits } from 'viem';
-import { transportFor, viemChainForChainId } from '@kivo/trading/core/chainRegistry';
-import { Connection, PublicKey, Transaction } from '@solana/web3.js';
+import { encodeFunctionData, parseUnits } from 'viem';
+import { Buffer } from 'buffer';
+import { verificationPaymentMemo } from '../../shared/api/types';
+import { Connection, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 import * as Keychain from 'react-native-keychain';
 import { createAssociatedTokenAccountInstruction, createTransferCheckedInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
 import { kivoTheme } from '../theme/kivoTheme';
@@ -73,6 +74,25 @@ async function clearPendingRecord(key: string, service: string): Promise<void> {
   try { await Keychain.resetGenericPassword({ service }); } catch {}
 }
 
+type Stage = 'loading' | 'form' | 'wallet' | 'confirming' | 'failed' | 'active';
+const EXPECTED_SECONDS: Record<Chain, number> = { base: 45, arbitrum: 10, ethereum: 150, solana: 20 };
+const VERIFY_DEADLINE_MS = 20 * 60_000;
+const CHAIN_IDS = { ethereum: 1, base: 8453, arbitrum: 42161 } as const;
+const EVM_USDC = { ethereum: '0xA0b86991c6218b36c1d19d4a2e9Eb0cE3606eB48', base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' } as const;
+const MEMO_PROGRAM_ID = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
+
+function explorerTx(chain: Chain, hash: string): string {
+  return chain === 'solana' ? `https://solscan.io/tx/${hash}` : chain === 'base' ? `https://basescan.org/tx/${hash}` : chain === 'arbitrum' ? `https://arbiscan.io/tx/${hash}` : `https://etherscan.io/tx/${hash}`;
+}
+const shortHash = (hash: string) => `${hash.slice(0, 6)}…${hash.slice(-4)}`;
+const httpStatusOf = (error: unknown) => (typeof error === 'object' && error !== null && 'status' in error ? Number((error as { status?: unknown }).status) || 0 : 0);
+
+/**
+ * Blue Star checkout: one card, one state at a time —
+ * form → confirm in wallet → payment sent (live confirmations) → verified.
+ * Server polling starts as soon as the transaction hash exists and is
+ * idempotent per hash, so it can never charge or extend twice.
+ */
 export function VerificationScreen({ subjectType, subjectId, subjectName, onBack }: {
   subjectType: SubjectType;
   subjectId: string;
@@ -80,247 +100,254 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   onBack: () => void;
 }) {
   const socialReady = useSocialReady();
+  const [stage, setStage] = useState<Stage>('loading');
   const [plan, setPlan] = useState<Plan>('monthly');
   const [chain, setChain] = useState<Chain>('base');
   const [networkPickerOpen, setNetworkPickerOpen] = useState(false);
-  const [pending, setPending] = useState<PendingPayment | null>(null);
-  const [pendingLoaded, setPendingLoaded] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState('Choose a plan and network to get started.');
-  const [receipt, setReceipt] = useState<any>(null);
-  const [alreadyVerified, setAlreadyVerified] = useState(false);
-  const [pendingPersistenceWarning, setPendingPersistenceWarning] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingPayment | null>(null);
+  const [failure, setFailure] = useState<{ message: string; pending: PendingPayment | null } | null>(null);
+  const [confirmations, setConfirmations] = useState<{ have: number; need: number } | null>(null);
+  const [startedAt, setStartedAt] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const [receipt, setReceipt] = useState<any>(null);
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [activeUntil, setActiveUntil] = useState<number | null>(null);
+  const [permanent, setPermanent] = useState(false);
+  const [celebrate, setCelebrate] = useState(false);
+  const verifyingRef = useRef(false);
+  const mountedRef = useRef(true);
   const receiptStorageKey = `kivo:verification-receipt:${subjectType}:${subjectId}`;
   const storageKey = `kivo:verification-pending:${subjectType}:${subjectId}`;
   const keychainService = `${PENDING_KEYCHAIN_SERVICE}.${subjectType}.${encodeURIComponent(subjectId)}`;
-  const pendingRecovery = pending as PendingPayment | null;
 
-  useEffect(() => {
-    let active = true;
-    void Promise.resolve(storage.getItem(receiptStorageKey)).then(raw => {
-      if (!active || !raw) return;
-      try { setReceipt(JSON.parse(raw)); } catch { void Promise.resolve(storage.removeItem?.(receiptStorageKey)).catch(() => {}); }
-    }).catch(() => {});
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
 
-    // Recover the server-confirmed receipt after reinstall or on another device.
-    // A historical receipt never activates a badge; verificationStatus remains authoritative.
-    void api.latestVerificationReceipt(subjectType, subjectId).then(serverReceipt => {
-      if (!active || !serverReceipt) return;
-      const recovered = {
-        id: serverReceipt.id,
-        plan: serverReceipt.plan,
-        chain: serverReceipt.chain,
-        token: 'USDC',
-        amount: serverReceipt.amount,
-        txHash: serverReceipt.txHash,
-        payer: serverReceipt.payer,
-        paidAt: serverReceipt.paidAt,
-        expiresAt: serverReceipt.expiresAt,
-        explorerUrl: serverReceipt.explorerUrl,
-        status: serverReceipt.status,
-      };
-      setReceipt(recovered);
-      void Promise.resolve(storage.setItem(receiptStorageKey, JSON.stringify(recovered))).catch(() => {});
-    }).catch(() => {});
-    return () => { active = false; };
-  }, [receiptStorageKey, subjectType, subjectId]);
+  const loadPending = async (): Promise<PendingPayment | null> => {
+    const raw = await readPendingRecord(storageKey, keychainService).catch(() => null);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PendingPayment;
+    return { txHash: parsed.txHash, chain: parsed.chain, plan: parsed.plan };
+  };
 
-  useEffect(() => {
-    let active = true;
-    void readPendingRecord(storageKey, keychainService).then(async raw => {
-      if (!active) return;
-      if (raw) {
-        const parsed = JSON.parse(raw) as { txHash?: unknown; chain?: unknown; plan?: unknown };
-        const valid = typeof parsed.txHash === 'string' &&
-          (parsed.chain === 'ethereum' || parsed.chain === 'base' || parsed.chain === 'arbitrum' || parsed.chain === 'solana') &&
-          (parsed.plan === 'monthly' || parsed.plan === 'annual') &&
-          (parsed.chain === 'solana' ? /^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(parsed.txHash) : /^0x[0-9a-fA-F]{64}$/.test(parsed.txHash));
-        if (valid) {
-          const restored = { txHash: parsed.txHash as string, chain: parsed.chain as Chain, plan: parsed.plan as Plan };
-          setPending(restored);
-          setChain(restored.chain);
-          setPlan(restored.plan);
-          setStatus('A payment was already submitted. Retry verification; do not pay again.');
-        } else {
+  /** Polls the server until it credits this exact payment, or gives a final answer. Never sends a payment. */
+  const verify = async (current: PendingPayment) => {
+    if (verifyingRef.current) return;
+    verifyingRef.current = true;
+    const began = Date.now();
+    setPending(current); setPlan(current.plan); setChain(current.chain);
+    setConfirmations(null); setStartedAt(began); setStage('confirming');
+    try {
+      for (let attempt = 0; mountedRef.current; attempt++) {
+        try {
+          const result = await api.purchaseVerification({ subjectType, subjectId, plan: current.plan, chain: current.chain, txHash: current.txHash });
           await clearPendingRecord(storageKey, keychainService);
+          await Promise.resolve(storage.setItem(receiptStorageKey, JSON.stringify(result))).catch(() => {});
+          if (!mountedRef.current) return;
+          setPending(null);
+          setReceipt(result);
+          setActiveUntil(result.expiresAt);
+          setCelebrate(true);
+          setStage('active');
+          return;
+        } catch (error) {
+          const status = httpStatusOf(error);
+          const message = error instanceof Error ? error.message : '';
+          const progress = /\((\d+)\/(\d+)\)/.exec(message);
+          if (progress && mountedRef.current) setConfirmations({ have: Number(progress[1]), need: Number(progress[2]) });
+          const network = !status && /network|fetch|timed? ?out|request failed/i.test(message);
+          const retryable = status === 409 || status === 429 || network || (status >= 500 && status <= 599);
+          if (!retryable) {
+            const final = status === 400 || status === 403; // this hash will never verify
+            if (final) await clearPendingRecord(storageKey, keychainService);
+            if (!mountedRef.current) return;
+            setFailure({ message: message || 'Kivo could not verify this payment.', pending: final ? null : current });
+            setStage('failed');
+            return;
+          }
+          if (Date.now() - began > VERIFY_DEADLINE_MS) {
+            if (!mountedRef.current) return;
+            setFailure({ message: 'This is taking longer than usual. Your payment is safe on-chain; Kivo finishes verifying when you check again.', pending: current });
+            setStage('failed');
+            return;
+          }
+          await new Promise<void>(resolve => setTimeout(resolve, status === 429 ? 65_000 : Math.min(15_000, 3_000 + attempt * 2_000)));
         }
       }
-    }).catch(() => {}).finally(() => { if (active) setPendingLoaded(true); });
-    return () => { active = false; };
-  }, [storageKey, keychainService]);
+    } finally {
+      verifyingRef.current = false;
+    }
+  };
 
+  // First view from server truth; a saved payment resumes verifying at once.
   useEffect(() => {
     let active = true;
-    void api.verificationStatus(subjectType, subjectId).then(current => {
+    void Promise.resolve(storage.getItem(receiptStorageKey)).then(raw => { if (active && raw) { try { setReceipt(JSON.parse(raw)); } catch {} } }).catch(() => {});
+    void (async () => {
+      const saved = await loadPending();
       if (!active) return;
-      if (current.isVerified) {
-        setAlreadyVerified(true);
-        setStatus(current.permanent ? 'Blue Star verification is active.' : `Verified until ${current.expiresAt ? new Date(current.expiresAt).toLocaleDateString() : 'expiry unavailable'}.`);
-        setPending(null);
-        void clearPendingRecord(storageKey, keychainService);
-      } else {
-        // A locally saved receipt is history, not proof that a subscription is still active.
-        setAlreadyVerified(false);
+      if (saved) { void verify(saved); return; }
+      try {
+        const current = await api.verificationStatus(subjectType, subjectId);
+        if (!active) return;
+        setPermanent(Boolean(current.permanent));
+        if (current.isVerified) {
+          setActiveUntil(current.expiresAt ?? null);
+          setStage('active');
+          void api.latestVerificationReceipt(subjectType, subjectId).then(r => { if (active && r) setReceipt(r); }).catch(() => {});
+        } else {
+          setStage('form');
+        }
+      } catch {
+        if (active) { setNote('Could not load verification status. You can still pay; Kivo verifies on-chain.'); setStage('form'); }
       }
-    }).catch(() => {});
+    })();
     return () => { active = false; };
-  }, [subjectType, subjectId, storageKey]);
+  }, [subjectType, subjectId]);
+
+  // Coming back to the app resumes a saved payment.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state !== 'active' || verifyingRef.current) return;
+      void loadPending().then(saved => { if (saved) void verify(saved); });
+    });
+    return () => sub.remove();
+  }, [storageKey]);
+
+  // Elapsed-time ticker while confirming.
+  useEffect(() => {
+    if (stage !== 'confirming') return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [stage]);
 
   const pay = async () => {
-    if (busy || !pendingLoaded) return;
-    if (!socialReady) {
-      Alert.alert('Kivo', 'Turn on chats first so your account can complete verification.');
-      return;
-    }
-    if (!getWalletSession()) {
-      Alert.alert('Kivo wallet', 'Unlock your Kivo wallet before paying.');
-      return;
-    }
-    setBusy(true);
-    let pendingForAttempt = pending;
-    let pendingPersistenceFailedForAttempt = false;
+    setNote(null);
+    if (!socialReady) { setNote('Turn on chats first so your Kivo account can be verified.'); return; }
+    const session = getWalletSession();
+    if (!session) { setNote('Unlock your Kivo wallet before paying.'); return; }
+    const buyer = `kivo:${session.address.toLowerCase()}`;
+    setStage('wallet');
+    let txHash: string;
     try {
-      const selectedPlan = pending?.plan ?? plan;
-      const selectedChain = pending?.chain ?? chain;
-      let txHash = pending?.txHash ?? '';
-      if (!pending && selectedChain === 'solana') {
+      if (chain === 'solana') {
         txHash = await withDeviceAccounts('Approve Blue Star USDC payment', async ({ solana }) => {
           const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
           const mint = new PublicKey(USDC_MINT);
           const recipient = new PublicKey(SOLANA_RECIPIENT);
           const sourceAta = await getAssociatedTokenAddress(mint, solana.publicKey);
-          if (!(await connection.getAccountInfo(sourceAta))) throw new Error('Your Kivo wallet has no Solana USDC token account. Add USDC on Solana before paying.');
+          if (!(await connection.getAccountInfo(sourceAta))) throw new Error('Your Kivo wallet has no Solana USDC. Add USDC on Solana before paying.');
           const destinationAta = await getAssociatedTokenAddress(mint, recipient);
           const transaction = new Transaction();
           if (!(await connection.getAccountInfo(destinationAta))) transaction.add(createAssociatedTokenAccountInstruction(solana.publicKey, destinationAta, recipient, mint));
-          transaction.add(createTransferCheckedInstruction(sourceAta, mint, destinationAta, solana.publicKey, selectedPlan === 'annual' ? 5_000_000n : 1_000_000n, 6));
-          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+          transaction.add(createTransferCheckedInstruction(sourceAta, mint, destinationAta, solana.publicKey, plan === 'annual' ? 5_000_000n : 1_000_000n, 6));
+          // Binds the payment to this Kivo account and subject; the server rejects Solana payments without it.
+          transaction.add(new TransactionInstruction({ programId: new PublicKey(MEMO_PROGRAM_ID), keys: [{ pubkey: solana.publicKey, isSigner: true, isWritable: false }], data: Buffer.from(verificationPaymentMemo(buyer, subjectType, subjectId), 'utf8') }));
+          const { blockhash } = await connection.getLatestBlockhash('confirmed');
           transaction.feePayer = solana.publicKey;
           transaction.recentBlockhash = blockhash;
-          const signature = await connection.sendTransaction(transaction, [solana], { skipPreflight: false, preflightCommitment: 'confirmed' });
-          pendingForAttempt = { txHash: signature, chain: selectedChain, plan: selectedPlan };
-          setPending(pendingForAttempt);
-          const saved = await savePendingRecord(storageKey, keychainService, JSON.stringify(pendingForAttempt));
-          pendingPersistenceFailedForAttempt = !saved;
-          setPendingPersistenceWarning(!saved);
-          await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
-          return signature;
+          return connection.sendTransaction(transaction, [solana], { skipPreflight: false, preflightCommitment: 'confirmed' });
         });
-      } else if (!pending) {
-        const evmChain = selectedChain as 'ethereum' | 'base' | 'arbitrum';
-        const chainIds = { ethereum: 1, base: 8453, arbitrum: 42161 } as const;
-        const usdc = { ethereum: '0xA0b86991c6218b36c1d19d4a2e9Eb0cE3606eB48', base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' } as const;
+      } else {
         const signer = await localEvmSigner();
-        await signer.ensureChain(chainIds[evmChain]);
+        if (signer.address.toLowerCase() !== session.address.toLowerCase()) throw new Error('The unlocked wallet does not match your Kivo account. Nothing was sent.');
+        await signer.ensureChain(CHAIN_IDS[chain]);
         const data = encodeFunctionData({
           abi: [{ type: 'function', name: 'transfer', stateMutability: 'nonpayable', inputs: [{ name: 'to', type: 'address' }, { name: 'value', type: 'uint256' }], outputs: [{ type: 'bool' }] }],
           functionName: 'transfer',
-          args: [EVM_RECIPIENT, parseUnits(selectedPlan === 'annual' ? '5' : '1', 6)],
+          args: [EVM_RECIPIENT, parseUnits(plan === 'annual' ? '5' : '1', 6)],
         });
-        txHash = await signer.sendTransaction({ to: usdc[evmChain], data, value: 0n, chainId: chainIds[evmChain] });
-        pendingForAttempt = { txHash, chain: selectedChain, plan: selectedPlan };
-        setPending(pendingForAttempt);
-        const saved = await savePendingRecord(storageKey, keychainService, JSON.stringify(pendingForAttempt));
-        pendingPersistenceFailedForAttempt = !saved;
-        setPendingPersistenceWarning(!saved);
+        txHash = await signer.sendTransaction({ to: EVM_USDC[chain], data, value: 0n, chainId: CHAIN_IDS[chain] });
       }
-      // Wait for the same confirmation depth required by the backend before
-      // calling verification; otherwise an immediate receipt check can fail and
-      // leave the paid user stuck in manual recovery.
-      if (selectedChain !== 'solana') {
-        setStatus('Waiting for blockchain confirmation…');
-        const chainId = selectedChain === 'ethereum' ? 1 : selectedChain === 'base' ? 8453 : 42161;
-        const evmChain = viemChainForChainId(chainId);
-        if (!evmChain) throw new Error('Network configuration unavailable. Your payment is saved; retry verification later.');
-        const confirmations = selectedChain === 'ethereum' ? 12 : 20;
-        const client = createPublicClient({ chain: evmChain, transport: transportFor(chainId) });
-        const receipt = await client.waitForTransactionReceipt({ hash: txHash as `0x${string}`, confirmations });
-        if (receipt.status !== 'success') throw new Error('The USDC transaction failed on-chain. Contact Kivo support before paying again.');
-      }
-      setStatus('Verifying payment with Kivo…');
-      let result: any;
-      for (let attempt = 0; ; attempt++) {
-        try {
-          result = await api.purchaseVerification({ subjectType, subjectId, plan: selectedPlan, chain: selectedChain, txHash });
-          break;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : '';
-          const httpStatus = typeof error === 'object' && error !== null && 'status' in error
-            ? Number((error as { status?: unknown }).status) : 0;
-          // A 429 must not be retried inside the same minute window. The old
-          // loop could send up to 15 POSTs and exhaust the purchase limiter.
-          if (httpStatus === 429 || attempt >= 2 ||
-              !/confirm|temporarily unavailable|not finalized|timeout|network|fetch/i.test(message)) throw error;
-          await new Promise(resolve => setTimeout(resolve, attempt === 0 ? 5_000 : 15_000));
-        }
-      }
-      setPending(null);
-      await clearPendingRecord(storageKey, keychainService);
-      setPendingPersistenceWarning(false);
-      setReceipt(result);
-      await Promise.resolve(storage.setItem(receiptStorageKey, JSON.stringify(result))).catch(() => {});
-      setAlreadyVerified(true);
-      setStatus('Payment confirmed. Blue Star verification is active.');
-      Alert.alert('Blue Star activated', 'Payment confirmed. Your verification receipt is ready.');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not verify payment.';
-      if (pendingForAttempt) {
-        setPending(pendingForAttempt);
-        setStatus(`${pendingPersistenceFailedForAttempt ? 'Recovery storage could not be saved. Keep this screen open and retry verification before leaving. ' : ''}Payment submitted. Retry verification; do not pay again. ${message}`);
-        Alert.alert('Payment submitted', 'Retry verification for the existing transaction. Do not pay again.');
-      } else {
-        setStatus(message);
-        Alert.alert('Payment not completed', message);
-      }
-    } finally {
-      setBusy(false);
+      const message = error instanceof Error ? error.message : 'Payment was not sent.';
+      if (!mountedRef.current) return;
+      setNote(/cancel|denied|reject|locked/i.test(message) ? 'Payment cancelled. Nothing was sent.' : message);
+      setStage('form');
+      return;
     }
+    const sent: PendingPayment = { txHash, chain, plan };
+    const saved = await savePendingRecord(storageKey, keychainService, JSON.stringify(sent));
+    if (!saved) setNote('Recovery storage is unavailable — keep this screen open until verification finishes.');
+    await verify(sent);
   };
 
-  // Automatically retry the saved transaction hash after a delay. This calls
-  // server-side verification only and never submits another wallet transfer.
-  useEffect(() => {
-    if (!pending || alreadyVerified || !pendingLoaded) return;
-    const timer = setInterval(() => {
-      if (!busy) void pay();
-    }, 60_000);
-    return () => clearInterval(timer);
-  }, [pending?.txHash, pending?.chain, pending?.plan, alreadyVerified, pendingLoaded, busy]);
-
-  const connected = Boolean(getWalletSession());
+  const elapsed = Math.max(0, Math.round((now - startedAt) / 1000));
+  const elapsedLabel = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
+  const progressRatio = confirmations ? confirmations.have / confirmations.need : Math.min(0.9, elapsed / EXPECTED_SECONDS[chain]);
+  const openTx = (p: PendingPayment) => Linking.openURL(explorerTx(p.chain, p.txHash)).catch(() => Alert.alert('Kivo', 'Could not open the block explorer.'));
   const receiptPayer = receipt?.payer ?? receipt?.payer_address ?? 'Shown on verified payment record';
+  const connected = Boolean(getWalletSession());
+
   return (
     <View style={styles.root}>
       <View style={styles.header}>
         <Pressable onPress={onBack} accessibilityRole="button" style={styles.back}><Text style={styles.backText}>‹</Text></Pressable>
-        <View style={styles.headerCopy}><Text style={styles.title}>Blue Star verification</Text><Text style={styles.subtitle}>{subjectName}</Text></View>
+        <View style={styles.headerCopy}><Text style={styles.title}>Blue Star</Text><Text style={styles.subtitle}>{subjectName}</Text></View>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
-        {busy || pending ? (
-          <View style={styles.card}>
-            <Text style={styles.successTitle}>Payment progress</Text>
-            {(['Wallet transaction submitted', 'Blockchain confirmation', 'Kivo verification', 'Blue Star activation'] as const).map((step, index) => {
-              const activeIndex = /Payment confirmed|Blue Star verification is active/i.test(status) ? 4 : /Verifying payment with Kivo/i.test(status) ? 2 : /Waiting for blockchain|Waiting for Solana/i.test(status) ? 1 : /submitted|Retry verification|temporarily unavailable|confirm/i.test(status) ? 2 : busy ? 0 : 1;
-              const done = index < activeIndex || (alreadyVerified && Boolean(receipt));
-              return <View key={step} style={styles.progressRow}><View style={[styles.progressDot, done && styles.progressDotDone, index === activeIndex && styles.progressDotActive]}><Text style={styles.progressDotText}>{done ? '✓' : String(index + 1)}</Text></View><Text style={[styles.progressLabel, (done || index === activeIndex) && styles.progressLabelActive]}>{step}</Text></View>;
-            })}
-            <Text style={styles.status} accessibilityLiveRegion="polite">{status}</Text>
-            {pending ? <Pressable style={styles.secondaryButton} onPress={() => void pay()}><Text style={styles.secondaryText}>Retry verification (no new payment)</Text></Pressable> : null}
+        {stage === 'loading' ? (
+          <View style={[styles.card, styles.stateCard]}><ActivityIndicator color={kivoTheme.colors.accent} /><Text style={styles.description}>Checking verification status…</Text></View>
+        ) : stage === 'wallet' ? (
+          <View style={[styles.card, styles.stateCard]}>
+            <ActivityIndicator size="large" color={kivoTheme.colors.accent} />
+            <Text style={styles.stateTitle}>Confirm in your Kivo wallet</Text>
+            <Text style={styles.stateText}>Approve {plan === 'annual' ? '5' : '1'} USDC on {CHAIN_META[chain].label}. Nothing is sent until you approve.</Text>
           </View>
-        ) : alreadyVerified && !receipt ? (
-          <View style={styles.card}>
-            <Text style={styles.successTitle}>★ Blue Star already active</Text>
-            <Text style={styles.description}>{status}</Text>
-            <Pressable style={styles.payButton} onPress={onBack}><Text style={styles.payText}>Done</Text></Pressable>
+        ) : stage === 'confirming' && pending ? (
+          <View style={[styles.card, styles.stateCard]}>
+            <View style={[styles.stateBadge, styles.badgeSent]}><Text style={styles.badgeSentText}>↗</Text></View>
+            <Text style={styles.stateTitle}>Payment sent</Text>
+            <Pressable onPress={() => openTx(pending)} accessibilityRole="link"><Text style={styles.txLink}>{shortHash(pending.txHash)} ↗</Text></Pressable>
+            <View style={styles.bar} accessibilityRole="progressbar"><View style={[styles.barFill, { width: `${Math.max(6, Math.min(100, Math.round(progressRatio * 100)))}%` }]} /></View>
+            <View style={styles.barMeta}><Text style={styles.barLabel}>Confirming on {CHAIN_META[pending.chain].label}{confirmations ? ` · ${confirmations.have}/${confirmations.need}` : '…'}</Text><Text style={styles.barTime}>{elapsedLabel}</Text></View>
+            <Text style={styles.stateText}>Kivo activates your badge automatically. You can leave this screen — it finishes when you come back. Don't pay again.</Text>
+            {note ? <Text style={styles.noteText}>{note}</Text> : null}
           </View>
-        ) : !receipt ? (
+        ) : stage === 'failed' && failure ? (
+          <View style={[styles.card, styles.stateCard]}>
+            <View style={[styles.stateBadge, styles.badgeFailed]}><Text style={styles.badgeFailedText}>!</Text></View>
+            <Text style={styles.stateTitle}>{failure.pending ? 'Still verifying' : 'Payment not completed'}</Text>
+            <Text style={styles.stateText}>{failure.message}</Text>
+            {failure.pending ? <Pressable onPress={() => openTx(failure.pending!)}><Text style={styles.txLink}>{shortHash(failure.pending.txHash)} ↗</Text></Pressable> : null}
+            {failure.pending
+              ? <Pressable style={[styles.payButton, styles.fullWidth]} onPress={() => void verify(failure.pending!)}><Text style={styles.payText}>Check again</Text></Pressable>
+              : <Pressable style={[styles.payButton, styles.fullWidth]} onPress={() => { setFailure(null); setStage('form'); }}><Text style={styles.payText}>Try again</Text></Pressable>}
+            {failure.pending ? <Pressable style={[styles.secondaryButton, styles.fullWidth]} onPress={() => Share.share({ message: `Kivo Blue Star payment\nSubject: ${subjectType} ${subjectId}\nNetwork: ${failure.pending!.chain}\nPlan: ${failure.pending!.plan}\nTransaction: ${failure.pending!.txHash}\nDo not pay again.` })}><Text style={styles.secondaryText}>Share transaction details</Text></Pressable> : null}
+          </View>
+        ) : stage === 'active' ? (
+          <View style={[styles.card, styles.stateCard]}>
+            <View style={styles.starBadge}><Text style={styles.starBadgeText}>★</Text></View>
+            <Text style={styles.stateTitle}>{celebrate ? "You're verified" : 'Blue Star active'}</Text>
+            <Text style={styles.stateText}>{permanent ? 'Permanently verified.' : activeUntil ? `Active until ${new Date(activeUntil).toLocaleDateString()}.` : 'Active.'}</Text>
+            <Pressable style={[styles.payButton, styles.fullWidth]} onPress={onBack}><Text style={styles.payText}>Done</Text></Pressable>
+            <View style={styles.rowButtons}>
+              {receipt ? <Pressable style={[styles.secondaryButton, styles.flex1]} onPress={() => setShowReceipt(v => !v)}><Text style={styles.secondaryText}>{showReceipt ? 'Hide receipt' : 'Receipt'}</Text></Pressable> : null}
+              {permanent ? null : <Pressable style={[styles.secondaryButton, styles.flex1]} onPress={() => { setCelebrate(false); setShowReceipt(false); setNote(null); setStage('form'); }}><Text style={styles.secondaryText}>Extend</Text></Pressable>}
+            </View>
+            {showReceipt && receipt ? (
+              <View style={styles.receiptBox}>
+                <ReceiptRow label="Subject" value={subjectName}/>
+                <ReceiptRow label="Plan" value={`${receipt.plan === 'annual' ? 'Annual' : 'Monthly'} · ${receipt.amount} USDC`}/>
+                <ReceiptRow label="Network" value={String(receipt.chain)}/>
+                <ReceiptRow label="Transaction" value={receipt.txHash}/>
+                <ReceiptRow label="Payer" value={receiptPayer}/>
+                <View style={styles.qrWrap}><QRCode value={receipt.explorerUrl || receipt.txHash} size={128} backgroundColor="#FFFFFF" color="#062F2C"/><Text style={styles.qrCaption}>Scan to view transaction</Text></View>
+                <ReceiptRow label="Paid" value={new Date(receipt.paidAt).toLocaleString()}/>
+                <ReceiptRow label="Valid until" value={new Date(receipt.expiresAt).toLocaleDateString()}/>
+                <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: `Kivo Blue Star receipt\nSubject: ${subjectType} — ${subjectName}\nPlan: ${receipt.plan === 'annual' ? 'Annual (365 days)' : 'Monthly (30 days)'}\nAmount: ${receipt.amount} USDC\nNetwork: ${receipt.chain}\nTransaction: ${receipt.txHash}\nPayer: ${receiptPayer}\nPaid: ${new Date(receipt.paidAt).toLocaleString()}\nValid until: ${new Date(receipt.expiresAt).toLocaleString()}\nExplorer: ${receipt.explorerUrl}` })}><Text style={styles.secondaryText}>Share receipt</Text></Pressable>
+              </View>
+            ) : null}
+          </View>
+        ) : (
           <View style={styles.card}>
-            <Text style={styles.description}>Choose your plan and network. Kivo checks the blockchain payment before activating your Blue Star badge. Your wallet will ask you to approve the USDC transfer.</Text>
+            <Text style={styles.stateTitleLeft}>{activeUntil ? 'Extend Blue Star' : 'Get the Blue Star'}</Text>
+            <Text style={styles.description}>{activeUntil ? `Active until ${new Date(activeUntil).toLocaleDateString()}. Extending adds time to the end.` : `A verified badge and square avatar on your ${subjectType === 'channel' ? 'channel' : 'profile'}. Paid in USDC from your Kivo wallet.`}</Text>
             <Text style={styles.label}>Plan</Text>
-            <View style={styles.options}>{PLANS.map(item => <Pressable key={item} disabled={busy || Boolean(pending)} onPress={() => setPlan(item)} style={[styles.option, plan === item && styles.optionActive, Boolean(pending) && styles.optionDisabled]}><UsdcLogo /><View style={styles.planCopy}><Text style={[styles.optionText, plan === item && styles.optionTextActive]}>{item === 'annual' ? '$5 USDC / year' : '$1 USDC / month'}</Text><Text style={[styles.planHint, plan === item && styles.optionTextActive]}>{item === 'annual' ? '365 days · Best value' : '30 days'}</Text></View>{plan === item ? <Text style={styles.planSelected}>✓</Text> : <View style={styles.planRadio} />}</Pressable>)}</View>
-            <Text style={styles.label}>Network</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel={`Choose network. Selected: ${CHAIN_META[chain].label}`} disabled={busy || Boolean(pending)} onPress={() => setNetworkPickerOpen(true)} style={[styles.networkSelector, Boolean(pending) && styles.optionDisabled]}>
+            <View style={styles.options}>{PLANS.map(item => <Pressable key={item} onPress={() => setPlan(item)} style={[styles.option, plan === item && styles.optionActive]}><UsdcLogo /><View style={styles.planCopy}><Text style={[styles.optionText, plan === item && styles.optionTextActive]}>{item === 'annual' ? '$5 USDC / year' : '$1 USDC / month'}</Text><Text style={[styles.planHint, plan === item && styles.optionTextActive]}>{item === 'annual' ? '365 days · Best value' : '30 days'}</Text></View>{plan === item ? <Text style={styles.planSelected}>✓</Text> : <View style={styles.planRadio} />}</Pressable>)}</View>
+            <Text style={styles.label}>Pay on</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Choose network. Selected: ${CHAIN_META[chain].label}`} onPress={() => setNetworkPickerOpen(true)} style={styles.networkSelector}>
               <NetworkLogo chain={chain} />
               <View style={styles.networkCopy}><Text style={styles.networkName}>{CHAIN_META[chain].label}</Text><Text style={styles.networkSubtitle}>{CHAIN_META[chain].subtitle}</Text></View>
               <Text style={styles.networkChevron}>⌄</Text>
@@ -339,48 +366,27 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
                 </Pressable>
               </Pressable>
             </Modal>
-            <View style={styles.walletState}><View style={styles.dot}/><Text style={styles.walletText}>{connected ? 'Kivo wallet connected' : 'Unlock Kivo wallet to continue'}</Text></View>
-            <Pressable disabled={busy || !pendingLoaded || !connected || !socialReady} onPress={() => pending ? void pay() : setConfirmOpen(true)} style={[styles.payButton, (busy || !pendingLoaded || !connected || !socialReady) && styles.buttonDisabled]}>
-              {busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep}/> : <Text style={styles.payText}>{pending ? 'Retry verification' : `Pay ${plan === 'annual' ? '$5' : '$1'} USDC`}</Text>}
+            <View style={styles.walletState}><View style={styles.dot}/><Text style={styles.walletText}>{connected ? 'Kivo wallet ready' : 'Unlock your Kivo wallet to continue'}</Text></View>
+            <Pressable disabled={!connected || !socialReady} onPress={() => setConfirmOpen(true)} style={[styles.payButton, (!connected || !socialReady) && styles.buttonDisabled]}>
+              <Text style={styles.payText}>Pay {plan === 'annual' ? '5' : '1'} USDC on {CHAIN_META[chain].label}</Text>
             </Pressable>
-            <Text style={styles.status} accessibilityLiveRegion="polite">{status}</Text>
-            {pendingRecovery ? <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: `Kivo Blue Star payment recovery\\nSubject: ${subjectType} ${subjectId}\\nNetwork: ${pendingRecovery.chain}\\nPlan: ${pendingRecovery.plan}\\nTransaction: ${pendingRecovery.txHash}\\nRetry verification in Kivo; do not pay again.` })}><Text style={styles.secondaryText}>Share transaction recovery details</Text></Pressable> : null}
-            <Text style={styles.finePrint}>No funds move until you approve the transaction in your wallet.</Text>
-          </View>
-        ) : (
-          <View style={styles.card}>
-            <Text style={styles.successTitle}>{alreadyVerified ? '★ Blue Star activated' : 'Blue Star payment receipt'}</Text>
-            <Text style={styles.description}>{alreadyVerified ? 'Your subscription is currently active. Keep this receipt for your records.' : 'This receipt records the confirmed payment. Your verification is not currently active; renew to restore the badge.'}</Text>
-            <ReceiptRow label="Subject" value={subjectName}/>
-            <ReceiptRow label="Plan" value={`${receipt.plan === 'annual' ? 'Annual' : 'Monthly'} · ${receipt.amount} USDC`}/>
-            <ReceiptRow label="Network" value={receipt.chain}/>
-            <ReceiptRow label="Transaction" value={receipt.txHash}/>
-            <ReceiptRow label="Payer" value={receiptPayer}/>
-            <View style={styles.qrWrap}><QRCode value={receipt.explorerUrl || receipt.txHash} size={128} backgroundColor="#FFFFFF" color="#062F2C"/><Text style={styles.qrCaption}>Scan to view transaction</Text></View>
-            <ReceiptRow label="Paid" value={new Date(receipt.paidAt).toLocaleString()}/>
-            <ReceiptRow label="Receipt ID" value={receipt.id ?? 'Verified payment'}/>
-            <ReceiptRow label="Valid until" value={new Date(receipt.expiresAt).toLocaleDateString()}/>
-            <Pressable style={styles.secondaryButton} onPress={() => Share.share({ message: `Kivo Blue Star payment receipt\nSubject: ${subjectType} — ${subjectName}\nCurrent verification: ${alreadyVerified ? 'Active' : 'Inactive / expired'}\nPlan: ${receipt.plan === 'annual' ? 'Annual (365 days)' : 'Monthly (30 days)'}\nAmount: ${receipt.amount} USDC\nNetwork: ${receipt.chain}\nTransaction: ${receipt.txHash}\nPayer: ${receiptPayer}\nPaid: ${new Date(receipt.paidAt).toLocaleString()}\nValid until: ${new Date(receipt.expiresAt).toLocaleString()}\nReceipt ID: ${receipt.id ?? 'Unavailable'}\nExplorer: ${receipt.explorerUrl}` })}><Text style={styles.secondaryText}>Share complete receipt</Text></Pressable>
-            <Pressable style={styles.secondaryButton} onPress={() => Linking.openURL(receipt.explorerUrl).catch(() => Alert.alert('Kivo', 'Could not open the transaction explorer.'))}><Text style={styles.secondaryText}>View transaction</Text></Pressable>
-            {Number(receipt.expiresAt) <= Date.now() ? <Pressable style={styles.payButton} onPress={() => { setReceipt(null); setAlreadyVerified(false); setStatus('Your previous verification has expired. Choose a plan to renew.'); }}><Text style={styles.payText}>Renew Blue Star</Text></Pressable> : null}
-            <Pressable style={styles.payButton} onPress={onBack}><Text style={styles.payText}>Done</Text></Pressable>
+            {note ? <Text style={styles.noteText}>{note}</Text> : <Text style={styles.finePrint}>Kivo verifies the payment on-chain and activates your badge automatically.</Text>}
+            {activeUntil ? <Pressable style={styles.secondaryButton} onPress={() => setStage('active')}><Text style={styles.secondaryText}>Back</Text></Pressable> : null}
           </View>
         )}
-      <Modal visible={confirmOpen} transparent animationType="fade" onRequestClose={() => setConfirmOpen(false)}>
-        <View style={styles.confirmBackdrop}>
-          <View style={styles.confirmCard}>
-            <Text style={styles.successTitle}>Confirm payment</Text>
-            <Text style={styles.description}>Review these details before your wallet opens. No funds move until you approve in your wallet.</Text>
-            <ReceiptRow label="Plan" value={plan === 'annual' ? 'Annual · 365 days' : 'Monthly · 30 days'}/>
-            <ReceiptRow label="Amount" value={`${plan === 'annual' ? '$5' : '$1'} USDC`}/>
-            <ReceiptRow label="Network" value={CHAIN_META[chain].label}/>
-            <View style={styles.confirmActions}>
-              <Pressable style={styles.secondaryButton} onPress={() => setConfirmOpen(false)}><Text style={styles.secondaryText}>Cancel</Text></Pressable>
-              <Pressable style={styles.payButton} onPress={() => { setConfirmOpen(false); void pay(); }}><Text style={styles.payText}>Confirm and pay</Text></Pressable>
+        <Modal visible={confirmOpen} transparent animationType="fade" onRequestClose={() => setConfirmOpen(false)}>
+          <View style={styles.confirmBackdrop}>
+            <View style={styles.confirmCard}>
+              <Text style={styles.stateTitleLeft}>Confirm payment</Text>
+              <Text style={styles.description}><Text style={styles.strong}>{plan === 'annual' ? '$5 USDC · 365 days' : '$1 USDC · 30 days'}</Text> on {CHAIN_META[chain].label}</Text>
+              <Text style={styles.description}>You approve it in your Kivo wallet. No funds move until you do.</Text>
+              <View style={styles.confirmActions}>
+                <Pressable style={[styles.secondaryButton, styles.flex1]} onPress={() => setConfirmOpen(false)}><Text style={styles.secondaryText}>Cancel</Text></Pressable>
+                <Pressable style={[styles.payButton, styles.flex1]} onPress={() => { setConfirmOpen(false); void pay(); }}><Text style={styles.payText}>Continue</Text></Pressable>
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
       </ScrollView>
     </View>
   );
@@ -468,4 +474,27 @@ const styles = StyleSheet.create({
   receiptValue: { color: kivoTheme.colors.text, fontSize: 13, lineHeight: 19 },
   secondaryButton: { minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: kivoTheme.colors.border, alignItems: 'center', justifyContent: 'center', padding: 12 },
   secondaryText: { color: kivoTheme.colors.text, fontWeight: '700' },
+  stateCard: { alignItems: 'center', paddingVertical: 22, paddingHorizontal: 14, gap: 12 },
+  stateTitle: { color: kivoTheme.colors.text, fontSize: 20, fontWeight: '900', textAlign: 'center' },
+  stateTitleLeft: { color: kivoTheme.colors.text, fontSize: 17, fontWeight: '900' },
+  stateText: { color: kivoTheme.colors.textMuted, fontSize: 13, lineHeight: 19, textAlign: 'center' },
+  stateBadge: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
+  badgeSent: { backgroundColor: 'rgba(37,137,245,0.16)' },
+  badgeSentText: { color: '#2589F5', fontSize: 28, fontWeight: '900' },
+  badgeFailed: { backgroundColor: 'rgba(255,125,125,0.14)' },
+  badgeFailedText: { color: kivoTheme.colors.danger, fontSize: 30, fontWeight: '900' },
+  starBadge: { width: 76, height: 76, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: '#2589F5' },
+  starBadgeText: { color: '#FFFFFF', fontSize: 40, fontWeight: '900' },
+  txLink: { color: kivoTheme.colors.accent, fontSize: 14, fontWeight: '700', fontFamily: 'monospace' },
+  bar: { width: '100%', height: 10, borderRadius: 999, backgroundColor: 'rgba(244,240,199,0.1)', overflow: 'hidden' },
+  barFill: { height: '100%', borderRadius: 999, backgroundColor: '#2589F5' },
+  barMeta: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  barLabel: { color: kivoTheme.colors.text, fontSize: 12, fontWeight: '700', flexShrink: 1 },
+  barTime: { color: kivoTheme.colors.textMuted, fontSize: 12 },
+  noteText: { color: kivoTheme.colors.cream, fontSize: 12, lineHeight: 18 },
+  fullWidth: { alignSelf: 'stretch' },
+  flex1: { flex: 1 },
+  rowButtons: { flexDirection: 'row', gap: 8, alignSelf: 'stretch' },
+  receiptBox: { alignSelf: 'stretch', gap: 4, marginTop: 4 },
+  strong: { color: kivoTheme.colors.text, fontWeight: '800' },
 });

@@ -125,6 +125,15 @@ export function profileApprovalMessage(address: string, nonce: string, issuedAt:
   ].join('\\n');
 }
 
+/**
+ * Text of the Solana Memo instruction a Blue Star payment must carry (same
+ * format as the web app and server). It binds the on-chain transfer to the
+ * buying account and subject, so nobody else can claim it.
+ */
+export function verificationPaymentMemo(buyerUserId: string, subjectType: 'profile' | 'channel', subjectId: string): string {
+  return `kivo-blue-star:${buyerUserId}:${subjectType}:${subjectId}`;
+}
+
 export function dmConversationId(a: string, b: string): string {
   const [x, y] = [a.toLowerCase(), b.toLowerCase()].sort();
   return `dm_${x.replace(/^kivo:/, '')}_${y.replace(/^kivo:/, '')}`;
