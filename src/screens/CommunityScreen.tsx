@@ -91,7 +91,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
           </View>
         </View>
 
-        {isChannel && (c.myRole === 'owner' || c.myRole === 'admin') && !c.isVerified && c.id !== 'ch_671d27c151fefc25c8e5' && <View style={styles.card}>
+        {isChannel && (c.myRole === 'owner' || c.myRole === 'admin') && !(c.isVerified === true || isOfficialKivoChannel(c.id)) && <View style={styles.card}>
           <Text style={styles.cardTitle}>Blue Star verification</Text>
           <Text style={styles.verifyIntro}>Verify this channel with a quick wallet checkout.</Text>
           <Pressable onPress={() => onOpenVerification?.('channel', c.id, c.name)} style={styles.verifyPay}><Text style={styles.verifyPayText}>★ Get Verified</Text></Pressable>
