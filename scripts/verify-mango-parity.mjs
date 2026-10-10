@@ -110,7 +110,9 @@ check('Mango Convert execution parity', () => {
   assert.ok(s.includes('useGaslessTrading:true'));
   assert.ok(s.includes('recordTrade'));
   assert.ok(s.includes('NetworkIcon'));
-  assert.ok(s.includes("from==='arc'"));
+  // Arc's gas reserve is kept by the shared spendableCash() (trading/core/usdcBalances.ts).
+  assert.ok(s.includes('spendableCash('));
+  assert.ok(read('trading/core/usdcBalances.ts').includes('ARC_GAS_RESERVE_USDC'));
 });
 check('Critical trading files are typechecked', () => {
   assert.equal(Object.prototype.hasOwnProperty.call(JSON.parse(read('tsconfig.json')), 'exclude'), false);
@@ -133,3 +135,32 @@ check('Wallet switch invalidates stale API session immediately', () => {
   assert.ok(s.slice(start, end).includes('stopChatSync();'));
 });
 console.log('\nMango parity gate: ' + n + ' checks passed');
+check('Solana spend guard enforces the reviewed output minimum', () => {
+  const s = read('trading/core/solanaSpendGuard.ts');
+  const start = s.indexOf('export async function assertSolanaSpendWithinIntentWeb3');
+  const body = s.slice(start, s.indexOf('\n}', start));
+  assert.ok(body.includes('expectedOutputMint: intent.expectedOutputMint'));
+  assert.ok(body.includes('expectedOutputMinimum: intent.expectedOutputMinimum'));
+});
+check('EVM firewall refuses allowance grants and native value on token trades', () => {
+  const s = read('trading/core/txIntentFirewall.ts');
+  assert.ok(s.includes("'0x39509351'") && s.includes("'0xa22cb465'"));
+  assert.ok(!s.includes('which is usually a protocol fee but is worth knowing about'));
+});
+check('Kivo messages are checked before the device wallet signs them', () => {
+  assert.ok(read('src/state/session.ts').includes("signKivoMessage(message, 'sign-in')"));
+  assert.ok(read('src/screens/EditProfileScreen.tsx').includes("signKivoMessage(approval.message, 'profile')"));
+});
+check('Recovery phrase and private keys render inside FLAG_SECURE-protected screens', () => {
+  for (const f of ['src/wallet/RevealPhraseModal.tsx', 'src/wallet/ExportPrivateKeyModal.tsx']) {
+    const s = read(f);
+    assert.ok(!/import\s*\{[^}]*\bModal\b[^}]*\}\s*from\s*'react-native'/.test(s) && s.includes('setScreenSecure(true)'));
+  }
+  assert.ok(read('src/screens/RecoveryBackupScreen.tsx').includes('setScreenSecure(true)'));
+});
+check('Blue Star rules come from the server at start-up (no app update for rule changes)', () => {
+  const t = read('shared/api/types.ts');
+  assert.ok(t.includes('export function applyClientLimits') && t.includes('liveLimits.messageChars'));
+  assert.ok(read('src/state/session.ts').includes('applyClientLimits('));
+  assert.ok(read('shared/api/client.ts').includes("'/api/limits'"));
+});

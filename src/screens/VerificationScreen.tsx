@@ -5,7 +5,8 @@ import { api, storage, useSocialReady } from '../state/session';
 import { getWalletSession, localEvmSigner, withDeviceAccounts } from '../state/walletStore';
 import { encodeFunctionData, parseUnits } from 'viem';
 import { Buffer } from 'buffer';
-import { verificationPaymentMemo } from '../../shared/api/types';
+import { kivoUserIdForWallet, verificationPaymentMemo } from '../../shared/api/types';
+import { publicClientForChainId } from '@kivo/trading/core/chainRegistry';
 import { Connection, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 import * as Keychain from 'react-native-keychain';
 import { createAssociatedTokenAccountInstruction, createTransferCheckedInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
@@ -126,6 +127,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   const [permanent, setPermanent] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
   const verifyingRef = useRef(false);
+  const payingRef = useRef(false);
   const mountedRef = useRef(true);
   const receiptStorageKey = `kivo:verification-receipt:${subjectType}:${subjectId}`;
   const storageKey = `kivo:verification-pending:${subjectType}:${subjectId}`;
@@ -147,10 +149,28 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
     const began = Date.now();
     setPending(current); setPlan(current.plan); setChain(current.chain);
     setConfirmations(null); setStartedAt(began); setStage('confirming');
+    let failedOnChain = false;
+    // Spot an EVM revert right away, in parallel; never block on a slow public RPC.
+    if (current.chain !== 'solana') {
+      try {
+        void publicClientForChainId(CHAIN_IDS[current.chain]).waitForTransactionReceipt({ hash: current.txHash as `0x${string}`, timeout: 120_000 })
+          .then(receipt => { if (receipt.status !== 'success') failedOnChain = true; }).catch(() => {});
+      } catch { /* no RPC for this chain: the server check still decides */ }
+    }
     try {
       for (let attempt = 0; mountedRef.current; attempt++) {
+        if (failedOnChain) {
+          await clearPendingRecord(storageKey, keychainService);
+          if (!mountedRef.current) return;
+          setPending(null);
+          setFailure({ message: 'The payment transaction failed on-chain, so no USDC was transferred. You can try again.', pending: null });
+          setStage('failed');
+          return;
+        }
         try {
           const result = await api.purchaseVerification({ subjectType, subjectId, plan: current.plan, chain: current.chain, txHash: current.txHash });
+          // Show the new Blue Star everywhere right away instead of after the cache minute.
+          api.forgetVerification(subjectType, subjectId);
           await clearPendingRecord(storageKey, keychainService);
           await Promise.resolve(storage.setItem(receiptStorageKey, JSON.stringify(result))).catch(() => {});
           if (!mountedRef.current) return;
@@ -168,7 +188,10 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
           const network = !status && /network|fetch|timed? ?out|request failed/i.test(message);
           const retryable = status === 409 || status === 429 || network || (status >= 500 && status <= 599);
           if (!retryable) {
-            const final = status === 400 || status === 403; // this hash will never verify
+            // 400 is a final answer about this hash. 403 depends on which account is
+            // signed in (e.g. after a wallet switch), so keep the saved payment and
+            // offer "Check again" for the right account.
+            const final = status === 400;
             if (final) await clearPendingRecord(storageKey, keychainService);
             if (!mountedRef.current) return;
             setFailure({ message: message || 'Kivo could not verify this payment.', pending: final ? null : current });
@@ -232,11 +255,17 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   }, [stage]);
 
   const pay = async () => {
+    // Synchronous guard: a double tap must never start two payments.
+    if (payingRef.current || verifyingRef.current) return;
+    payingRef.current = true;
+    try { await payOnce(); } finally { payingRef.current = false; }
+  };
+  const payOnce = async () => {
     setNote(null);
     if (!socialReady) { setNote('Turn on chats first so your Kivo account can be verified.'); return; }
     const session = getWalletSession();
     if (!session) { setNote('Unlock your Kivo wallet before paying.'); return; }
-    const buyer = `kivo:${session.address.toLowerCase()}`;
+    const buyer = kivoUserIdForWallet(session.address);
     setStage('wallet');
     let txHash: string;
     try {

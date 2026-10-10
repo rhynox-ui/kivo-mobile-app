@@ -1,19 +1,21 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { launchImageLibrary, type Asset } from 'react-native-image-picker';
 import { type ApiCommunity, type CommunityKind } from '@kivo/shared/api/types';
-import { API_LIMITS } from '@kivo/shared/api/types';
+import { API_LIMITS, ownedCommunityLimit, ownedCommunityLimitMessage } from '@kivo/shared/api/types';
 import { refreshConversations } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { api, useSocialReady } from '../state/session';
 import { Avatar, EnableSocial } from './ChatListScreen';
 
 /** Groups and channels: yours, public ones to discover, and create — all on the Kivo social API. */
-export function CommunitiesScreen({ kind: initialKind = 'group', onOpenChat, onOpenInfo, onBack }: {
+export function CommunitiesScreen({ kind: initialKind = 'group', onOpenChat, onOpenInfo, onBack, onOpenVerification }: {
   kind?: CommunityKind;
   onOpenChat: (id: string) => void;
   onOpenInfo: (id: string) => void;
   onBack?: () => void;
+  /** Opens Blue Star checkout for the signed-in profile (shown when the owned-community limit is reached). */
+  onOpenVerification?: (subjectId: string) => void;
 }) {
   const ready = useSocialReady();
   const [kind, setKind] = useState<CommunityKind>(initialKind);
@@ -42,10 +44,15 @@ export function CommunitiesScreen({ kind: initialKind = 'group', onOpenChat, onO
     return () => { clearInterval(timer); subscription.remove(); };
   }, [load]);
 
+  // Synchronous guard: a double tap must never send two join requests.
+  const joiningRef = useRef(false);
   const join = async (c: ApiCommunity) => {
     if (!ready) { Alert.alert('Kivo', 'Turn on chats first (Chats tab).'); return; }
+    if (joiningRef.current) return;
+    joiningRef.current = true;
     try { await api.join(c.id); await refreshConversations().catch(() => {}); onOpenChat(c.id); }
     catch (e) { Alert.alert(c.name, e instanceof Error ? e.message : 'Unable to join.'); }
+    finally { joiningRef.current = false; }
   };
 
   if (!ready && creating) return <EnableSocial />;
@@ -62,7 +69,7 @@ export function CommunitiesScreen({ kind: initialKind = 'group', onOpenChat, onO
           <Pressable key={k} onPress={() => setKind(k)} style={[styles.tab, kind === k && styles.tabActive]}><Text style={[styles.tabText, kind === k && styles.tabTextActive]}>{k === 'group' ? 'Groups' : 'Channels'}</Text></Pressable>
         ))}
       </View>
-      {creating && <CreateForm kind={kind} onCreated={c => { setCreating(false); onOpenChat(c.id); }} />}
+      {creating && <CreateForm kind={kind} onCreated={c => { setCreating(false); onOpenChat(c.id); }} onOpenVerification={onOpenVerification} />}
       {ready && <>
         <Text style={styles.section}>Yours</Text>
         {mine == null ? <ActivityIndicator color={kivoTheme.colors.accent} /> : mine.length === 0 ? <Text style={styles.muted}>You have not joined any {kind}s yet.</Text> : mine.map(c => <Row key={c.id} community={c} onPress={() => onOpenChat(c.id)} onInfo={() => onOpenInfo(c.id)} />)}
@@ -94,12 +101,14 @@ function Row({ community: c, onPress, onInfo, action }: { community: ApiCommunit
   );
 }
 
-function CreateForm({ kind, onCreated }: { kind: CommunityKind; onCreated: (c: ApiCommunity) => void }) {
+function CreateForm({ kind, onCreated, onOpenVerification }: { kind: CommunityKind; onCreated: (c: ApiCommunity) => void; onOpenVerification?: (subjectId: string) => void }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
   const [photo, setPhoto] = useState<Asset | null>(null);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [limitNote, setLimitNote] = useState<{ message: string; canUpgrade: boolean } | null>(null);
   const pickPhoto = async () => {
     try {
       // Keep the mobile image pipeline lightweight: resize before upload and
@@ -123,9 +132,32 @@ function CreateForm({ kind, onCreated }: { kind: CommunityKind; onCreated: (c: A
       Alert.alert('Photo', e instanceof Error ? e.message : 'Could not read this photo. Please try another image.');
     }
   };
-  const create = async () => {
-    setBusy(true);
+  /**
+   * Checks the owned-community limit before uploading anything, so a full
+   * account never wastes a photo upload. The server still enforces the limit;
+   * if the check itself fails we let the server decide.
+   */
+  const ownedLimitReached = async (): Promise<{ message: string; canUpgrade: boolean } | null> => {
+    const me = api.signedInUserId();
+    if (!me) return null;
     try {
+      const [own, status] = await Promise.all([api.myCommunities(), api.verificationStatus('profile', me)]);
+      const verified = status.isVerified === true;
+      const owned = own.filter(item => item.kind === kind && item.myRole === 'owner').length;
+      if (owned < ownedCommunityLimit(kind, verified)) return null;
+      return { message: ownedCommunityLimitMessage(kind, verified), canUpgrade: !verified };
+    } catch {
+      return null;
+    }
+  };
+  const create = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setLimitNote(null);
+    try {
+      const limit = await ownedLimitReached();
+      if (limit) { setLimitNote(limit); return; }
       let avatarKey: string | null = null;
       if (photo?.uri) {
         const type = photo.type && ['image/jpeg', 'image/png', 'image/webp'].includes(photo.type) ? photo.type : 'image/jpeg';
@@ -141,7 +173,7 @@ function CreateForm({ kind, onCreated }: { kind: CommunityKind; onCreated: (c: A
       await refreshConversations().catch(() => {});
       onCreated(created);
     } catch (e) { Alert.alert('Create', e instanceof Error ? e.message : 'Unable to create.'); }
-    finally { setBusy(false); }
+    finally { busyRef.current = false; setBusy(false); }
   };
   return (
     <View style={styles.form}>
@@ -157,6 +189,14 @@ function CreateForm({ kind, onCreated }: { kind: CommunityKind; onCreated: (c: A
         {photo ? <Pressable disabled={busy} onPress={() => setPhoto(null)}><Text style={styles.removePhoto}>Remove</Text></Pressable> : null}
       </View>
       <Text style={styles.muted}>Photos are resized and compressed on your device before upload to reduce storage and data use. You become the permanent owner. Admins you promote never receive ownership.</Text>
+      {limitNote ? (
+        <View style={styles.limitNote}>
+          <Text style={styles.error}>{limitNote.message}</Text>
+          {limitNote.canUpgrade ? (onOpenVerification && api.signedInUserId()
+            ? <Pressable onPress={() => { const me = api.signedInUserId(); if (me) onOpenVerification(me); }} style={styles.secondary}><Text style={styles.secondaryText}>★ Get Blue Star</Text></Pressable>
+            : <Text style={styles.muted}>Get Blue Star from your Profile tab.</Text>) : null}
+        </View>
+      ) : null}
       <Pressable disabled={busy || name.trim().length < 2} onPress={create} style={[styles.primary, (busy || name.trim().length < 2) && styles.disabled]}><Text style={styles.primaryText}>{busy ? 'Creating…' : `Create ${kind}`}</Text></Pressable>
     </View>
   );
@@ -199,6 +239,7 @@ const styles = StyleSheet.create({
   primary: { height: 48, borderRadius: 24, backgroundColor: c.cream, alignItems: 'center', justifyContent: 'center' },
   primaryText: { color: c.backgroundDeep, fontWeight: '900' },
   disabled: { opacity: 0.45 },
+  limitNote: { gap: 8, alignItems: 'flex-start' },
   rules: { marginTop: 14, padding: 14, borderRadius: 16, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, gap: 6 },
   rulesTitle: { color: c.text, fontWeight: '800' },
 });

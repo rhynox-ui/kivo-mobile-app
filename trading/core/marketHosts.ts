@@ -24,3 +24,36 @@ export function configureMarketHosts(next: Partial<Record<MarketService, string>
 export function marketUrl(service: MarketService, path: string): string {
   return hosts[service].replace(/\/$/, '') + path;
 }
+
+function isProxied(service: MarketService): boolean {
+  return hosts[service].replace(/\/$/, '') !== DEFAULT_HOSTS[service];
+}
+
+const busy = (response: Response) => response.status === 429 || response.status >= 500;
+
+/**
+ * fetch() for market data, the way mango-bridge does it: straight to the
+ * provider from the user's own connection first (each user has their own
+ * rate-limit budget there). When that is blocked (tracker blockers, in-app
+ * browsers) or rate limited, it falls back to the configured proxy, which
+ * shares one budget but caches and keeps the last good answer. Answers are
+ * never invented: if both fail, the last real response or error is returned.
+ */
+export async function marketFetch(service: MarketService, path: string, init?: RequestInit): Promise<Response> {
+  const direct = DEFAULT_HOSTS[service] + path;
+  if (!isProxied(service)) return fetch(direct, init);
+  let first: Response | null = null;
+  try {
+    first = await fetch(direct, init);
+    if (!busy(first)) return first;
+  } catch {
+    // Blocked or offline — try the proxy.
+  }
+  try {
+    const proxied = await fetch(marketUrl(service, path), init);
+    return proxied.ok || !first ? proxied : first;
+  } catch (error) {
+    if (first) return first;
+    throw error;
+  }
+}

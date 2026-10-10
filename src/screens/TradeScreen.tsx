@@ -6,7 +6,7 @@ import { fetchCashBalances, totalCashUsd, readTokenBalance, type CashBalanceRow,
 import { planUnifiedBuy, totalSpendableCash, type UnifiedPlan } from '@kivo/trading/kivo/unified';
 import { explorerTxUrl, KivoExecutionError, preflightKivoQuote, relayRequestUrl, type ExecutionUpdate } from '@kivo/trading/kivo/execute';
 import { loadGaslessTradingEnabled } from '../settings/gaslessTradingPrefs';
-import { executeRelayQuote } from '@kivo/trading/core/executeRelayQuote';
+import { executeRelayQuote, getPartialTxHashes } from '@kivo/trading/core/executeRelayQuote';
 import bs58 from 'bs58';
 import { recordTrade } from '@kivo/trading/kivo/history';
 import { markOwnAction } from '../wallet/depositWatcher';
@@ -19,6 +19,7 @@ import { TokenChartPanel } from '../components/TokenChartPanel';
 import { MAINNET_CHAIN_IDS } from '@kivo/trading/core/chainData';
 import { checkSolanaTokenSecurity, checkTokenSecurity } from '@kivo/trading/core/goplusTokenSecurity';
 import { NearTradePanel } from './NearTradePanel';
+import { normalizeAmountInput } from '../utils/amountInput';
 
 type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
 type ExecResult = { tone: 'success' | 'pending' | 'error'; message: string; hashes: string[]; chainIds: number[]; requestId: string | null };
@@ -52,6 +53,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const [update, setUpdate] = useState<ExecutionUpdate | null>(null);
   const [result, setResult] = useState<ExecResult | null>(null);
   const [running, setRunning] = useState(false);
+  const executingRef = useRef(false);
   const [chainOpen, setChainOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftSlippage, setDraftSlippage] = useState<number | null>(null);
@@ -90,7 +92,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
     if (!token || !address) return;
     let cancelled = false;
     // Cash (USDC on every supported chain) feeds the header total on both sides.
-    fetchCashBalances(address, undefined, wallet?.solanaAddress ?? address).then(rows => {
+    fetchCashBalances(address, undefined, wallet?.solanaAddress).then(rows => {
       if (cancelled) return;
       setCash(rows);
     });
@@ -167,8 +169,10 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   };
 
   const execute = async () => {
-    if (!plan || !token || running) return;
+    // A ref, not state: two taps in the same frame must not start two trades.
+    if (!plan || !token || running || executingRef.current) return;
     if (extremePriceImpact) { setResult({tone:'error',message:'Trade blocked: route price impact is above 50%.',hashes:[],chainIds:[],requestId:null}); return; }
+    executingRef.current = true;
     setRunning(true); setResult(null); setUpdate(null);
     const view = plan.view;
     const tokenInfo = { chainKey: token.chainKey, address: token.tokenAddress, symbol: token.symbol, name: token.name, imageUrl: token.imageUrl };
@@ -203,6 +207,10 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
                   return executeRelayQuote(leg.quote.quote, session, step => setUpdate({stage: step === 'build' ? 'preflight' : step === 'signing' ? 'awaiting-signature' : step === 'filling' ? 'filling' : 'success', step: index + 1, totalSteps: plan.legs.length, txHashes: [...done.txHashes], requestId: done.requestId, message: step === 'done' ? 'Trade complete.' : 'Processing trade…'}), {useGaslessTrading: gaslessTradingEnabled});
                 })();
             done.txHashes.push(...legResult.txHashes);
+            // A leg Relay hasn't settled yet (or refunded) makes the whole trade not-yet-successful.
+            if (legResult.status === 'pending' && done.status === 'success') done.status = 'pending';
+            if (legResult.status === 'refunded') done.status = 'refunded';
+            if (legResult.requestId) done.requestId = done.requestId ?? legResult.requestId;
             const legChainIds = (leg.quote.quote.steps ?? []).flatMap(step => (step.items ?? []).map(item => Number(item.data?.chainId)).filter(id => Number.isInteger(id) && id > 0));
             done.chainIds.push(...Array.from(new Set(legChainIds)));
             const legRequestId = (leg.quote.quote.steps ?? []).map(step => step.requestId).find(Boolean) ?? null;
@@ -210,7 +218,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
           } catch (legError) {
             const message = legError instanceof Error ? legError.message : 'Trade failed.';
             const partial = index > 0 ? ` ${index} of ${plan.legs.length} parts already completed; the rest was not sent.` : '';
-            throw new KivoExecutionError(message + partial, [...done.txHashes, ...(legError instanceof KivoExecutionError ? legError.txHashes : [])]);
+            throw new KivoExecutionError(message + partial, [...done.txHashes, ...(legError instanceof KivoExecutionError ? legError.txHashes : getPartialTxHashes(legError))]);
           }
         }
         return done;
@@ -219,15 +227,17 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       const message = outcome.status === 'success' ? `${side === 'buy' ? 'Bought' : 'Sold'} ${token.symbol}.`
         : outcome.status === 'refunded' ? 'The route could not be filled and was refunded.' : 'Submitted — the route is still settling.';
       setResult({ tone, message, hashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId });
-      await markOwnAction(address!);
+      // Bookkeeping must never turn a sent trade into an error.
+      void markOwnAction(address!).catch(() => {});
       recordTrade({ side, token: tokenInfo, pay: { amount: view.pay.amount, symbol: view.pay.symbol, chainKey: view.pay.chainKey }, receive: { amount: view.receive.amount, symbol: view.receive.symbol, chainKey: view.receive.chainKey }, txHashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId, status: outcome.status });
-      addNotification(outcome.status === 'success' ? 'Trade complete' : 'Trade submitted', `${side === 'buy' ? 'Buy' : 'Sell'} ${token.symbol}: ${view.pay.amount} ${view.pay.symbol}`);
+      addNotification(outcome.status === 'success' ? 'Trade complete' : outcome.status === 'refunded' ? 'Trade refunded' : 'Trade submitted', `${side === 'buy' ? 'Buy' : 'Sell'} ${token.symbol}: ${view.pay.amount} ${view.pay.symbol}`);
     } catch (error) {
       const hashes = error instanceof KivoExecutionError ? error.txHashes : [];
       const message = error instanceof Error ? error.message : 'Trade failed.';
-      setResult({ tone: 'error', message, hashes, chainIds: [], requestId: null });
+      setResult({ tone: 'error', message: hashes.length ? `${message} Some transactions were already sent; check them before trying again.` : message, hashes, chainIds: [], requestId: null });
       if (hashes.length) recordTrade({ side, token: tokenInfo, pay: { amount: view.pay.amount, symbol: view.pay.symbol, chainKey: view.pay.chainKey }, receive: { amount: view.receive.amount, symbol: view.receive.symbol, chainKey: view.receive.chainKey }, txHashes: hashes, chainIds: [], requestId: null, status: 'failed', error: message });
     } finally {
+      executingRef.current = false;
       setRunning(false);
     }
   };
@@ -266,7 +276,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.cashRow}>
-        <Text style={styles.cashLabel}>Portfolio</Text>
+        <Text style={styles.cashLabel}>Cash</Text>
         <Text style={styles.cashValue}>{!wallet ? '—' : cashTotal == null ? '…' : settings.hideBalances ? '••••' : formatUsd(cashTotal)}</Text>
       </View>
       <View style={styles.toolbar}>
@@ -349,7 +359,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
               <Text style={styles.cardLabel}>YOU PAY</Text>
               <View style={styles.cardRow}>
                 <AssetChip symbol={side === 'buy' ? 'USDC' : token!.symbol} uri={side === 'buy' ? null : token!.imageUrl} />
-                <TextInput ref={amountRef} editable={!disabledInput} value={amount} onChangeText={value => setAmount(value.replace(',', '.'))} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.amountInput} accessibilityLabel={side === 'buy' ? 'USDC to spend' : `${token!.symbol} to sell`} />
+                <TextInput ref={amountRef} editable={!disabledInput} value={amount} onChangeText={value => setAmount(normalizeAmountInput(value))} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.amountInput} accessibilityLabel={side === 'buy' ? 'USDC to spend' : `${token!.symbol} to sell`} />
               </View>
               <Text style={styles.avail}>{!wallet ? '' : available != null ? `${formatAmount(available)} avail.` : side === 'sell' && balanceError ? 'Balance unavailable' : 'Reading balance…'}</Text>
             </View>
@@ -366,8 +376,8 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
 
             <View style={styles.feeRow}>
               <View style={[styles.dot, view && styles.dotLive]} />
-              <Text style={styles.feeStrong}>{view ? `Fee ${feePct != null ? feePct.toFixed(1) + '%' : formatUsd(view.totalFeeUsd)}` : 'Kivo fee 0.5%'}</Text>
-              <Text style={[styles.small, styles.flex]}>{'  ·  Gas free'}{view?.etaSeconds != null ? `  ·  ETA ${view.etaSeconds < 60 ? `~${view.etaSeconds}s` : `~${Math.round(view.etaSeconds / 60)} min`}` : '  ·  ETA ~1 min'}</Text>
+              <Text style={styles.feeStrong}>{view ? `Fee ${feePct != null ? feePct.toFixed(1) + '%' : formatUsd(view.totalFeeUsd)}` : 'Fee —'}</Text>
+              <Text style={[styles.small, styles.flex]}>{gaslessTradingEnabled ? '  ·  Gas free' : '  ·  Network fee from your wallet'}{view?.etaSeconds != null ? `  ·  ETA ${view.etaSeconds < 60 ? `~${view.etaSeconds}s` : `~${Math.round(view.etaSeconds / 60)} min`}` : ''}</Text>
               {view ? <Pressable onPress={() => setShowDetails(value => !value)} hitSlop={8}><Text style={styles.detailsLink}>{showDetails ? 'Hide' : 'Details'}</Text></Pressable> : null}
             </View>
             {view && showDetails && (

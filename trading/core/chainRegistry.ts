@@ -114,10 +114,38 @@ export function viemChainForChainId(chainId: number): Chain | undefined {
   return Object.values(CHAIN_KEY_TO_VIEM_CHAIN).find(chain => chain?.id === chainId);
 }
 
+// One read client per chain for the whole session (each one keeps its own
+// fallback-transport state), instead of a fresh client on every read.
+const publicClients = new Map<number, ReturnType<typeof createPublicClient>>();
+
 export function publicClientForChainId(chainId: number) {
+  const existing = publicClients.get(chainId);
+  if (existing) return existing;
   const chain = viemChainForChainId(chainId);
   if (!chain) throw new Error(`No EVM chain configured for chain id ${chainId}.`);
-  return createPublicClient({chain, transport: transportFor(chainId)});
+  const client = createPublicClient({chain, transport: transportFor(chainId)});
+  publicClients.set(chainId, client);
+  return client;
+}
+
+// Balance reads only: concurrent eth_calls on one chain are folded into a
+// single Multicall3 call, so a portfolio read is about one request per chain
+// instead of one per token (fewer public-RPC rate limits and timeouts).
+// Limited to chains whose Multicall3 address comes from viem's maintained
+// chain list; manually defined chains (Arc, Stable, Robinhood) read one by one.
+// Trading code keeps the unbatched client above.
+const MANUAL_CHAIN_IDS = new Set<number>([robinhoodMainnet.id, stableMainnet.id, arcMainnet.id]);
+const balanceClients = new Map<number, ReturnType<typeof createPublicClient>>();
+
+export function balanceClientForChainId(chainId: number) {
+  const existing = balanceClients.get(chainId);
+  if (existing) return existing;
+  const chain = viemChainForChainId(chainId);
+  if (!chain) throw new Error(`No EVM chain configured for chain id ${chainId}.`);
+  if (MANUAL_CHAIN_IDS.has(chainId) || !chain.contracts?.multicall3) return publicClientForChainId(chainId);
+  const client = createPublicClient({chain, transport: transportFor(chainId), batch: {multicall: {wait: 16}}});
+  balanceClients.set(chainId, client);
+  return client;
 }
 
 export function clientsForChainId(chainId: number, privateKeyHex: string) {

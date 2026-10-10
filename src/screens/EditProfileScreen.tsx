@@ -1,16 +1,17 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { API_LIMITS } from '@kivo/shared/api/types';
+import { API_LIMITS, normalizeProfileLinks, shortWallet, type ProfileLinks } from '@kivo/shared/api/types';
 import { validBio, validProfileUsername } from '../domain/socialValidation';
 import { getProfile, updateProfile } from '../state/profileStore';
 import { api, socialReady } from '../state/session';
-import { signMessageWithLocalWallet } from '../state/walletStore';
+import { signKivoMessage } from '../state/signGuard';
 import { getWalletSession } from '../state/walletStore';
 import { KivoMark } from '../components/KivoMark';
+import { LinkFields, linkDraftFrom, type LinkDraft } from '../components/ProfileLinks';
 import { kivoTheme } from '../theme/kivoTheme';
 
-export function EditProfileScreen({ onBack }: { onBack: () => void }) {
+export function EditProfileScreen({ onBack, onOpenVerification }: { onBack: () => void; onOpenVerification?: (subjectId: string, subjectName: string) => void }) {
   const current = getProfile();
   const [name, setName] = useState(current.username);
   const [bio, setBio] = useState(current.bio);
@@ -21,6 +22,24 @@ export function EditProfileScreen({ onBack }: { onBack: () => void }) {
   const username = name.replace(/^@/, '').toLowerCase();
   const valid = validProfileUsername(username) && validBio(bio);
   const wallet = getWalletSession();
+  const savingRef = useRef(false);
+  // Blue Star links: editable only while the server says this profile is verified
+  // (and chats are on, since links are saved with the signed profile update).
+  const [linksState, setLinksState] = useState<'checking' | 'editable' | 'needsSocial' | 'locked' | 'unavailable'>('checking');
+  const [linkDraft, setLinkDraft] = useState<LinkDraft>(() => linkDraftFrom(null));
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      api.verificationStatus('profile', current.userId).then(status => status.isVerified === true),
+      api.profileLinks(current.userId).catch(() => null),
+    ]).then(([verified, saved]) => {
+      if (!active) return;
+      if (saved?.links) setLinkDraft(linkDraftFrom(saved.links));
+      setLinksState(verified ? (socialReady() ? 'editable' : 'needsSocial') : 'locked');
+    }).catch(() => { if (active) setLinksState('unavailable'); });
+    return () => { active = false; };
+  }, [current.userId]);
+  const linksEditable = linksState === 'editable';
 
   const pickAvatar = async () => {
     // Square-ish 256px JPEG straight from the picker keeps avatars under the 48 KB cap.
@@ -44,13 +63,22 @@ export function EditProfileScreen({ onBack }: { onBack: () => void }) {
   };
 
   const save = async () => {
+    // Synchronous guard: a double tap must never ask for two approvals or save twice.
+    if (savingRef.current) return;
+    let links: ProfileLinks | undefined;
+    if (linksEditable) {
+      try { links = normalizeProfileLinks(linkDraft); }
+      catch (error) { Alert.alert('Links', error instanceof Error ? error.message : 'Check your links.'); return; }
+    }
+    savingRef.current = true;
     setBusy(true);
     try {
       let finalAvatar = avatarUri;
       if (socialReady()) {
         const avatarAction: 'keep' | 'remove' | 'upload' = avatarFile ? 'upload' : avatarUri ? 'keep' : 'remove';
-        const approval = await api.requestProfileApproval({ username, bio, avatarAction });
-        const signature = await signMessageWithLocalWallet(approval.message);
+        // Links are part of the signed approval text, exactly as on web and the server.
+        const approval = await api.requestProfileApproval({ username, bio, avatarAction, ...(links ? { links } : {}) });
+        const signature = await signKivoMessage(approval.message, 'profile');
         let avatarKey: string | null | undefined;
         if (avatarFile) {
           const uploaded = await api.uploadImage(avatarFile.bytes, avatarFile.type, 'avatar');
@@ -63,6 +91,7 @@ export function EditProfileScreen({ onBack }: { onBack: () => void }) {
           approvalNonce: approval.nonce,
           approvalSignature: signature,
           approvalAvatarAction: avatarAction,
+          ...(links ? { links } : {}),
         });
         finalAvatar = saved.avatarUrl ?? undefined;
       }
@@ -71,7 +100,7 @@ export function EditProfileScreen({ onBack }: { onBack: () => void }) {
       onBack();
     } catch (error) {
       Alert.alert('Profile', error instanceof Error ? error.message : 'Unable to save profile.');
-    } finally { setBusy(false); }
+    } finally { savingRef.current = false; setBusy(false); }
   };
 
   return (
@@ -90,7 +119,15 @@ export function EditProfileScreen({ onBack }: { onBack: () => void }) {
       <TextInput value={bio} onChangeText={setBio} multiline maxLength={160} placeholder="Crypto builder | Web3 | …" placeholderTextColor={kivoTheme.colors.textMuted} style={[styles.input, styles.bio]} />
       <Text style={styles.counter}>{bio.length}/160</Text>
       {!valid && <Text style={styles.error}>Username: 3–32 lowercase letters, numbers or _. Bio up to 160 characters.</Text>}
-      <Text style={styles.note}>Wallet {wallet ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}` : ''} stays your identity. Changing your username or photo never changes which wallet owns this profile.</Text>
+      <View style={styles.linksHeader}><Text style={styles.linksTitle}>Links</Text><Text style={styles.linksStar}>★</Text></View>
+      <LinkFields value={linkDraft} onChange={setLinkDraft} editable={linksEditable && !busy} />
+      <Text style={styles.note}>{linksState === 'checking' ? 'Checking Blue Star…'
+        : linksState === 'editable' ? 'Shown on your profile while your Blue Star is active.'
+        : linksState === 'needsSocial' ? 'Turn on chats to save links.'
+        : linksState === 'unavailable' ? 'Links are unavailable right now.'
+        : 'Add your website, X and Telegram with Blue Star.'}</Text>
+      {linksState === 'locked' && onOpenVerification ? <Pressable onPress={() => onOpenVerification(current.userId, `@${current.username}`)} style={[styles.secondary, styles.verifyButton]}><Text style={styles.secondaryText}>★ Get Verified</Text></Pressable> : null}
+      <Text style={styles.note}>Wallet {wallet ? shortWallet(wallet.address) : ''} stays your identity. Changing your username or photo never changes which wallet owns this profile.</Text>
       <Pressable disabled={!valid || busy} onPress={save} style={[styles.button, (!valid || busy) && styles.disabled]}>{busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep} /> : <Text style={styles.buttonText}>Save profile</Text>}</Pressable>
     </ScrollView>
   );
@@ -121,5 +158,9 @@ const styles = StyleSheet.create({
   note: { color: c.textMuted, fontSize: 11.5, lineHeight: 17, marginTop: 14 },
   button: { marginTop: 22, backgroundColor: c.cream, borderRadius: 15, padding: 15, alignItems: 'center' },
   disabled: { opacity: 0.45 },
+  linksHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 18, marginBottom: 8 },
+  linksTitle: { color: c.text, fontSize: 14, fontWeight: '800' },
+  linksStar: { color: '#2589F5', fontSize: 15, fontWeight: '900' },
+  verifyButton: { alignSelf: 'flex-start', marginTop: 8 },
   buttonText: { color: c.backgroundDeep, fontWeight: '800' },
 });

@@ -16,7 +16,7 @@
 // source's own list, since their CoinGecko ids weren't independently
 // confirmed there either. A missing price is a real, disclosed gap on
 // those specific chains, not silently guessed.
-import {marketUrl} from './marketHosts';
+import {marketFetch} from './marketHosts';
 
 export const SYMBOL_TO_COINGECKO_ID: Record<string, string> = {
   ETH: 'ethereum',
@@ -34,6 +34,10 @@ export const SYMBOL_TO_COINGECKO_ID: Record<string, string> = {
 };
 
 const PRICE_CACHE_TTL_MS = 60_000;
+/** A price request that has not answered by then is abandoned, so a hung host can't stall the portfolio. */
+const PRICE_FETCH_TIMEOUT_MS = 12_000;
+/** On a failed refresh, the last real prices from this session are reused for up to 30 minutes. */
+const PRICE_STALE_MAX_MS = 30 * 60_000;
 const cachedPricesByCurrency: Record<string, Record<string, number>> = {};
 const cachedAtByCurrency: Record<string, number> = {};
 const inFlightByCurrency: Record<string, Promise<Record<string, number>>> = {};
@@ -45,7 +49,11 @@ export async function fetchWalletPrices(currency = 'usd'): Promise<Record<string
   if (inFlight) return inFlight;
 
   const ids = [...new Set(Object.values(SYMBOL_TO_COINGECKO_ID))];
-  const promise = fetch(`${marketUrl('coingecko', '/api/v3/simple/price')}?ids=${ids.join(',')}&vs_currencies=${currency}`)
+  // Straight from the user's connection first (CoinGecko often refuses
+  // Cloudflare's shared IPs), then Kivo's caching proxy.
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = setTimeout(() => controller?.abort(), PRICE_FETCH_TIMEOUT_MS);
+  const promise = marketFetch('coingecko', `/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=${currency}`, controller ? {signal: controller.signal} : undefined)
     .then(res => {
       if (!res.ok) throw new Error(`CoinGecko price fetch failed: ${res.status}`);
       return res.json() as Promise<Record<string, Record<string, number>>>;
@@ -59,7 +67,13 @@ export async function fetchWalletPrices(currency = 'usd'): Promise<Record<string
       cachedAtByCurrency[currency] = Date.now();
       return bySymbol;
     })
+    .catch(error => {
+      // Keep using the last real answer for a short while rather than showing no prices.
+      if (cached && Date.now() - cachedAtByCurrency[currency] < PRICE_STALE_MAX_MS) return cached;
+      throw error;
+    })
     .finally(() => {
+      clearTimeout(timer);
       delete inFlightByCurrency[currency];
     });
 

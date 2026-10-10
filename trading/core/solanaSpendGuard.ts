@@ -219,6 +219,11 @@ export async function assertSolanaSpendWithinIntentWeb3(connection: SpendGuardCo
     tokenProgramIds: [new PublicKey(TOKEN_PROGRAM), new PublicKey(TOKEN_2022_PROGRAM)],
     tokenAccountConnection,
     encodeBase58: b => bs58.encode(b),
+    // Forward the output requirement too: without these the "received at
+    // least the minimum" check below the spend checks never runs.
+    expectedOutputMint: intent.expectedOutputMint,
+    expectedOutputMinimum: intent.expectedOutputMinimum,
+    expectedOutputAccounts: intent.expectedOutputAccounts,
   });
 }
 

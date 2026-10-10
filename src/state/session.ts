@@ -13,9 +13,11 @@ import { KivoApi } from '@kivo/shared/api/client';
 import { activateChat, configureChat, startChatSync, stopChatSync } from '@kivo/shared/chat/store';
 import { activateProfileForWallet, configureProfileStore, getProfile, updateProfile } from '@kivo/shared/profile/store';
 import { activateTradeHistory, configureTradeHistory } from '@kivo/trading/kivo/history';
-import { addNotification } from './notificationStore';
-import { getWalletSession, signMessageWithLocalWallet, subscribeToWallet } from './walletStore';
+import { addNotification, setNotificationOwner } from './notificationStore';
+import { getWalletSession, subscribeToWallet } from './walletStore';
+import { signKivoMessage } from './signGuard';
 import { loadSettings } from './settingsStore';
+import { applyClientLimits } from '@kivo/shared/api/types';
 
 /** Same Cloudflare Pages project as the web app (stable URL). */
 export const KIVO_API_BASE_URL = 'https://kivo-web.pages.dev';
@@ -63,12 +65,28 @@ function syncChatForAppState() {
   }
 }
 
+const LIMITS_KEY = 'kivo:limits:v1';
+
+/**
+ * Applies the Blue Star rules the server enforces (GET /api/limits): first the
+ * last copy saved on this phone, then a fresh one. Rule changes therefore reach
+ * the app without an update; the built-in values are only a fallback.
+ */
+async function loadLiveLimits(): Promise<void> {
+  try { const saved = await storage.getItem(LIMITS_KEY); if (saved) applyClientLimits(JSON.parse(saved)); } catch {}
+  try {
+    const fresh = await api.limits();
+    if (applyClientLimits(fresh)) await Promise.resolve(storage.setItem(LIMITS_KEY, JSON.stringify(fresh))).catch(() => {});
+  } catch { /* offline or older server: keep what we have */ }
+}
+
 export async function startKivoSession() {
   if (started) return;
   started = true;
   await loadSettings();
   configureProfileStore({ storage });
   configureTradeHistory({ storage });
+  void loadLiveLimits();
   // Configure Relay immediately so the app does not block startup on a
   // network request. Sponsorship is confirmed in the background from Kivo's
   // backend before it is advertised/used.
@@ -98,6 +116,9 @@ export async function startKivoSession() {
     if (address?.toLowerCase() === lastAddress?.toLowerCase()) return;
     lastAddress = address;
     stopChatSync();
+    // Notifications belong to one wallet: switch (or clear on sign-out) before
+    // anything for the new wallet can be recorded.
+    setNotificationOwner(address);
     // Invalidate the previous API session immediately, before queued local
     // stores or a slow restore can leave the old wallet authenticated.
     void api.restore(address).catch(() => {});
@@ -130,7 +151,7 @@ export async function startKivoSession() {
 export async function enableSocial() {
   const wallet = getWalletSession();
   if (!wallet) throw new Error('Set up a wallet first.');
-  await api.signIn(wallet.address, signMessageWithLocalWallet);
+  await api.signIn(wallet.address, message => signKivoMessage(message, 'sign-in'));
   await pullServerProfile();
   syncChatForAppState();
 }

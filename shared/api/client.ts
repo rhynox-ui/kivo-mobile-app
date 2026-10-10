@@ -1,7 +1,8 @@
 // Typed client for the Kivo social API, shared by web and mobile.
 import type {KeyValueStorage} from '../storage';
 import type {ProfileSocial, PublicCommunityCard} from './types';
-import type {ApiCommunity, ApiConversation, ApiMember, ApiMessage, ApiProfile, AuthChallenge, AuthSession, CommunityKind, CommunitySettingsInput, ProfileApprovalChallenge, SyncResponse} from './types';
+import type {ApiBan, ApiCommunity, ApiConversation, ApiMember, ApiMessage, ApiProfile, AuthChallenge, AuthSession, CommunityKind, CommunitySettingsInput, ProfileApprovalChallenge, ProfileLinks, SyncResponse} from './types';
+import {kivoUserIdForWallet, normalizeWalletAddress} from './types';
 
 export class ApiError extends Error {
   status: number;
@@ -10,6 +11,8 @@ export class ApiError extends Error {
 
 export type KivoApiOptions = {baseUrl: string; storage: KeyValueStorage; sessionStorage?: KeyValueStorage; client: 'web' | 'mobile'};
 const SESSION_KEY = 'kivo:api-session:v1';
+const VERIFICATION_TTL_MS = 60_000;
+export type VerificationStatus = {isVerified: boolean; permanent: boolean; expiresAt: number | null; plan: 'monthly' | 'annual' | null; chain?: string};
 
 export class KivoApi {
   private baseUrl: string;
@@ -18,6 +21,8 @@ export class KivoApi {
   private client: 'web' | 'mobile';
   private session: {token: string; expiresAt: number; address: string} | null = null;
   private sessionGeneration = 0;
+  private verificationCache = new Map<string, {at: number; value: VerificationStatus}>();
+  private verificationInFlight = new Map<string, Promise<VerificationStatus>>();
   private activeAddress: string | null = null;
   private sessionWriteQueue: Promise<void> = Promise.resolve();
   private listeners = new Set<() => void>();
@@ -49,7 +54,7 @@ export class KivoApi {
 
   async restore(address: string | null): Promise<boolean> {
     const generation = ++this.sessionGeneration;
-    const normalizedAddress = address?.toLowerCase() ?? null;
+    const normalizedAddress = address ? normalizeWalletAddress(address) : null;
     this.activeAddress = normalizedAddress;
     this.session = null;
     this.emit();
@@ -66,7 +71,9 @@ export class KivoApi {
     return generation === this.sessionGeneration && Boolean(this.session);
   }
 
-  isSignedIn(address?: string | null): boolean { return Boolean(this.session && this.session.expiresAt > Date.now() && (!address || this.session.address === address.toLowerCase())); }
+  /** The server account id of the current session (`kivo:<wallet>`), or null when signed out. */
+  signedInUserId(): string | null { return this.session && this.session.expiresAt > Date.now() ? kivoUserIdForWallet(this.session.address) : null; }
+  isSignedIn(address?: string | null): boolean { return Boolean(this.session && this.session.expiresAt > Date.now() && (!address || this.session.address === normalizeWalletAddress(address))); }
 
   /** Auth headers for same-origin media only; never attach the session to local or foreign URLs. */
   mediaHeaders(url?: string): Record<string, string> {
@@ -99,7 +106,8 @@ export class KivoApi {
 
   async signIn(address: string, sign: (message: string) => Promise<string>): Promise<AuthSession> {
     const generation = ++this.sessionGeneration;
-    const normalizedAddress = address.toLowerCase();
+    const normalizedAddress = normalizeWalletAddress(address);
+    if (!normalizedAddress) throw new ApiError(400, 'Invalid wallet address.');
     this.activeAddress = normalizedAddress;
     const challenge = await this.request<AuthChallenge>('POST', '/api/auth/challenge', {address, client: this.client}, false);
     if (generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) throw new ApiError(409, 'Wallet changed during sign-in. Please try again.');
@@ -152,14 +160,15 @@ export class KivoApi {
   }
 
   me() { return this.request<ApiProfile>('GET', '/api/me'); }
-  requestProfileApproval(input: {username: string; bio: string; avatarAction: 'keep' | 'remove' | 'upload'}) {
+  requestProfileApproval(input: {username: string; bio: string; avatarAction: 'keep' | 'remove' | 'upload'; links?: ProfileLinks}) {
     return this.request<ProfileApprovalChallenge>('POST', '/api/profile/approval-challenge', input);
   }
-  updateProfile(input: {username: string; bio: string; avatarKey?: string | null; approvalNonce: string; approvalSignature: string; approvalAvatarAction: 'keep' | 'remove' | 'upload'}) {
+  updateProfile(input: {username: string; bio: string; avatarKey?: string | null; approvalNonce: string; approvalSignature: string; approvalAvatarAction: 'keep' | 'remove' | 'upload'; links?: ProfileLinks}) {
     return this.request<ApiProfile>('PUT', '/api/profile', input);
   }
   searchProfiles(q: string) { return this.request<ApiProfile[]>('GET', `/api/profiles?q=${encodeURIComponent(q)}`, undefined, false); }
   profiles(ids: string[]) { return ids.length ? this.request<ApiProfile[]>('GET', `/api/profiles?ids=${encodeURIComponent(ids.slice(0, 100).join(','))}`, undefined, false) : Promise.resolve([]); }
+  profileLinks(userId: string) { return this.request<{verified: boolean; links: ProfileLinks}>('GET', `/api/profiles/${encodeURIComponent(userId)}/links`, undefined, false); }
   social(userId: string) { return this.request<ProfileSocial>('GET', `/api/profiles/${encodeURIComponent(userId)}/social`); }
   publicCommunitiesOf(userId: string) { return this.request<PublicCommunityCard[]>('GET', `/api/profiles/${encodeURIComponent(userId)}/communities`, undefined, false); }
   follow(userId: string) { return this.request<ProfileSocial>('POST', `/api/follows/${encodeURIComponent(userId)}`, {}); }
@@ -179,6 +188,10 @@ export class KivoApi {
   leave(id: string) { return this.request<{ok: true}>('POST', `/api/communities/${encodeURIComponent(id)}/leave`, {}); }
   addMember(id: string, address: string) { return this.request<{community: ApiCommunity; members: ApiMember[]}>('POST', `/api/communities/${encodeURIComponent(id)}/members`, {address}); }
   removeMember(id: string, userId: string) { return this.request<{community: ApiCommunity; members: ApiMember[]}>( 'DELETE', `/api/communities/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`); }
+  communityLinks(id: string) { return this.request<{eligible: boolean; links: ProfileLinks}>('GET', `/api/communities/${encodeURIComponent(id)}/links`); }
+  saveCommunityLinks(id: string, links: ProfileLinks) { return this.request<{eligible: boolean; links: ProfileLinks}>('PUT', `/api/communities/${encodeURIComponent(id)}/links`, {links}); }
+  bans(id: string) { return this.request<ApiBan[]>('GET', `/api/communities/${encodeURIComponent(id)}/bans`); }
+  setBanned(id: string, userId: string, banned: boolean) { return this.request<{community: ApiCommunity; members: ApiMember[]}>(banned ? 'POST' : 'DELETE', `/api/communities/${encodeURIComponent(id)}/bans/${encodeURIComponent(userId)}`, banned ? {} : undefined); }
   setAdmin(id: string, userId: string, promote: boolean) { return this.request<{community: ApiCommunity; members: ApiMember[]}>(promote ? 'POST' : 'DELETE', `/api/communities/${encodeURIComponent(id)}/admins/${encodeURIComponent(userId)}`, promote ? {} : undefined); }
   latestVerificationReceipt(subjectType: 'profile' | 'channel', subjectId: string) {
     return this.request<{
@@ -187,9 +200,30 @@ export class KivoApi {
       recipient: string; paidAt: number; expiresAt: number; explorerUrl: string; status: string;
     } | null>('GET', `/api/verification/receipt?subjectType=${subjectType}&subjectId=${encodeURIComponent(subjectId)}`);
   }
-  verificationStatus(subjectType: 'profile' | 'channel', subjectId: string) {
-    return this.request<{isVerified: boolean; permanent: boolean; expiresAt: number | null; plan: 'monthly' | 'annual' | null; chain?: string}>('GET', `/api/verification/status?subjectType=${subjectType}&subjectId=${encodeURIComponent(subjectId)}`);
+  /**
+   * Blue Star status, shared by every screen. A confirmed answer is reused for
+   * up to a minute (so a busy group doesn't ask once per sender, and an
+   * expired Blue Star still disappears within a minute); concurrent asks share
+   * one request; failures are never cached.
+   */
+  verificationStatus(subjectType: 'profile' | 'channel', subjectId: string): Promise<VerificationStatus> {
+    const key = `${subjectType}:${subjectId}`;
+    const hit = this.verificationCache.get(key);
+    if (hit && Date.now() - hit.at < VERIFICATION_TTL_MS) return Promise.resolve(hit.value);
+    const pending = this.verificationInFlight.get(key);
+    if (pending) return pending;
+    const promise = this.request<VerificationStatus>('GET', `/api/verification/status?subjectType=${subjectType}&subjectId=${encodeURIComponent(subjectId)}`)
+      .then(value => { this.verificationCache.set(key, {at: Date.now(), value}); return value; })
+      .finally(() => { this.verificationInFlight.delete(key); });
+    this.verificationInFlight.set(key, promise);
+    return promise;
   }
+  /** Drop a cached Blue Star answer (after buying or renewing one). */
+  forgetVerification(subjectType: 'profile' | 'channel', subjectId: string): void {
+    this.verificationCache.delete(`${subjectType}:${subjectId}`);
+  }
+  /** The Blue Star rules the server currently enforces (public, no session needed). */
+  limits() { return this.request<unknown>('GET', '/api/limits', undefined, false); }
   purchaseVerification(input: {subjectType: 'profile' | 'channel'; subjectId: string; plan: 'monthly' | 'annual'; chain: 'ethereum' | 'base' | 'arbitrum' | 'solana'; txHash: string}) {
     return this.request<{id: string; plan: string; chain: string; token: 'USDC'; amount: string; txHash: string; payer: string; recipient: string; paidAt: number; expiresAt: number; explorerUrl: string; blockNumber: number; status: string}>('POST', '/api/verification/purchase', input);
   }

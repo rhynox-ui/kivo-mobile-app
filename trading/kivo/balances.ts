@@ -5,7 +5,7 @@
 
 import {erc20Abi, formatUnits, getAddress, type Address} from 'viem';
 import {MAINNET_CHAIN_IDS, TOKEN_ADDRESSES, assetDecimalsForChain, currencyAddress, type ChainKey} from '../core/chainData';
-import {publicClientForChainId} from '../core/chainRegistry';
+import {balanceClientForChainId} from '../core/chainRegistry';
 import {EVM_TRADE_CHAINS, USDC_CHAINS, nativeSymbol} from './tokens';
 
 const EVM_CASH_CHAINS = EVM_TRADE_CHAINS;
@@ -54,25 +54,59 @@ export function isNativeTokenAddress(address: string): boolean {
   return NATIVE_ADDRESSES.has(address.toLowerCase());
 }
 
-/** ERC-20 (or native) balance of `owner` on `chainKey`. Decimals come from the contract itself, never assumed. */
+// Token decimals/symbols never change, so they are read on-chain once per
+// session (errors are not cached). Same as web trading/kivo/balances.ts.
+const tokenMetaCache = new Map<string, Promise<{decimals: number; symbol: string}>>();
+
+function tokenMeta(chainKey: ChainKey, token: Address, symbolHint?: string): Promise<{decimals: number; symbol: string}> {
+  const key = `${chainKey}:${token.toLowerCase()}`;
+  const cached = tokenMetaCache.get(key);
+  if (cached) return cached.then(meta => (symbolHint ? {...meta, symbol: symbolHint} : meta));
+  const client = balanceClientForChainId(MAINNET_CHAIN_IDS[chainKey]);
+  const promise = Promise.all([
+    client.readContract({address: token, abi: erc20Abi, functionName: 'decimals'}),
+    symbolHint ? Promise.resolve(symbolHint) : client.readContract({address: token, abi: erc20Abi, functionName: 'symbol'}).catch(() => '?'),
+  ]).then(([decimals, symbol]) => ({decimals: Number(decimals), symbol: String(symbol)}));
+  tokenMetaCache.set(key, promise);
+  promise.catch(() => { if (tokenMetaCache.get(key) === promise) tokenMetaCache.delete(key); });
+  return promise;
+}
+
+/** On-chain decimals of an EVM token (18 for the native coin). Cached per session. */
+export async function readTokenDecimals(chainKey: ChainKey, tokenAddress: string): Promise<number> {
+  if (isNativeTokenAddress(tokenAddress)) return 18;
+  return (await tokenMeta(chainKey, getAddress(tokenAddress) as Address, '?')).decimals;
+}
+
+function validDecimals(d: unknown): d is number {
+  // ERC-20 decimals is a uint8, and real tokens use 0–36. A contract that
+  // reports anything else is broken or hostile; formatting with it could
+  // stall the app building a multi-million-digit string.
+  return typeof d === 'number' && Number.isInteger(d) && d >= 0 && d <= 36;
+}
+
+/**
+ * ERC-20 (or native) balance of `owner` on `chainKey`. Decimals come from the
+ * contract itself (cached per session), never assumed. `decimalsHint` is only
+ * for decimals already verified in chainData (e.g. USDC), which skips the read.
+ */
 export async function readTokenBalance(chainKey: ChainKey, tokenAddress: string, owner: string, symbolHint?: string, decimalsHint?: number): Promise<TokenBalance> {
-  const client = publicClientForChainId(MAINNET_CHAIN_IDS[chainKey]);
+  const client = balanceClientForChainId(MAINNET_CHAIN_IDS[chainKey]);
   const account = getAddress(owner) as Address;
   if (isNativeTokenAddress(tokenAddress)) {
     const raw = await withTimeout(client.getBalance({address: account}));
     return {chainKey, tokenAddress, symbol: nativeSymbol(chainKey), raw, decimals: 18, amount: Number(formatUnits(raw, 18))};
   }
   const token = getAddress(tokenAddress) as Address;
-  const [raw, symbol] = await withTimeout(Promise.all([
+  const [raw, meta] = await withTimeout(Promise.all([
     client.readContract({address: token, abi: erc20Abi, functionName: 'balanceOf', args: [account]}),
-    symbolHint ? Promise.resolve(symbolHint) : client.readContract({address: token, abi: erc20Abi, functionName: 'symbol'}).catch(() => '?'),
+    validDecimals(decimalsHint) && symbolHint
+      ? Promise.resolve({decimals: decimalsHint, symbol: symbolHint})
+      : tokenMeta(chainKey, token, symbolHint),
   ]));
-  const d = decimalsHint ?? 18;
-  // ERC-20 decimals is a uint8, and real tokens use 0–36. A contract that
-  // reports anything else is broken or hostile; formatting with it could
-  // stall the app building a multi-million-digit string.
-  if (!Number.isInteger(d) || d < 0 || d > 36) throw new Error('This token reports invalid decimals, so Kivo cannot read its balance safely.');
-  return {chainKey, tokenAddress, symbol: String(symbol), raw, decimals: d, amount: Number(formatUnits(raw, d))};
+  const d = validDecimals(decimalsHint) ? decimalsHint : meta.decimals;
+  if (!validDecimals(d)) throw new Error('This token reports invalid decimals, so Kivo cannot read its balance safely.');
+  return {chainKey, tokenAddress, symbol: String(symbolHint ?? meta.symbol), raw, decimals: d, amount: Number(formatUnits(raw, d))};
 }
 
 export async function readNativeBalance(chainKey: ChainKey, owner: string, {forceFresh = false}: {forceFresh?: boolean} = {}): Promise<TokenBalance> {
@@ -158,19 +192,26 @@ export async function readSolanaUsdcBalance(owner: string): Promise<TokenBalance
   const ownerKey = new PublicKey(owner);
   const mint = new PublicKey(mintAddress);
   const ata = await splToken.getAssociatedTokenAddress(mint, ownerKey);
-  const info = await connection.getTokenAccountBalance(ata).catch(() => null);
+  // A wallet that never held USDC has no token account: that is a real 0.
+  // Any other failure (RPC down, rate limit) is an error, never a fake 0.
+  const info = await connection.getTokenAccountBalance(ata).catch((error: unknown) => {
+    if (/could not find account|Invalid param: could not find/i.test(error instanceof Error ? error.message : String(error))) return null;
+    throw error;
+  });
   const amount = info ? Number(info.value.uiAmountString ?? info.value.uiAmount ?? 0) : 0;
   const raw = BigInt(info?.value.amount ?? '0');
   return {chainKey: 'solana', tokenAddress: mintAddress, symbol: 'USDC', raw, decimals: 6, amount};
 }
 
 /** USDC across every chain Kivo can pay from. Each chain fails independently. */
-export async function fetchCashBalances(owner: string, chains: ChainKey[] = CASH_CHAINS, solanaOwner: string = owner, {forceFresh = false}: {forceFresh?: boolean} = {}): Promise<CashBalanceRow[]> {
-  const key = owner.toLowerCase() + ':' + solanaOwner + ':' + chains.join(',');
+export async function fetchCashBalances(owner: string, chains: ChainKey[] = CASH_CHAINS, solanaOwner?: string, {forceFresh = false}: {forceFresh?: boolean} = {}): Promise<CashBalanceRow[]> {
+  // The Solana wallet is a different address from the EVM one; it is never
+  // derived from `owner` (reading Solana at a 0x address always fails).
+  const key = owner.toLowerCase() + ':' + (solanaOwner ?? '') + ':' + chains.join(',');
   if (!forceFresh && cashCache && cashCache.key === key && Date.now() - cashCache.at < CASH_CACHE_TTL_MS) return cashCache.rows;
   if (!forceFresh && cashInFlight?.key === key) return cashInFlight.promise;
   const promise = (async () => {
-    const settled = await Promise.allSettled(chains.map(chainKey => chainKey === 'solana' ? readSolanaUsdcBalance(solanaOwner) : readUsdcBalance(chainKey, owner)));
+    const settled = await Promise.allSettled(chains.map(chainKey => chainKey === 'solana' ? (solanaOwner ? readSolanaUsdcBalance(solanaOwner) : Promise.reject(new Error('No Solana wallet on this account.'))) : readUsdcBalance(chainKey, owner)));
     const rows = settled.map((outcome, index): CashBalanceRow => {
       const chainKey = chains[index];
       return outcome.status === 'fulfilled'

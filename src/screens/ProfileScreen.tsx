@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, Image, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { KivoMark } from '../components/KivoMark';
 import { LineChart } from '../components/LineChart';
@@ -8,10 +8,11 @@ import { getWalletSession, subscribeToWallet, type WalletSession } from '../stat
 import { api, storage, useSocialReady } from '../state/session';
 import { useChatState } from '../state/useChat';
 import { updateSettings, useSettings } from '../state/settingsStore';
-import { type ProfileSocial } from '@kivo/shared/api/types';
+import { hasProfileLinks, type ProfileLinks, type ProfileSocial } from '@kivo/shared/api/types';
+import { ProfileLinkChips } from '../components/ProfileLinks';
 import { CHAIN_LABEL, tradeChainLabel } from '@kivo/trading/core/chainData';
 import { subscribeToTradeHistory, type TradeRecord } from '@kivo/trading/kivo/history';
-import { closedPositions, computePortfolioChange, fetchPortfolio, filterHistoryByRange, getPortfolioHistory, openHoldings, recordPortfolioSnapshot, type Portfolio, type PortfolioRange, type PortfolioSnapshot } from '@kivo/trading/kivo/portfolio';
+import { chartTotal, closedPositions, computePortfolioChange, fetchPortfolio, filterHistoryByRange, getPortfolioHistory, missingSourceNames, openHoldings, recordPortfolioSnapshot, type ChartTotal, type Portfolio, type PortfolioRange, type PortfolioSnapshot } from '@kivo/trading/kivo/portfolio';
 import { formatAmount, formatUsd } from '@kivo/trading/kivo/tokens';
 import { ConvertCashSheet } from '../components/ConvertCashSheet';
 
@@ -19,6 +20,8 @@ const RANGES: PortfolioRange[] = ['24h', '7d', '30d', 'All'];
 type PositionTab = 'open' | 'closed';
 type PositionFilter = 'all' | 'tokens' | 'cash';
 const SMALL_BALANCE_THRESHOLD_USD = 0.5;
+/** Blue Star status is re-checked this often, and only while the app is in the foreground. */
+const VERIFICATION_POLL_MS = 60_000;
 function shouldHideSmallHolding(holding: Portfolio['holdings'][number]): boolean {
   return holding.kind !== 'native' && holding.valueUsd != null && Number.isFinite(holding.valueUsd) && holding.valueUsd < SMALL_BALANCE_THRESHOLD_USD;
 }
@@ -46,6 +49,9 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const [social, setSocial] = useState<ProfileSocial | null>(null);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [history, setHistory] = useState<PortfolioSnapshot[]>([]);
+  const [chart, setChart] = useState<ChartTotal | null>(null);
+  const [portfolioError, setPortfolioError] = useState<string | null>(null);
+  const [links, setLinks] = useState<ProfileLinks | null>(null);
   const [loading, setLoading] = useState(false);
   const [range, setRange] = useState<PortfolioRange>('24h');
   const [positionTab, setPositionTab] = useState<PositionTab>('open');
@@ -67,22 +73,67 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
     // account switch while the new server status is still loading.
     setVerificationStatus(null);
     loadVerification();
-    // Keep the profile badge in sync shortly after checkout activates a subscription.
-    const timer = setInterval(loadVerification, 5_000);
-    return () => clearInterval(timer);
+    // Keep the profile badge in sync after checkout activates a subscription,
+    // without polling in the background. The Profile tab is unmounted when
+    // another tab is shown, so this only runs while the screen is visible.
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const start = () => { if (!timer) timer = setInterval(loadVerification, VERIFICATION_POLL_MS); };
+    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+    if (AppState.currentState === 'active') start();
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') { loadVerification(); start(); } else stop();
+    });
+    return () => { stop(); subscription.remove(); };
   }, [loadVerification]);
 
+  // The user's own Blue Star links (the server only returns them while the Blue Star is active).
+  useEffect(() => {
+    let active = true;
+    setLinks(null);
+    api.profileLinks(profile.userId).then(result => { if (active && result.verified && hasProfileLinks(result.links)) setLinks(result.links); }).catch(() => {});
+    return () => { active = false; };
+  }, [profile.userId, verificationStatus?.isVerified]);
+
+  // Each portfolio request carries a sequence number and the wallet it was
+  // made for; an answer for an older request or another wallet is dropped.
+  const requestSeq = useRef(0);
+  const walletAddress = wallet?.address ?? null;
+  const walletRef = useRef<string | null>(walletAddress);
+  walletRef.current = walletAddress;
+  useEffect(() => {
+    // Never show the previous wallet's balances, chart or error for a new wallet.
+    requestSeq.current += 1;
+    setPortfolio(null);
+    setHistory([]);
+    setChart(null);
+    setPortfolioError(null);
+    setLoading(false);
+  }, [walletAddress]);
 
   const load = useCallback(async (forceFresh = false) => {
     if (!wallet) return;
+    const seq = ++requestSeq.current;
+    const owner = wallet.address;
+    const current = () => seq === requestSeq.current && walletRef.current === owner;
     setLoading(true);
     try {
-      const next = await fetchPortfolio(wallet.address, trades, {solanaAddress: wallet.solanaAddress, nearAddress: wallet.nearAddress}, {forceFresh});
+      const next = await fetchPortfolio(owner, trades, {solanaAddress: wallet.solanaAddress, nearAddress: wallet.nearAddress}, {forceFresh});
+      if (!current()) return;
+      // The chart only records a total when every source answered or has a
+      // recent confirmed reading; otherwise no point is added.
+      const nextChart = await chartTotal(storage, owner, next);
+      const nextHistory = nextChart.totalUsd != null ? await recordPortfolioSnapshot(storage, owner, nextChart.totalUsd) : await getPortfolioHistory(storage, owner);
+      if (!current()) return;
       setPortfolio(next);
-      setHistory(next.complete ? await recordPortfolioSnapshot(storage, wallet.address, next.totalUsd) : await getPortfolioHistory(storage, wallet.address));
+      setChart(nextChart);
+      setHistory(nextHistory);
+      setPortfolioError(null);
     } catch {
-      setHistory(await getPortfolioHistory(storage, wallet.address));
-    } finally { setLoading(false); }
+      const saved = await getPortfolioHistory(storage, owner);
+      if (!current()) return;
+      setHistory(saved);
+      setPortfolioError('Balances are unavailable right now. Pull down to try again.');
+    } finally { if (seq === requestSeq.current) setLoading(false); }
   }, [wallet, trades]);
   useEffect(() => { void load(); }, [load]);
 
@@ -139,6 +190,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
           <Text style={styles.username}>@{profile.username}</Text>
           {verificationStatus?.isVerified === true ? <Text accessibilityLabel="Blue Star verified" style={styles.blueStarBadge}>★</Text> : null}
         </View>
+        {links ? <View style={styles.links}><ProfileLinkChips links={links} /></View> : null}
         {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : <Pressable onPress={onEditProfile}><Text style={styles.addBio}>+ Add a bio</Text></Pressable>}
         <View style={styles.follows}>
           <Text style={styles.followText}><Text style={styles.count}>{social?.following ?? 0}</Text> Following</Text>
@@ -166,7 +218,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
             <View style={styles.portfolioCard}>
         <View style={styles.portfolioTop}>
           <View>
-            <Text style={styles.value}>{portfolio ? money(portfolio.totalUsd) : '…'}</Text>
+            <Text style={styles.value}>{portfolio ? money(chart?.totalUsd ?? portfolio.totalUsd) : portfolioError ? '—' : '…'}</Text>
             <Pressable onPress={() => updateSettings({ hideBalances: !hidden })} style={styles.valueLabelRow}>
               {change && !hidden
                 ? <Text style={[styles.change, change.isPositive ? styles.up : styles.down]}>{change.isPositive ? '▲ +' : '▼ −'}{formatUsd(Math.abs(change.absolute))} ({change.isPositive ? '+' : '−'}{Math.abs(change.percent).toFixed(2)}%)</Text>
@@ -179,18 +231,22 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
           </View>
         </View>
         <View style={[styles.chart, !(points.length >= 2 && !hidden) && styles.chartEmptyBox]}>
-          {!portfolio && loading ? <ActivityIndicator color={kivoTheme.colors.accent} />
+          {!portfolio && portfolioError ? <Text style={styles.chartEmpty}>{portfolioError}</Text>
+            : !portfolio ? (wallet ? <ActivityIndicator color={kivoTheme.colors.accent} /> : <Text style={styles.chartEmpty}>Connect a wallet to see balances.</Text>)
             : hidden ? <Text style={styles.chartEmpty}>Balances hidden</Text>
             : points.length >= 2 ? <LineChart values={points.map(p => p.totalUsd)} />
             : <Text style={styles.chartEmpty}>No portfolio history yet — your chart builds as Kivo records your balance over time.</Text>}
         </View>
-        {portfolio && !portfolio.complete && <Text style={styles.small}>Some networks did not respond — total may be incomplete.</Text>}
+        {portfolio && chart?.unknown.length ? <Text style={styles.small}>{missingSourceNames(chart.unknown)} did not respond, so this reading was not added to the chart. The total may be incomplete.</Text>
+          : portfolio && chart?.reused.length ? <Text style={styles.small}>{missingSourceNames(chart.reused)} did not respond; the total and chart use {chart.reused.length === 1 ? 'its' : 'their'} last confirmed reading from the past 6 hours.</Text>
+          : portfolio && !portfolio.complete ? <Text style={styles.small}>Some prices or networks did not respond — total may be incomplete.</Text>
+          : null}
       </View>
 
       <View style={styles.cashCard}>
         <View style={styles.cashLeft}>
           <View style={styles.cashIcon}><Text style={styles.cashIconText}>$</Text></View>
-          <View><Text style={styles.small}>Total cash</Text><Text style={styles.cashValue}>{portfolio ? money(portfolio.cashUsd) : '…'}</Text></View>
+          <View><Text style={styles.small}>Total cash</Text><Text style={styles.cashValue}>{portfolio ? money(portfolio.cashUsd) : portfolioError ? '—' : '…'}</Text></View>
         </View>
         <View style={styles.cashActions}>
           <Square label="Deposit" glyph="↓" onPress={() => onOpenWallet('deposit')} />
@@ -208,7 +264,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
       {positionTab === 'open' && <View style={styles.filters}>
         {(['all', 'tokens', 'cash'] as PositionFilter[]).map(f => <Pressable key={f} onPress={() => setFilter(f)} style={[styles.filter, filter === f && styles.filterActive]}><Text style={[styles.filterText, filter === f && styles.filterTextActive]}>{f === 'all' ? 'All' : f === 'tokens' ? 'Tokens' : 'Cash'}</Text></Pressable>)}
       </View>}
-      {!portfolio ? <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 16 }} />
+      {!portfolio ? (portfolioError || !wallet ? <Empty title="Balances unavailable" body={portfolioError ?? 'Connect a wallet to see balances.'} /> : <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 16 }} />)
         : positionTab === 'open'
           ? (visibleOpen.length ? visibleOpen.map(h => (
             <View key={h.key} style={styles.position}>
@@ -234,7 +290,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
       </View>
       {settings.hideSmallBalances && hiddenOpen.length > 0 ? <Pressable style={styles.showHiddenPill} onPress={() => updateSettings({hideSmallBalances: false})}><Text style={styles.showHiddenText}>Show hidden ({hiddenOpen.length})</Text></Pressable> : null}
 
-      <Text style={[styles.small, styles.padded]}>Native coins and cash on every supported chain, plus tokens you traded in Kivo.</Text>
+      <Text style={[styles.small, styles.padded]}>Native coins and cash on every supported chain, tokens you traded in Kivo, and other tokens found by the wallet index.</Text>
 
       <View style={styles.positionsHead}>
         <Text style={styles.sectionTitle}>Joined groups</Text>
@@ -286,6 +342,7 @@ const styles = StyleSheet.create({
   usernameRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 7 },
   username: { color: c.text, fontSize: 23, fontWeight: '800', marginTop: 4 },
   blueStarBadge: { color: kivoTheme.colors.accent, fontSize: 19, fontWeight: '900', marginTop: 4 },
+  links: { alignSelf: 'flex-start', marginTop: 2 },
   bio: { color: c.text, fontSize: 14.5, lineHeight: 20 },
   addBio: { color: c.textMuted, fontSize: 14, fontWeight: '700' },
   follows: { flexDirection: 'row', gap: 22 },
