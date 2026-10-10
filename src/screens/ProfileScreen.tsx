@@ -58,7 +58,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   // Verification status is public profile metadata; it must not depend on
   // enabling the separate social/chat session.
   const loadVerification = useCallback(() => {
-    api.verificationStatus('profile', profile.userId).then(setVerificationStatus).catch(() => {});
+    api.verificationStatus('profile', profile.userId).then(setVerificationStatus).catch(() => setVerificationStatus(null));
   }, [profile.userId]);
   useEffect(() => {
     loadVerification();
