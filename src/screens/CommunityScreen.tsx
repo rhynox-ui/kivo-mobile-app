@@ -110,7 +110,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
               <View key={target} style={styles.memberRow}>
                 <Pressable onPress={() => onOpenPerson?.(target)} style={styles.memberMain}>
                   <Avatar name={memberName(member)} uri={member.profile?.avatarUrl} size={38} verified={verifiedMembers.has(target)} />
-                  <View style={styles.flex}><Text style={styles.memberName}>{memberName(member)}</Text><Text style={styles.small}>{member.role === 'owner' ? 'Owner · protected' : member.role === 'admin' ? 'Admin' : 'Member'}</Text></View>
+                  <View style={styles.flex}><View style={styles.memberNameLine}><Text style={styles.memberName}>{memberName(member)}</Text>{verifiedMembers.has(target) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedMemberBadge}>★</Text> : null}</View><Text style={styles.small}>{member.role === 'owner' ? 'Owner · protected' : member.role === 'admin' ? 'Admin' : 'Member'}</Text></View>
                 </Pressable>
                 {me && canPromoteGroupAdmin(me, target, group) && <Pressable onPress={run(() => api.setAdmin(c.id, target, true))} style={styles.chip}><Text style={styles.chipText}>Make admin</Text></Pressable>}
                 {me && canDemoteGroupAdmin(me, target, group) && <Pressable onPress={run(() => api.setAdmin(c.id, target, false))} style={styles.chip}><Text style={styles.chipText}>Remove admin</Text></Pressable>}
@@ -189,6 +189,8 @@ const styles = StyleSheet.create({
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, borderTopWidth: 1, borderTopColor: c.border },
   memberMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   flex: { flex: 1 },
+  memberNameLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  verifiedMemberBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 10, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 17, height: 17, borderRadius: 9, overflow: 'hidden' },
   memberName: { color: c.text, fontWeight: '700' },
   chip: { borderWidth: 1, borderColor: c.border, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   chipText: { color: c.cream, fontSize: 11, fontWeight: '800' },
