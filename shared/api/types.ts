@@ -10,7 +10,10 @@
 export const API_LIMITS = {
   /** Server keeps messages this long; devices keep their own history. */
   messageTtlDays: 30,
-  maxMessageChars: 4000,
+  /** Hard technical ceiling for one message (verified accounts' "unlimited"). */
+  maxMessageChars: 50_000,
+  /** Per-message length for accounts without an active Blue Star. */
+  maxMessageCharsUnverified: 500,
   maxUsernameChars: 32,
   maxBioChars: 160,
   maxCommunityNameChars: 48,
@@ -132,6 +135,26 @@ export function profileApprovalMessage(address: string, nonce: string, issuedAt:
  */
 export function verificationPaymentMemo(buyerUserId: string, subjectType: 'profile' | 'channel', subjectId: string): string {
   return `kivo-blue-star:${buyerUserId}:${subjectType}:${subjectId}`;
+}
+
+/**
+ * Length of a message as people see it (same rule as the server). Hermes has
+ * no Intl.Segmenter, so the fallback counts code points, which can count a
+ * multi-part emoji as more than one — slightly stricter, never looser.
+ */
+export function messageLength(text: string): number {
+  const Segmenter = (Intl as unknown as {Segmenter?: new (locale?: string, options?: {granularity: 'grapheme'}) => {segment(input: string): Iterable<unknown>}}).Segmenter;
+  if (Segmenter) {
+    let count = 0;
+    for (const _ of new Segmenter(undefined, {granularity: 'grapheme'}).segment(text)) count++;
+    return count;
+  }
+  return Array.from(text).length;
+}
+
+/** Characters one message may hold: 500 without Blue Star, effectively unlimited with it. */
+export function messageCharLimit(verified: boolean): number {
+  return verified ? API_LIMITS.maxMessageChars : API_LIMITS.maxMessageCharsUnverified;
 }
 
 export function dmConversationId(a: string, b: string): string {

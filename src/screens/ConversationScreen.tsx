@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { API_LIMITS } from '@kivo/shared/api/types';
+import { API_LIMITS, messageCharLimit, messageLength } from '@kivo/shared/api/types';
 import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useActiveConversation, useChatState } from '../state/useChat';
@@ -71,6 +71,22 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const previousMessageCount = useRef(messages.length);
   const [unseenMessages, setUnseenMessages] = useState(0);
   const me = myUserId();
+  // Message length: 500 characters without Blue Star, effectively unlimited with
+  // it. The server enforces this; the counter only helps before sending.
+  const [verifiedSender, setVerifiedSender] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    if (!me) return;
+    let active = true;
+    api.verificationStatus('profile', me).then(status => { if (active) setVerifiedSender(status.isVerified === true); }).catch(() => {});
+    return () => { active = false; };
+  }, [me]);
+  const editingOriginal = editingMessageId ? messages.find(m => m.id === editingMessageId)?.text ?? '' : '';
+  // An edit may keep an old message as long as it already was.
+  const charLimit = Math.max(messageCharLimit(verifiedSender), editingMessageId ? messageLength(editingOriginal) : 0);
+  const draftLength = messageLength(draft.trim());
+  const overLimit = draftLength > charLimit;
+  const showCounter = verifiedSender ? overLimit : draftLength >= charLimit - 100;
   const [peerVerified, setPeerVerified] = useState(false);
   const [verifiedSenders, setVerifiedSenders] = useState<Set<string>>(() => new Set());
   const senderIds = useMemo(() => Array.from(new Set(messages.filter(message => message.senderId !== me).map(message => message.senderId))), [messages, me]);
@@ -136,6 +152,10 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const send = async () => {
     const text = draft;
     if (!text.trim()) return;
+    if (overLimit) {
+      Alert.alert('Message', verifiedSender ? 'This message is too long.' : `Messages are limited to ${charLimit} characters. Blue Star verified accounts can send messages of any length.`);
+      return;
+    }
     try {
       if (editingMessageId) { await editMessage(id, editingMessageId, text); setEditingMessageId(null); }
       else await sendText(id, text);
@@ -252,7 +272,15 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
                 {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} />}
-                {message.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : message.text ? <Text style={styles.text}>{renderLinkedText(message.text)}</Text> : null}
+                {message.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : message.text ? (() => {
+                  // Long messages collapse after ~12 lines so one post can't take over the chat.
+                  const long = messageLength(message.text) > 700 || message.text.split('\n').length > 12;
+                  const open = expanded[message.id] === true;
+                  return <View>
+                    <Text style={styles.text} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text)}</Text>
+                    {long ? <Pressable hitSlop={6} onPress={() => setExpanded(prev => ({ ...prev, [message.id]: !open }))}><Text style={styles.showMore}>{open ? 'Show less' : 'Show more'}</Text></Pressable> : null}
+                  </View>;
+                })() : null}
                 <Text style={styles.meta}>
                   {message.editedAt ? 'edited · ' : ''}{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   {mine ? message.status === 'pending' ? '  ◷' : message.status === 'failed' ? '  ⚠ tap & hold' : '  ✓' : ''}
@@ -273,10 +301,16 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
       {canPost ? (
         <View>
         {editingMessageId && <View style={styles.editingBar}><Text style={styles.editingLabel}>Editing message</Text><Pressable onPress={() => { setEditingMessageId(null); setDraft(''); }}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
+        {showCounter ? (
+          <View style={styles.limitRow} accessibilityLiveRegion="polite">
+            <Text style={[styles.limitCount, overLimit && styles.limitOver]}>{draftLength.toLocaleString()}/{charLimit.toLocaleString()}</Text>
+            {overLimit && !verifiedSender ? <Text style={styles.limitHint}>★ Get Verified for unlimited length</Text> : null}
+          </View>
+        ) : null}
         <View style={styles.composer}>
           <Pressable onPress={attach} hitSlop={8} style={styles.attach} accessibilityLabel="Attach photo"><Text style={styles.attachText}>＋</Text></Pressable>
-          <TextInput value={draft} onChangeText={setDraft} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={API_LIMITS.maxMessageChars} style={styles.input} />
-          <Pressable disabled={!draft.trim()} onPress={send} style={[styles.send, !draft.trim() && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
+          <TextInput value={draft} onChangeText={setDraft} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={API_LIMITS.maxMessageChars * 2} style={styles.input} />
+          <Pressable disabled={!draft.trim()} onPress={send} style={[styles.send, (!draft.trim() || overLimit) && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
         </View>
         </View>
       ) : (
@@ -362,6 +396,11 @@ const styles = StyleSheet.create({
   photoUnavailable: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: c.border },
   photoUnavailableText: { color: c.textMuted, fontSize: 12, fontWeight: '700' },
   text: { color: c.text, fontSize: 15, lineHeight: 20 },
+  showMore: { color: c.accent, fontWeight: '800', fontSize: 13, marginTop: 4 },
+  limitRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 6 },
+  limitCount: { color: c.textMuted, fontSize: 12 },
+  limitOver: { color: c.danger },
+  limitHint: { color: '#2589F5', fontSize: 12, fontWeight: '800', flexShrink: 1, textAlign: 'right' },
   messageLink: { color: c.accent, textDecorationLine: 'underline', textDecorationColor: 'rgba(183,226,123,0.75)', backgroundColor: 'rgba(244,240,199,0.10)', borderRadius: 3 },
   messageHashtag: { color: '#9BC9FF', textDecorationLine: 'underline', backgroundColor: 'rgba(115,170,255,0.12)' },
   messageTicker: { color: c.accent, fontWeight: '800', backgroundColor: 'rgba(183,226,123,0.12)' },
