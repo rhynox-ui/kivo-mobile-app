@@ -77,6 +77,9 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const senderKey = senderIds.join('|');
   useEffect(() => {
     let active = true;
+    // Do not keep the previous sender set visible while the current
+    // conversation's authoritative verification checks are pending.
+    setVerifiedSenders(new Set());
     const refresh = () => {
       const ids = senderKey ? senderKey.split('|') : [];
       void Promise.all(ids.map(async userId => {
