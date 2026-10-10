@@ -61,8 +61,10 @@ export async function planUnifiedBuy(params: {
     const settled = await Promise.allSettled(contributors.map(async contributor => {
       const legUsd = Math.min(remainingUsd, contributor.balance);
       if (legUsd < MIN_LEG_USD) throw new Error('leg too small');
+      if ((contributor.chainKey === 'solana' || token.chainKey === 'solana') && !solanaAddress) throw new Error('This wallet has no Solana address for this route.');
       const quote = await requestKivoQuote({
-        side: 'buy', token, amount: floorUsdAmount(legUsd, contributor.decimals), userAddress, payChain: contributor.chainKey,
+        // Relay's `user` is the wallet that signs on the ORIGIN chain.
+        side: 'buy', token, amount: floorUsdAmount(legUsd, contributor.decimals), userAddress: contributor.chainKey === 'solana' ? solanaAddress! : userAddress, payChain: contributor.chainKey,
         payAsset: {chainKey: contributor.chainKey, address: contributor.address, symbol: contributor.symbol, decimals: contributor.decimals},
         recipientAddress: token.chainKey === 'solana' ? solanaAddress : userAddress,
         tokenDecimals, slippageBps, execution: 'gasless',
