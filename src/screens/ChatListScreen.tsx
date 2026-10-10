@@ -124,7 +124,7 @@ function Row({ conversation: c, onPress }: { conversation: ApiConversation; onPr
       <Avatar name={c.title} uri={c.avatarUrl} size={52} verified={verified} />
       <View style={styles.rowMain}>
         <View style={styles.rowTop}>
-          <View style={styles.rowTitleLine}><Text style={styles.rowTitle} numberOfLines={1}>{c.kind === 'channel' ? '📢 ' : c.kind === 'group' ? '👥 ' : ''}{c.title}</Text>{c.kind === 'dm' && peerVerified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}{c.kind === 'channel' && (c.isVerified || isOfficialKivoChannel(c.id)) ? <Text accessibilityLabel="Verified official Kivo channel" style={styles.verifiedBadge}>★</Text> : null}</View>
+          <View style={styles.rowTitleLine}><Text style={styles.rowTitle} numberOfLines={1}>{c.kind === 'channel' ? '📢 ' : c.kind === 'group' ? '👥 ' : ''}{c.title}</Text>{c.kind === 'dm' && peerVerified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}{c.kind !== 'dm' && (c.isVerified === true || isOfficialKivoChannel(c.id)) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
           <Text style={[styles.time, unread > 0 && styles.timeUnread]}>{timeLabel(c.lastActivityAt)}</Text>
         </View>
         <View style={styles.rowTop}>
