@@ -148,6 +148,16 @@ export function Avatar({ name, uri, size, verified = false }: { name: string; ur
   );
 }
 
+function VerifiedNewChatAvatar({ profile }: { profile: ApiProfile }) {
+  const [verified, setVerified] = useState(false);
+  useEffect(() => {
+    let active = true;
+    api.verificationStatus('profile', profile.userId).then(status => { if (active) setVerified(status.isVerified === true); }).catch(() => { if (active) setVerified(false); });
+    return () => { active = false; };
+  }, [profile.userId]);
+  return <Avatar name={profile.username ?? profile.address} uri={profile.avatarUrl} size={34} verified={verified} />;
+}
+
 function NewChat({ onOpen }: { onOpen: (id: string) => void }) {
   const [value, setValue] = useState('');
   const [results, setResults] = useState<ApiProfile[]>([]);
@@ -171,7 +181,7 @@ function NewChat({ onOpen }: { onOpen: (id: string) => void }) {
       {isAddress && <Pressable onPress={() => start(value.trim())} style={styles.result}><Text style={styles.resultTitle}>Message {value.trim().slice(0, 6)}…{value.trim().slice(-4)}</Text></Pressable>}
       {results.filter(p => p.address.toLowerCase() !== getWalletSession()?.address.toLowerCase()).map(p => (
         <Pressable key={p.userId} onPress={() => start(p.address)} style={styles.result}>
-          <Avatar name={p.username ?? p.address} uri={p.avatarUrl} size={34} />
+          <VerifiedNewChatAvatar profile={p} />
           <View style={{ flex: 1 }}><Text style={styles.resultTitle}>{p.username ? '@' + p.username : p.address}</Text>{p.bio ? <Text style={styles.muted} numberOfLines={1}>{p.bio}</Text> : null}</View>
         </Pressable>
       ))}
