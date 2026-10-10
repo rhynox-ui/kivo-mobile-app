@@ -275,9 +275,9 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
                   setForwardingMessage(null);
                   if (selected) void forwardMessage(id, selected.id, c.id).then(() => Alert.alert('Forwarded', 'Message sent to ' + c.title + '.')).catch(error => Alert.alert('Forward', error instanceof Error ? error.message : 'Could not forward.'));
                 }}>
-                  <Avatar name={c.title} uri={c.avatarUrl} size={38} />
+                  <Avatar name={c.title} uri={c.avatarUrl} size={38} verified={c.kind !== 'dm' && (c.isVerified === true || (c.kind === 'channel' && isOfficialKivoChannel(c.id)))} />
                   <View style={styles.forwardDestinationCopy}>
-                    <Text style={styles.forwardDestinationTitle} numberOfLines={1}>{c.title}</Text>
+                    <View style={styles.forwardDestinationTitleLine}><Text style={styles.forwardDestinationTitle} numberOfLines={1}>{c.title}</Text>{c.kind !== 'dm' && (c.isVerified === true || (c.kind === 'channel' && isOfficialKivoChannel(c.id))) ? <Text accessibilityLabel="Verified community" style={styles.forwardVerifiedBadge}>★</Text> : null}</View>
                     <Text style={styles.forwardDestinationKind}>{c.kind === 'dm' ? 'Direct message' : c.kind === 'group' ? 'Group' : 'Channel'}</Text>
                   </View>
                 </Pressable>
@@ -333,6 +333,8 @@ const styles = StyleSheet.create({
   forwardList: { flexGrow: 0 },
   forwardDestination: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12, borderBottomWidth: 1, borderBottomColor: c.border },
   forwardDestinationCopy: { flex: 1, minWidth: 0 },
+  forwardDestinationTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  forwardVerifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 9, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 14, height: 14, borderRadius: 7, overflow: 'hidden' },
   forwardDestinationTitle: { color: c.text, fontSize: 14, fontWeight: '800' },
   forwardDestinationKind: { color: c.textMuted, fontSize: 11.5, marginTop: 3 },
   photo: { width: 240, maxWidth: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: c.background },
