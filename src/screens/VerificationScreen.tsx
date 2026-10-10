@@ -6,12 +6,16 @@ import { getWalletSession, localEvmSigner, withDeviceAccounts } from '../state/w
 import { encodeFunctionData, parseUnits } from 'viem';
 import { Buffer } from 'buffer';
 import { kivoUserIdForWallet, verificationPaymentMemo } from '../../shared/api/types';
-import { publicClientForChainId } from '@kivo/trading/core/chainRegistry';
+import { getViemChain, publicClientForChainId } from '@kivo/trading/core/chainRegistry';
+import { sendEvmCallsViaRelayGasless } from '@kivo/trading/core/relayGaslessEvm';
+import { signAndSendSponsoredSolanaStep, type SolanaTransactionSigner } from '@kivo/trading/core/executeRelayQuote';
 import { Connection, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 import * as Keychain from 'react-native-keychain';
 import { createAssociatedTokenAccountInstruction, createTransferCheckedInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
 import { kivoTheme } from '../theme/kivoTheme';
 import Svg, { Path, Polygon, Circle } from 'react-native-svg';
+import { KivoModal } from '../components/KivoModal';
+import { UsdcLogo } from '../components/TokenIcon';
 
 type Chain = 'ethereum' | 'base' | 'arbitrum' | 'solana';
 type Plan = 'monthly' | 'annual';
@@ -278,28 +282,54 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
           const priceRaw = plan === 'annual' ? 5_000_000n : 1_000_000n;
           const usdc = await connection.getTokenAccountBalance(sourceAta).then(r => BigInt(r.value.amount)).catch(() => 0n);
           if (usdc < priceRaw) throw new Error(`Your Kivo wallet has ${(Number(usdc) / 1e6).toFixed(2)} USDC on Solana; ${plan === 'annual' ? 5 : 1} USDC is needed. Nothing was sent.`);
-          if ((await connection.getBalance(solana.publicKey)) < 20_000) throw new Error('Your Kivo wallet needs a little SOL for the Solana network fee. Nothing was sent.');
           const destinationAta = await getAssociatedTokenAddress(mint, recipient);
-          const transaction = new Transaction();
-          if (!(await connection.getAccountInfo(destinationAta))) transaction.add(createAssociatedTokenAccountInstruction(solana.publicKey, destinationAta, recipient, mint));
-          transaction.add(createTransferCheckedInstruction(sourceAta, mint, destinationAta, solana.publicKey, priceRaw, 6));
+          const instructions: TransactionInstruction[] = [];
+          if (!(await connection.getAccountInfo(destinationAta))) instructions.push(createAssociatedTokenAccountInstruction(solana.publicKey, destinationAta, recipient, mint));
+          instructions.push(createTransferCheckedInstruction(sourceAta, mint, destinationAta, solana.publicKey, priceRaw, 6));
           // Binds the payment to this Kivo account and subject; the server rejects Solana payments without it.
-          transaction.add(new TransactionInstruction({ programId: new PublicKey(MEMO_PROGRAM_ID), keys: [{ pubkey: solana.publicKey, isSigner: true, isWritable: false }], data: Buffer.from(verificationPaymentMemo(buyer, subjectType, subjectId), 'utf8') }));
+          instructions.push(new TransactionInstruction({ programId: new PublicKey(MEMO_PROGRAM_ID), keys: [{ pubkey: solana.publicKey, isSigner: true, isWritable: false }], data: Buffer.from(verificationPaymentMemo(buyer, subjectType, subjectId), 'utf8') }));
+          // No SOL for the network fee: Kivo's fee sponsor pays it (same sponsor as trades and withdrawals).
+          if ((await connection.getBalance(solana.publicKey)) < 20_000) {
+            const signer: SolanaTransactionSigner = { publicKey: solana.publicKey, async sign(versioned) { versioned.sign([solana]); return versioned; } };
+            const sponsored = await signAndSendSponsoredSolanaStep(instructions, [], signer, connection, { spend: USDC_MINT, maxSpend: priceRaw });
+            return sponsored.signature;
+          }
+          const transaction = new Transaction();
+          transaction.add(...instructions);
           const { blockhash } = await connection.getLatestBlockhash('confirmed');
           transaction.feePayer = solana.publicKey;
           transaction.recentBlockhash = blockhash;
           return connection.sendTransaction(transaction, [solana], { skipPreflight: false, preflightCommitment: 'confirmed' });
         });
       } else {
-        const signer = await localEvmSigner();
-        if (signer.address.toLowerCase() !== session.address.toLowerCase()) throw new Error('The unlocked wallet does not match your Kivo account. Nothing was sent.');
-        await signer.ensureChain(CHAIN_IDS[chain]);
         const data = encodeFunctionData({
           abi: [{ type: 'function', name: 'transfer', stateMutability: 'nonpayable', inputs: [{ name: 'to', type: 'address' }, { name: 'value', type: 'uint256' }], outputs: [{ type: 'bool' }] }],
           functionName: 'transfer',
           args: [EVM_RECIPIENT, parseUnits(plan === 'annual' ? '5' : '1', 6)],
         });
-        txHash = await signer.sendTransaction({ to: EVM_USDC[chain], data, value: 0n, chainId: CHAIN_IDS[chain] });
+        // Gas is sponsored through Relay (same as withdrawals), so no ETH is needed.
+        // The server credits the USDC Transfer log from this wallet to Kivo, whoever paid the gas.
+        let sponsoredHash: string | null = null;
+        try {
+          sponsoredHash = await withDeviceAccounts('Approve Blue Star USDC payment', async ({ evm }) => {
+            if (evm.address.toLowerCase() !== session.address.toLowerCase()) throw new Error('The unlocked wallet does not match your Kivo account. Nothing was sent.');
+            const result = await sendEvmCallsViaRelayGasless({ chain: getViemChain(chain), fromAddress: evm.address, account: evm, calls: [{ to: EVM_USDC[chain], value: 0n, data }] });
+            if (!/^0x[0-9a-fA-F]{64}$/.test(result.hash)) throw new Error('Your payment was submitted but its transaction id is not available yet. Do not pay again — check your Blue Star status in a few minutes.');
+            return result.hash;
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '';
+          // Only fall back to paying gas yourself when sponsorship is unavailable before anything was sent.
+          if (!/not switched on|not configured|not available on this network|Calibur/i.test(message)) throw error;
+        }
+        if (sponsoredHash) {
+          txHash = sponsoredHash;
+        } else {
+          const signer = await localEvmSigner();
+          if (signer.address.toLowerCase() !== session.address.toLowerCase()) throw new Error('The unlocked wallet does not match your Kivo account. Nothing was sent.');
+          await signer.ensureChain(CHAIN_IDS[chain]);
+          txHash = await signer.sendTransaction({ to: EVM_USDC[chain], data, value: 0n, chainId: CHAIN_IDS[chain] });
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Payment was not sent.';
@@ -393,7 +423,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
               <View style={styles.networkCopy}><Text style={styles.networkName}>{CHAIN_META[chain].label}</Text><Text style={styles.networkSubtitle}>{CHAIN_META[chain].subtitle}</Text></View>
               <Text style={styles.networkChevron}>⌄</Text>
             </Pressable>
-            <Modal visible={networkPickerOpen} transparent animationType="fade" onRequestClose={() => setNetworkPickerOpen(false)}>
+            <KivoModal visible={networkPickerOpen} transparent animationType="fade" onRequestClose={() => setNetworkPickerOpen(false)}>
               <Pressable style={styles.modalBackdrop} onPress={() => setNetworkPickerOpen(false)}>
                 <Pressable style={styles.pickerSheet} onPress={() => {}}>
                   <View style={styles.pickerHandle} />
@@ -406,7 +436,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
                   <Text style={styles.pickerFootnote}>Make sure your wallet has USDC on the selected network.</Text>
                 </Pressable>
               </Pressable>
-            </Modal>
+            </KivoModal>
             <View style={styles.walletState}><View style={styles.dot}/><Text style={styles.walletText}>{connected ? 'Kivo wallet ready' : 'Unlock your Kivo wallet to continue'}</Text></View>
             <Pressable disabled={!connected || !socialReady} onPress={() => setConfirmOpen(true)} style={[styles.payButton, (!connected || !socialReady) && styles.buttonDisabled]}>
               <Text style={styles.payText}>Pay {plan === 'annual' ? '5' : '1'} USDC on {CHAIN_META[chain].label}</Text>
@@ -415,7 +445,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
             {activeUntil ? <Pressable style={styles.secondaryButton} onPress={() => setStage('active')}><Text style={styles.secondaryText}>Back</Text></Pressable> : null}
           </View>
         )}
-        <Modal visible={confirmOpen} transparent animationType="fade" onRequestClose={() => setConfirmOpen(false)}>
+        <KivoModal visible={confirmOpen} transparent animationType="fade" onRequestClose={() => setConfirmOpen(false)}>
           <View style={styles.confirmBackdrop}>
             <View style={styles.confirmCard}>
               <Text style={styles.stateTitleLeft}>Confirm payment</Text>
@@ -427,7 +457,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
               </View>
             </View>
           </View>
-        </Modal>
+        </KivoModal>
       </ScrollView>
     </View>
   );
@@ -437,9 +467,8 @@ function ReceiptRow({ label, value }: { label: string; value: string }) {
   return <View style={styles.receiptRow}><Text style={styles.receiptLabel}>{label}</Text><Text selectable style={styles.receiptValue}>{value}</Text></View>;
 }
 
-function UsdcLogo() {
-  return <Svg width={32} height={32} viewBox="0 0 100 100"><Circle cx="50" cy="50" r="48" fill="#2775CA"/><Path d="M64 34c-3-3-8-5-14-5-10 0-17 5-17 13 0 7 5 10 16 12 8 2 11 3 11 7s-4 6-10 6c-7 0-12-2-16-6l-7 8c5 5 12 8 21 8v9h6v-9c11-1 18-7 18-16 0-8-6-12-17-14-8-2-10-3-10-6 0-3 3-5 8-5s9 2 12 5Z" fill="#FFFFFF"/><Path d="M48 12v10M48 78v10" stroke="#FFFFFF" strokeWidth="5" strokeLinecap="round"/></Svg>;
-}
+
+
 
 function NetworkLogo({ chain }: { chain: Chain }) {
   const size = 38;

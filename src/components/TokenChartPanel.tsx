@@ -8,6 +8,7 @@ import { dexScreenerEmbedUrl, resolveDexScreenerPair, type ResolvedPair } from '
 import { checkSolanaTokenSecurity, checkTokenSecurity, type TokenSecuritySummary } from '@kivo/trading/core/goplusTokenSecurity';
 import type { KivoToken } from '@kivo/trading/kivo/tokens';
 import { openHttpsUrl } from '../utils/openExternal';
+import { KivoModal } from './KivoModal';
 
 const COLORS = {
   background: kivoTheme.colors.background,
@@ -115,7 +116,7 @@ export function TokenChartPanel({ token }: { token: KivoToken }) {
         )}
       </View>
 
-      <Modal visible={holdersOpen} transparent animationType="fade" onRequestClose={() => setHoldersOpen(false)}>
+      <KivoModal visible={holdersOpen} transparent animationType="fade" onRequestClose={() => setHoldersOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setHoldersOpen(false)}>
           <Pressable style={styles.holdersCard} onPress={() => {}}>
             <View style={styles.holdersHeader}>
@@ -151,7 +152,7 @@ export function TokenChartPanel({ token }: { token: KivoToken }) {
             </Text>
           </Pressable>
         </Pressable>
-      </Modal>
+      </KivoModal>
     </View>
   );
 }

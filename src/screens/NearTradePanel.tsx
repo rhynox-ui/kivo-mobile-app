@@ -12,6 +12,7 @@ import {oneClickSwapStore} from '@kivo/trading/wallet/oneClickSwapStore';
 import {fundNearUsdcForTrade, NearSendError} from '@kivo/trading/core/nearTrade';
 import {recordTrade} from '@kivo/trading/kivo/history';
 import {TokenChartPanel} from '../components/TokenChartPanel';
+import { KivoModal } from '../components/KivoModal';
 
 function sessionFromAccounts(accounts: {evm: any; solana: any; near: {address: string; privateKey: string}}): DerivedAccounts {
   const evmKey = accounts.evm.getHdKey().privateKey;
@@ -160,7 +161,7 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
     {insufficient?<Text style={styles.error}>Insufficient {side==='buy'?'USDC on NEAR':token.symbol}.</Text>:null}
     <Pressable disabled={!quote||running||insufficient} onPress={execute} style={[styles.button,(!quote||running||insufficient)&&styles.disabled]}><Text style={styles.buttonText}>{running?(funding?'Moving USDC to NEAR…':'Processing…'):(side==='buy'?'Buy ':'Sell ')+token.symbol}</Text></Pressable>
 
-    <Modal visible={!!result} transparent animationType="fade" onRequestClose={closeResult}>
+    <KivoModal visible={!!result} transparent animationType="fade" onRequestClose={closeResult}>
       <View style={styles.backdrop}><View style={styles.resultCard}>
         <View style={[styles.resultIcon, result?.kind==='failed'||result?.kind==='refunded'?styles.resultBad:styles.resultGood]}><Text style={styles.resultIconText}>{result?.kind==='failed'?'!':result?.kind==='refunded'?'↩':'✓'}</Text></View>
         <Text style={styles.resultTitle}>{result?.kind==='success'?side==='buy'?`Bought ${token.symbol}`:`Sold ${token.symbol}`:result?.kind==='partial'?'Trade partially filled':result?.kind==='refunded'?'Trade refunded':'Trade failed'}</Text>
@@ -168,7 +169,7 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
         {result?.hashes.map((hash,i)=><Pressable key={hash} onPress={()=>Linking.openURL(`https://nearblocks.io/txns/${hash}`)}><Text style={styles.hash}>{result.hashes.length>1?`Transaction ${i+1}: `:''}{hash.slice(0,10)}…{hash.slice(-6)}</Text></Pressable>)}
         <Pressable onPress={()=>{closeResult();onOpenHistory?.();}} style={styles.done}><Text style={styles.doneText}>Done</Text></Pressable>
       </View></View>
-    </Modal>
+    </KivoModal>
   </View>;
 }
 function formatAvailable(n:number){return n>=1000?n.toLocaleString(undefined,{maximumFractionDigits:2}):n.toLocaleString(undefined,{maximumFractionDigits:6});}

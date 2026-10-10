@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, Image, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { KivoMark } from '../components/KivoMark';
 import { LineChart } from '../components/LineChart';
+import { TokenIcon } from '../components/TokenIcon';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useProfile } from '../state/profileStore';
 import { getWalletSession, subscribeToWallet, type WalletSession } from '../state/walletStore';
@@ -230,15 +231,18 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
             {RANGES.map(r => <Pressable key={r} onPress={() => setRange(r)} style={[styles.range, range === r && styles.rangeActive]}><Text style={[styles.rangeText, range === r && styles.rangeTextActive]}>{r}</Text></Pressable>)}
           </View>
         </View>
-        <View style={[styles.chart, !(points.length >= 2 && !hidden) && styles.chartEmptyBox]}>
+        <View style={[styles.chart, !(points.length >= 1 && !hidden) && styles.chartEmptyBox]}>
           {!portfolio && portfolioError ? <Text style={styles.chartEmpty}>{portfolioError}</Text>
             : !portfolio ? (wallet ? <ActivityIndicator color={kivoTheme.colors.accent} /> : <Text style={styles.chartEmpty}>Connect a wallet to see balances.</Text>)
             : hidden ? <Text style={styles.chartEmpty}>Balances hidden</Text>
+            // One reading draws as a flat line: the value is known, it just hasn't moved yet.
             : points.length >= 2 ? <LineChart values={points.map(p => p.totalUsd)} />
-            : <Text style={styles.chartEmpty}>No portfolio history yet — your chart builds as Kivo records your balance over time.</Text>}
+            : points.length === 1 ? <LineChart values={[points[0].totalUsd, points[0].totalUsd]} />
+            : <Text style={styles.chartEmpty}>Your chart starts with the first full balance reading.</Text>}
         </View>
         {portfolio && chart?.unknown.length ? <Text style={styles.small}>{missingSourceNames(chart.unknown)} did not respond, so this reading was not added to the chart. The total may be incomplete.</Text>
           : portfolio && chart?.reused.length ? <Text style={styles.small}>{missingSourceNames(chart.reused)} did not respond; the total and chart use {chart.reused.length === 1 ? 'its' : 'their'} last confirmed reading from the past 6 hours.</Text>
+          : portfolio && chart?.excluded.length ? <Text style={styles.small}>Token lists for {missingSourceNames(chart.excluded)} were not available, so other tokens there are not counted yet. Coins and USDC on those networks are included.</Text>
           : portfolio && !portfolio.complete ? <Text style={styles.small}>Some prices or networks did not respond — total may be incomplete.</Text>
           : null}
       </View>
@@ -268,14 +272,14 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
         : positionTab === 'open'
           ? (visibleOpen.length ? visibleOpen.map(h => (
             <View key={h.key} style={styles.position}>
-              <View style={styles.tokenIcon}>{h.imageUrl ? <Image source={{ uri: h.imageUrl }} style={styles.tokenImage} /> : <Text style={styles.tokenLetter}>{h.symbol.slice(0, 1)}</Text>}</View>
+              <View style={styles.tokenIcon}><TokenIcon kind={h.kind} symbol={h.symbol} chainKey={h.chainKey as never} address={h.address} imageUrl={h.imageUrl} /></View>
               <View style={styles.flex}><Text style={styles.tokenName}>{h.symbol}</Text><Text style={styles.small}>{hidden ? '••••' : formatAmount(h.amount)} · {tradeChainLabel(h.chainKey)}</Text>{!hidden && h.entryPriceUsd != null && h.entryPriceUsd > 0 && h.priceUsd != null && h.priceUsd > 0 ? <Text style={[styles.small, h.priceUsd >= h.entryPriceUsd ? styles.up : styles.down]}>Entry {formatUsd(h.entryPriceUsd)} · {h.priceUsd >= h.entryPriceUsd ? '▲' : '▼'} {Math.abs((h.priceUsd / h.entryPriceUsd - 1) * 100).toFixed(2)}%</Text> : null}{!hidden && h.pnlUsd != null ? <Text style={[styles.small,h.pnlUsd>=0?styles.up:styles.down]}>PnL {h.pnlUsd>=0?'+':''}{formatUsd(h.pnlUsd)} {h.pnlPct!=null?`(${h.pnlPct>=0?'+':''}${h.pnlPct.toFixed(2)}%)`:''}</Text> : null}</View>
               <Text style={styles.positionValue}>{h.valueUsd == null ? 'No price' : money(h.valueUsd)}</Text>
             </View>
           )) : <Empty title="No positions yet" body="Your tokens and trading positions will appear here." />)
           : (closed.length ? closed.map(p => (
             <View key={p.key} style={styles.position}>
-              <View style={styles.tokenIcon}><Text style={styles.tokenLetter}>{p.symbol.slice(0, 1)}</Text></View>
+              <View style={styles.tokenIcon}><TokenIcon kind="token" symbol={p.symbol} chainKey={p.chainKey as never} address={p.address} imageUrl={p.imageUrl} /></View>
               <View style={styles.flex}><Text style={styles.tokenName}>{p.symbol}</Text><Text style={styles.small}>{tradeChainLabel(p.chainKey)} · closed</Text></View>
             </View>
           )) : <Empty title="No closed positions" body="Tokens you fully sell appear here." />)}
@@ -341,7 +345,7 @@ const styles = StyleSheet.create({
   iconButtonText: { color: c.text, fontSize: 17 },
   usernameRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 7 },
   username: { color: c.text, fontSize: 23, fontWeight: '800', marginTop: 4 },
-  blueStarBadge: { color: kivoTheme.colors.accent, fontSize: 19, fontWeight: '900', marginTop: 4 },
+  blueStarBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 13, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 22, height: 22, lineHeight: 22, borderRadius: 11, overflow: 'hidden', marginTop: 4 },
   links: { alignSelf: 'flex-start', marginTop: 2 },
   bio: { color: c.text, fontSize: 14.5, lineHeight: 20 },
   addBio: { color: c.textMuted, fontSize: 14, fontWeight: '700' },
