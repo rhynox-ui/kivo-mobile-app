@@ -1,5 +1,6 @@
 import type { KeyValueStorage } from '../storage';
 import { validBio, validProfileUsername } from '../social/validation';
+import { kivoUserIdForWallet, normalizeWalletAddress } from '../api/types';
 
 /**
  * A Kivo profile is public display data attached to a wallet session.
@@ -24,11 +25,15 @@ export const GUEST_USER_ID = 'kivo:guest';
 const STORAGE_PREFIX = 'kivo:profile:v1:';
 
 export function profileUserIdForWallet(address: string | null | undefined): string {
-  return address ? 'kivo:' + address.trim().toLowerCase() : GUEST_USER_ID;
+  const normalized = address ? normalizeWalletAddress(address) : null;
+  // EVM: kivo:0x… (lower-case). Solana: kivo:sol:<base58>, case preserved.
+  return normalized ? kivoUserIdForWallet(normalized) : GUEST_USER_ID;
 }
 
 export function defaultUsernameFor(address: string | null | undefined): string {
-  return address ? 'kivo_' + address.trim().toLowerCase().slice(2, 8) : 'guest';
+  const normalized = address ? normalizeWalletAddress(address) : null;
+  if (!normalized) return 'guest';
+  return 'kivo_' + (normalized.startsWith('0x') ? normalized.slice(2, 8) : normalized.slice(0, 6).toLowerCase());
 }
 
 function freshProfile(address: string | null): KivoProfile {

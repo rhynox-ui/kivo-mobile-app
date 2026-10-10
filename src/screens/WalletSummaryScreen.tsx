@@ -81,7 +81,7 @@ export function WalletSummaryScreen({
   const load = () => {
     if (!wallet) return;
     setRows(null);
-    fetchCashBalances(wallet.address, USDC_CHAINS.includes('solana') ? USDC_CHAINS : [...USDC_CHAINS, 'solana']).then(setRows);
+    fetchCashBalances(wallet.address, USDC_CHAINS.includes('solana') ? USDC_CHAINS : [...USDC_CHAINS, 'solana'], wallet.solanaAddress).then(setRows).catch(() => setRows((USDC_CHAINS.includes('solana') ? USDC_CHAINS : [...USDC_CHAINS, 'solana']).map((chainKey): CashBalanceRow => ({chainKey: chainKey as CashBalanceRow['chainKey'], status: 'error', error: 'Balance unavailable.'}))));
     if (wallet.nearAddress) fetchNearTokenBalance(NEAR_USDC, wallet.nearAddress).then(v => setNearBalance(Number(v) / 10 ** NEAR_USDC_DECIMALS)).catch(() => setNearBalance(0));
   };
 
@@ -95,13 +95,14 @@ export function WalletSummaryScreen({
   useEffect(() => {
     if (!wallet) return;
     setRows(null);
-    fetchCashBalances(wallet.address, [...USDC_CHAINS, 'solana']).then(setRows);
+    fetchCashBalances(wallet.address, [...USDC_CHAINS, 'solana'], wallet.solanaAddress).then(setRows).catch(() => setRows(([...USDC_CHAINS, 'solana']).map((chainKey): CashBalanceRow => ({chainKey: chainKey as CashBalanceRow['chainKey'], status: 'error', error: 'Balance unavailable.'}))));
     if (wallet.nearAddress) fetchNearTokenBalance(NEAR_USDC, wallet.nearAddress).then(v => setNearBalance(Number(v) / 10 ** NEAR_USDC_DECIMALS)).catch(() => setNearBalance(0));
   }, [wallet?.address]);
 
   const total = rows ? totalCashUsd(rows) : null;
   const displayTotal = total ? total.total + nearBalance : null;
   const funded = rows?.filter(r => r.status === 'ok' && r.balance.amount > 0) ?? [];
+  const failedRows = rows?.filter(r => r.status === 'error') ?? [];
   const mask = (value: string) => (settings.hideBalances ? '••••' : value);
 
   return (
@@ -149,6 +150,8 @@ export function WalletSummaryScreen({
             <Text style={styles.cardTitle}>Cash by network</Text>
             {rows == null ? (
               <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 12 }} />
+            ) : failedRows.length > 0 && funded.length === 0 && nearBalance <= 0 ? (
+              <Text style={styles.note}>Balances could not be read right now ({failedRows.map(r => CHAIN_LABEL[r.chainKey]).join(', ')}). Pull to refresh or try again shortly.</Text>
             ) : funded.length === 0 && nearBalance <= 0 ? (
               <Text style={styles.note}>No USDC yet. Tap Deposit and send USDC on any supported network.</Text>
             ) : (
@@ -163,6 +166,7 @@ export function WalletSummaryScreen({
                   <Text style={styles.rowValue}>{row.status === 'ok' ? mask(formatAmount(row.balance.amount, 2)) : 'Unavailable'}</Text>
                 </View>
               ))}
+              {failedRows.length > 0 && <Text style={styles.note}>Not included (could not be read): {failedRows.map(r => CHAIN_LABEL[r.chainKey]).join(', ')}.</Text>}
               </>
             )}
           </View>

@@ -8,7 +8,7 @@
 
 import type {KivoApi} from '../api/client';
 import type {ApiConversation, ApiMessage, ApiProfile} from '../api/types';
-import {API_LIMITS, messageLength} from '../api/types';
+import {API_LIMITS, kivoUserIdForWallet, messageLength, normalizeWalletAddress, shortWallet, walletAddressOfUserId} from '../api/types';
 import type {KeyValueStorage} from '../storage';
 
 export type LocalMessage = ApiMessage & {status: 'sent' | 'pending' | 'failed'; error?: string};
@@ -40,13 +40,21 @@ let state: ChatState = EMPTY();
 const listeners = new Set<(value: ChatState) => void>();
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
+/** Last time a chat had activity (open, send, or a new message). A quiet open chat polls less often. */
+let lastChatActivityAt = 0;
+const QUIET_AFTER_MS = 2 * 60 * 1000;
 let syncing = false;
 let activeConversation: string | null = null;
 let failures = 0;
 let syncGeneration = 0;
+/** Bumped whenever the chat owner changes; any await that resumes under a different owner must drop its result. */
+let ownerGeneration = 0;
 
-function emit() {
+function emit(persistArchive = true) {
   listeners.forEach(listener => listener(state));
+  // Presence/online updates are frequent; don't serialize the entire local
+  // message archive unless persisted chat data actually changed.
+  if (!persistArchive) return;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(persist, 700);
 }
@@ -72,17 +80,25 @@ export function subscribeChat(listener: (value: ChatState) => void) {
 /** Loads this wallet's on-device chat archive. Call on wallet change. */
 export async function activateChat(address: string | null) {
   stopChatSync();
-  const owner = address ? address.toLowerCase() : null;
+  // Solana addresses are case-sensitive: normalize, never blanket-lowercase.
+  const owner = address ? normalizeWalletAddress(address) : null;
+  const generation = ++ownerGeneration;
+  activeConversation = null;
   state = {...EMPTY(), owner};
   if (owner && opts) {
     try {
       const raw = await opts.storage.getItem(KEY_PREFIX + owner);
+      // Another wallet became active while this archive was loading: never mix accounts.
+      if (generation !== ownerGeneration) return;
       if (raw) {
         const saved = JSON.parse(raw) as Partial<ChatState>;
         state = {
-          ...state,
+          ...EMPTY(),
+          owner,
           conversations: Array.isArray(saved.conversations) ? saved.conversations : [],
-          messages: saved.messages && typeof saved.messages === 'object' ? saved.messages : {},
+          messages: saved.messages && typeof saved.messages === 'object'
+            ? Object.fromEntries(Object.entries(saved.messages).map(([id, list]) => [id, (Array.isArray(list) ? list : []).map(m => m.status === 'pending' ? {...m, status: 'failed' as const, error: m.error ?? 'Not sent. Tap to retry.'} : m)]))
+            : {},
           cursor: typeof saved.cursor === 'number' ? saved.cursor : 0,
           lastRead: saved.lastRead && typeof saved.lastRead === 'object' ? saved.lastRead : {},
           profiles: saved.profiles && typeof saved.profiles === 'object' ? saved.profiles : {},
@@ -117,7 +133,9 @@ function merge(incoming: ApiMessage[]) {
 
 export async function refreshConversations() {
   if (!opts || !opts.api.isSignedIn(state.owner)) return;
+  const generation = ownerGeneration;
   const conversations = await opts.api.conversations();
+  if (generation !== ownerGeneration) return;
   const profiles = {...state.profiles};
   for (const conversation of conversations) if (conversation.peer) profiles[conversation.peer.userId] = conversation.peer;
   state = {...state, conversations, profiles};
@@ -129,7 +147,9 @@ async function loadSenderProfiles(messages: ApiMessage[]) {
   const missing = Array.from(new Set(messages.map(m => m.senderId))).filter(id => !state.profiles[id]);
   if (!missing.length) return;
   try {
+    const generation = ownerGeneration;
     const found = await opts.api.profiles(missing);
+    if (generation !== ownerGeneration) return;
     const profiles = {...state.profiles};
     for (const profile of found) profiles[profile.userId] = profile;
     state = {...state, profiles};
@@ -140,12 +160,17 @@ async function loadSenderProfiles(messages: ApiMessage[]) {
 export async function syncNow(): Promise<void> {
   if (!opts || syncing || !opts.api.isSignedIn(state.owner)) return;
   syncing = true;
+  const generation = ownerGeneration;
+  const cursorBefore = state.cursor;
+  const knownBefore = new Set(Object.values(state.messages).flat().map(m => m.id));
   try {
     let more = true;
     let rounds = 0;
     const fresh: ApiMessage[] = [];
     while (more && rounds++ < 10) {
       const page = await opts.api.sync(state.cursor);
+      // The wallet changed during the request: this page belongs to the previous account.
+      if (generation !== ownerGeneration) return;
       merge(page.messages);
       fresh.push(...page.messages);
       state = {...state, cursor: page.cursor};
@@ -162,18 +187,32 @@ export async function syncNow(): Promise<void> {
         return last ? {...c, lastSeq: last.seq, lastPreview: last.deleted ? 'Message deleted' : last.text ? last.text.slice(0, 80) : '📷 Photo', lastSenderId: last.senderId, lastActivityAt: last.createdAt} : c;
       }).sort((a, b) => b.lastActivityAt - a.lastActivityAt)};
     }
+    if (generation !== ownerGeneration) return;
     await loadSenderProfiles(fresh);
-    for (const message of fresh) {
-      if (message.senderId !== myUserId() && message.conversationId !== activeConversation) opts.onIncoming?.(state.conversations.find(c => c.id === message.conversationId), message);
+    if (generation !== ownerGeneration) return;
+    if (cursorBefore === 0) {
+      // First sync on this device: everything is history. Mark it read and don't notify for it.
+      const lastRead = {...state.lastRead};
+      for (const c of state.conversations) lastRead[c.id] = Math.max(lastRead[c.id] ?? 0, c.lastSeq ?? 0);
+      for (const m of fresh) lastRead[m.conversationId] = Math.max(lastRead[m.conversationId] ?? 0, m.seq);
+      state = {...state, lastRead};
+    } else {
+      for (const message of fresh) {
+        // Edits and deletions come back through sync too; only brand-new messages notify.
+        if (message.editedAt || message.deleted || knownBefore.has(message.id)) continue;
+        if (message.senderId !== myUserId() && message.conversationId !== activeConversation) opts.onIncoming?.(state.conversations.find(c => c.id === message.conversationId), message);
+      }
     }
     if (activeConversation) markRead(activeConversation, false);
     failures = 0;
     state = {...state, online: true, lastError: null};
-    emit();
+    if (fresh.length > 0) lastChatActivityAt = Date.now();
+    emit(fresh.length > 0 || state.cursor !== cursorBefore);
   } catch (error) {
+    if (generation !== ownerGeneration) return;
     failures++;
     state = {...state, online: false, lastError: error instanceof Error ? error.message : 'Sync failed.'};
-    emit();
+    emit(false);
   } finally {
     syncing = false;
   }
@@ -188,7 +227,8 @@ export function startChatSync(shouldContinue: () => boolean = () => true) {
     if (!canContinue()) return;
     await syncNow();
     if (!canContinue()) return;
-    const base = activeConversation ? 3000 : 12000;
+    // 3 s while a chat is open and active, 6 s once it has been quiet for 2 minutes, 12 s in the background.
+    const base = activeConversation ? (Date.now() - lastChatActivityAt > QUIET_AFTER_MS ? 6000 : 3000) : 12000;
     syncTimer = setTimeout(loop, Math.min(60_000, base * 2 ** Math.min(failures, 4)));
   };
   void refreshConversations().catch(() => {}).finally(() => {
@@ -203,17 +243,30 @@ export function stopChatSync() {
 }
 
 export function myUserId(): string | null {
-  return state.owner ? 'kivo:' + state.owner : null;
+  return state.owner ? kivoUserIdForWallet(state.owner) : null;
+}
+
+export async function refreshConversation(id: string): Promise<void> {
+  if (!opts?.api.isSignedIn(state.owner)) return;
+  try {
+    const generation = ownerGeneration;
+    const history = await opts.api.history(id);
+    if (generation !== ownerGeneration) return;
+    merge(history);
+    await loadSenderProfiles(history);
+    emit();
+  } catch { /* normal chat rendering should not depend on a refresh */ }
 }
 
 export function setActiveConversation(id: string | null) {
   activeConversation = id;
+  lastChatActivityAt = Date.now();
   if (id) {
     markRead(id);
-    // A freshly joined community has history from before we joined; fetch it once.
-    if (!(state.messages[id]?.length) && opts?.api.isSignedIn(state.owner)) {
-      opts.api.history(id).then(history => { merge(history); void loadSenderProfiles(history).then(emit); emit(); }).catch(() => {});
-    }
+    // Refresh recent history every time a conversation opens. Message media URLs
+    // are signed and may have been cached locally from an earlier session; the
+    // server returns a fresh URL for each history response.
+    void refreshConversation(id);
     void syncNow();
   }
 }
@@ -245,9 +298,12 @@ function upsertLocal(message: LocalMessage) {
 }
 
 async function deliver(local: LocalMessage, payload: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; replyTo?: string}) {
+  lastChatActivityAt = Date.now();
   if (!opts) return;
+  const generation = ownerGeneration;
   try {
     const sent = await opts.api.send(local.conversationId, {...payload, clientId: local.id.replace(/^m_/, '')});
+    if (generation !== ownerGeneration) return;
     const list = (state.messages[local.conversationId] ?? []).filter(m => m.id !== local.id && m.id !== sent.id);
     list.push({...sent, status: 'sent'});
     list.sort((a, b) => a.createdAt - b.createdAt || (a.seq || Number.MAX_SAFE_INTEGER) - (b.seq || Number.MAX_SAFE_INTEGER));
@@ -255,6 +311,7 @@ async function deliver(local: LocalMessage, payload: {text: string; mediaKey?: s
     state = {...state, conversations: state.conversations.map(c => c.id === sent.conversationId ? {...c, lastSeq: sent.seq, lastPreview: sent.text ? sent.text.slice(0, 80) : '📷 Photo', lastSenderId: sent.senderId, lastActivityAt: sent.createdAt} : c).sort((a, b) => b.lastActivityAt - a.lastActivityAt)};
     emit();
   } catch (error) {
+    if (generation !== ownerGeneration) return;
     upsertLocal({...local, status: 'failed', error: error instanceof Error ? error.message : 'Not sent.'});
   }
 }
@@ -271,16 +328,20 @@ export async function sendText(conversationId: string, text: string, replyTo?: s
 }
 
 /** Sends an already-compressed image (see web/mobile compressors). */
-export async function sendImage(conversationId: string, image: {bytes: Blob | ArrayBuffer | Uint8Array; type: string; width: number; height: number; previewUrl: string}, caption = '') {
+export async function sendImage(conversationId: string, image: {bytes: Blob | ArrayBuffer | Uint8Array; type: string; width: number; height: number; previewUrl: string}, caption = '', replyTo?: string): Promise<boolean> {
   const me = myUserId();
   if (!me || !opts) throw new Error('Connect your wallet to chat.');
-  const local: LocalMessage = {seq: 0, id: 'm_' + clientId(), conversationId, senderId: me, text: caption.trim(), media: {url: image.previewUrl, width: image.width, height: image.height}, replyTo: null, createdAt: Date.now(), deleted: false, status: 'pending'};
+  const local: LocalMessage = {seq: 0, id: 'm_' + clientId(), conversationId, senderId: me, text: caption.trim(), media: {url: image.previewUrl, width: image.width, height: image.height}, replyTo: replyTo ?? null, createdAt: Date.now(), deleted: false, status: 'pending'};
   upsertLocal(local);
+  const generation = ownerGeneration;
   try {
     const uploaded = await opts.api.uploadImage(image.bytes, image.type, 'message');
-    await deliver(local, {text: caption.trim(), mediaKey: uploaded.key, mediaWidth: image.width, mediaHeight: image.height});
+    await deliver(local, {text: caption.trim(), mediaKey: uploaded.key, mediaWidth: image.width, mediaHeight: image.height, replyTo});
+    return getChatState().messages[conversationId]?.some(m => m.id === local.id && m.status === 'sent') ?? false;
   } catch (error) {
+    if (generation !== ownerGeneration) return false;
     upsertLocal({...local, status: 'failed', error: error instanceof Error ? error.message : 'Photo not sent.'});
+    return false;
   }
 }
 
@@ -341,8 +402,7 @@ export function displayName(userId: string | null | undefined): string {
   if (userId === myUserId()) return 'You';
   const profile = state.profiles[userId];
   if (profile?.username) return '@' + profile.username;
-  const address = userId.replace(/^kivo:/, '');
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+  return shortWallet(walletAddressOfUserId(userId));
 }
 
 export function rememberProfiles(profiles: ApiProfile[]) {

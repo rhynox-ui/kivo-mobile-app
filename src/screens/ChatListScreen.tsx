@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { type ApiCommunity, type ApiConversation, type ApiProfile } from '@kivo/shared/api/types';
+import { normalizeWalletAddress, shortWallet, type ApiCommunity, type ApiConversation, type ApiProfile } from '@kivo/shared/api/types';
 import { displayName, myUserId, openDirectMessage, rememberProfiles, unreadCount } from '@kivo/shared/chat/store';
 import { KivoMark } from '../components/KivoMark';
 import { kivoTheme } from '../theme/kivoTheme';
@@ -180,18 +180,24 @@ function NewChat({ onOpen }: { onOpen: (id: string) => void }) {
     if (q.trim().length < 2 || /^0x/i.test(q.trim())) { setResults([]); return; }
     try { const found = await api.searchProfiles(q.trim()); rememberProfiles(found); setResults(found); } catch { setResults([]); }
   };
+  // Synchronous guard: a double tap must never open two DM requests.
+  const startingRef = useRef(false);
   const start = async (address: string) => {
+    if (startingRef.current) return;
+    startingRef.current = true;
     setBusy(true);
     try { onOpen(await openDirectMessage(address)); }
     catch (error) { Alert.alert('New message', error instanceof Error ? error.message : 'Could not start chat.'); }
-    finally { setBusy(false); }
+    finally { startingRef.current = false; setBusy(false); }
   };
-  const isAddress = /^0x[0-9a-fA-F]{40}$/.test(value.trim());
+  // EVM (0x…) or Solana wallet. Solana addresses are case-sensitive and kept as typed.
+  const wallet = normalizeWalletAddress(value);
+  const isAddress = Boolean(wallet) && wallet !== getWalletSession()?.address.toLowerCase();
   return (
     <View style={styles.newChat}>
-      <TextInput value={value} onChangeText={search} autoFocus autoCapitalize="none" autoCorrect={false} placeholder="@username or 0x wallet address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.newChatInput} />
+      <TextInput value={value} onChangeText={search} autoFocus autoCapitalize="none" autoCorrect={false} placeholder="@username or wallet address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.newChatInput} />
       {busy && <ActivityIndicator color={kivoTheme.colors.accent} />}
-      {isAddress && <Pressable onPress={() => start(value.trim())} style={styles.result}><Text style={styles.resultTitle}>Message {value.trim().slice(0, 6)}…{value.trim().slice(-4)}</Text></Pressable>}
+      {isAddress && wallet && <Pressable disabled={busy} onPress={() => start(wallet)} style={styles.result}><Text style={styles.resultTitle}>Message {shortWallet(wallet)}</Text></Pressable>}
       {results.filter(p => p.address.toLowerCase() !== getWalletSession()?.address.toLowerCase()).map(p => (
         <NewChatProfileResult key={p.userId} profile={p} onPress={() => start(p.address)} />
       ))}

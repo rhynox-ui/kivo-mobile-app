@@ -158,19 +158,26 @@ export async function readSolanaUsdcBalance(owner: string): Promise<TokenBalance
   const ownerKey = new PublicKey(owner);
   const mint = new PublicKey(mintAddress);
   const ata = await splToken.getAssociatedTokenAddress(mint, ownerKey);
-  const info = await connection.getTokenAccountBalance(ata).catch(() => null);
+  // A wallet that never held USDC has no token account: that is a real 0.
+  // Any other failure (RPC down, rate limit) is an error, never a fake 0.
+  const info = await connection.getTokenAccountBalance(ata).catch((error: unknown) => {
+    if (/could not find account|Invalid param: could not find/i.test(error instanceof Error ? error.message : String(error))) return null;
+    throw error;
+  });
   const amount = info ? Number(info.value.uiAmountString ?? info.value.uiAmount ?? 0) : 0;
   const raw = BigInt(info?.value.amount ?? '0');
   return {chainKey: 'solana', tokenAddress: mintAddress, symbol: 'USDC', raw, decimals: 6, amount};
 }
 
 /** USDC across every chain Kivo can pay from. Each chain fails independently. */
-export async function fetchCashBalances(owner: string, chains: ChainKey[] = CASH_CHAINS, solanaOwner: string = owner, {forceFresh = false}: {forceFresh?: boolean} = {}): Promise<CashBalanceRow[]> {
-  const key = owner.toLowerCase() + ':' + solanaOwner + ':' + chains.join(',');
+export async function fetchCashBalances(owner: string, chains: ChainKey[] = CASH_CHAINS, solanaOwner?: string, {forceFresh = false}: {forceFresh?: boolean} = {}): Promise<CashBalanceRow[]> {
+  // The Solana wallet is a different address from the EVM one; it is never
+  // derived from `owner` (reading Solana at a 0x address always fails).
+  const key = owner.toLowerCase() + ':' + (solanaOwner ?? '') + ':' + chains.join(',');
   if (!forceFresh && cashCache && cashCache.key === key && Date.now() - cashCache.at < CASH_CACHE_TTL_MS) return cashCache.rows;
   if (!forceFresh && cashInFlight?.key === key) return cashInFlight.promise;
   const promise = (async () => {
-    const settled = await Promise.allSettled(chains.map(chainKey => chainKey === 'solana' ? readSolanaUsdcBalance(solanaOwner) : readUsdcBalance(chainKey, owner)));
+    const settled = await Promise.allSettled(chains.map(chainKey => chainKey === 'solana' ? (solanaOwner ? readSolanaUsdcBalance(solanaOwner) : Promise.reject(new Error('No Solana wallet on this account.'))) : readUsdcBalance(chainKey, owner)));
     const rows = settled.map((outcome, index): CashBalanceRow => {
       const chainKey = chains[index];
       return outcome.status === 'fulfilled'

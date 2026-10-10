@@ -107,7 +107,7 @@ async function fetchPortfolioUncached(owner: string, history: TradeRecord[], add
   const nativeChains = EVM_TRADE_CHAINS.filter(chain => chain !== 'arc');
   const [natives, cash, nearCash, tokens, indexedAssets] = await Promise.all([
     Promise.allSettled(nativeChains.map(chain => readNativeBalance(chain, owner, {forceFresh}))),
-    fetchCashBalances(owner, undefined, addresses?.solanaAddress ?? owner, {forceFresh}),
+    fetchCashBalances(owner, undefined, addresses?.solanaAddress, {forceFresh}),
     addresses?.nearAddress ? fetchNearTokenBalance(NEAR_USDC, addresses.nearAddress).catch(() => 0n) : Promise.resolve(0n),
     Promise.allSettled(tradedTokens(history).map(async token => {
       if (token.chainKey === 'near') return null;

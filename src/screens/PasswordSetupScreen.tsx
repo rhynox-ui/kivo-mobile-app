@@ -7,17 +7,18 @@ import{ErrorText,PasswordField,PrimaryButton,RequirementRow}from'../onboarding/u
 
 export function PasswordSetupScreen({mnemonic,mode,onDone,onBack}:{mnemonic:string;mode:'create'|'import';onDone:(password:string)=>void;onBack:()=>void}){
  const[p,setP]=useState('');const[c,setC]=useState('');const[busy,setBusy]=useState(false);const[error,setError]=useState('');
- const{longEnough,notCommon}=checkPasswordPolicy(p);const passwordsMatch=p.length>0&&c===p;const canSubmit=longEnough&&notCommon&&passwordsMatch&&!busy;
+ const{longEnough,notCommon,notPredictable}=checkPasswordPolicy(p);const passwordsMatch=p.length>0&&c===p;const canSubmit=longEnough&&notCommon&&notPredictable&&passwordsMatch&&!busy;
  async function submit(){setBusy(true);setError('');await new Promise(resolve=>setTimeout(resolve,0));try{if(mode==='create')await createLocalWallet(mnemonic,p);else await importLocalWallet(mnemonic,p);onDone(p);}catch(e){setError(e instanceof Error?e.message:'Unable to secure wallet.');}setBusy(false);}
  return <View style={styles.root}>
   <View>
    <Text style={styles.title}>Secure your Kivo wallet</Text>
-   <Text style={styles.body}>Kivo has moved to the Mango Pro password-encrypted wallet vault. Set a password now to keep this existing wallet.</Text>
+   <Text style={styles.body}>{mode==='create'?'Choose a password to encrypt your new wallet on this device. You will use it to unlock Kivo and approve sensitive actions.':'Choose a password to encrypt the imported wallet on this device. You will use it to unlock Kivo and approve sensitive actions.'}</Text>
    <View style={styles.field}><PasswordField value={p} onChangeText={setP} placeholder="Password" autoFocus/></View>
    <View style={styles.field}><PasswordField value={c} onChangeText={setC} placeholder="Confirm password"/></View>
    <View style={styles.checklist}>
     <RequirementRow met={longEnough}>At least {MIN_PASSWORD_LENGTH} characters</RequirementRow>
     <RequirementRow met={notCommon}>Not a commonly used password</RequirementRow>
+    <RequirementRow met={notPredictable}>Not a repeated character, number run or keyboard pattern</RequirementRow>
     <RequirementRow met={passwordsMatch}>Passwords match</RequirementRow>
    </View>
    <ErrorText>{error}</ErrorText>

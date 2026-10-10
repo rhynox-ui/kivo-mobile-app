@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { API_LIMITS, messageCharLimit, messageLength } from '@kivo/shared/api/types';
+import { API_LIMITS, messageCharLimit, messageLength, shortWallet } from '@kivo/shared/api/types';
 import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useActiveConversation, useChatState } from '../state/useChat';
@@ -86,7 +86,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   const charLimit = Math.max(messageCharLimit(verifiedSender), editingMessageId ? messageLength(editingOriginal) : 0);
   const draftLength = messageLength(draft.trim());
   const overLimit = draftLength > charLimit;
-  const showCounter = verifiedSender ? overLimit : draftLength >= charLimit - 100;
+  // Show the counter as the draft nears the limit, for Blue Star accounts too.
+  const showCounter = draftLength >= charLimit - (verifiedSender ? 500 : 100);
   const [peerVerified, setPeerVerified] = useState(false);
   const [verifiedSenders, setVerifiedSenders] = useState<Set<string>>(() => new Set());
   const senderIds = useMemo(() => Array.from(new Set(messages.filter(message => message.senderId !== me).map(message => message.senderId))), [messages, me]);
@@ -132,8 +133,14 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
     return () => { active = false; clearInterval(timer); subscription.remove(); };
   }, [conversation?.kind, conversation?.peer?.userId]);
   const isChannel = conversation?.kind === 'channel';
-  const canPost = !isChannel || conversation?.myRole === 'owner' || conversation?.myRole === 'admin';
   const canModerate = conversation?.myRole === 'owner' || conversation?.myRole === 'admin';
+  // Channels: only the owner and admins post. Groups can be set to admins-only too.
+  // The server enforces both; this only avoids offering a composer that would fail.
+  const adminsOnly = isChannel || (conversation?.kind === 'group' && conversation.onlyAdminsPost === true);
+  const canPost = !conversation || !adminsOnly || canModerate;
+  // Synchronous guard: a double tap must never send (or save an edit) twice.
+  const sendingRef = useRef(false);
+  const [sending, setSending] = useState(false);
 
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
@@ -150,22 +157,33 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   }, [messages, conversation?.kind, me]);
 
   const send = async () => {
+    if (sendingRef.current) return;
     const text = draft;
     if (!text.trim()) return;
     if (overLimit) {
-      Alert.alert('Message', verifiedSender ? 'This message is too long.' : `Messages are limited to ${charLimit} characters. Blue Star verified accounts can send messages of any length.`);
+      Alert.alert('Message', verifiedSender ? 'This message is too long.' : `Messages are limited to ${charLimit} characters. Blue Star accounts can send up to 5,000 characters.`);
       return;
     }
+    const editingId = editingMessageId;
+    sendingRef.current = true;
+    setSending(true);
     try {
-      if (editingMessageId) { await editMessage(id, editingMessageId, text); setEditingMessageId(null); }
-      else await sendText(id, text);
-      setDraft('');
-    } catch (error) { Alert.alert(editingMessageId ? 'Edit message' : 'Message', error instanceof Error ? error.message : 'Not sent.'); }
+      if (editingId) {
+        await editMessage(id, editingId, text);
+        setEditingMessageId(null);
+        setDraft('');
+      } else {
+        await sendText(id, text);
+        setDraft('');
+      }
+    } catch (error) { Alert.alert(editingId ? 'Edit message' : 'Message', error instanceof Error ? error.message : 'Not sent.'); }
+    finally { sendingRef.current = false; setSending(false); }
   };
   const attach = async () => {
     try {
       const photo = await pickCompressedPhoto();
-      if (photo) { await sendImage(id, photo, draft); setDraft(''); }
+      // Keep the caption when the photo fails: photos can't be retried, only re-sent.
+      if (photo && await sendImage(id, photo, draft)) setDraft('');
     } catch (error) { Alert.alert('Photo', error instanceof Error ? error.message : 'Photo not sent.'); }
   };
   const onLongPress = (message: LocalMessage) => {
@@ -212,7 +230,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   };
 
   const title = conversation?.title ?? 'Conversation';
-  const subtitle = !state.online ? 'Offline — will sync when back' : conversation?.kind === 'dm' ? (conversation.peer ? `${conversation.peer.address.slice(0, 6)}…${conversation.peer.address.slice(-4)}` : 'Direct message') : isChannel ? 'Channel' : 'Group';
+  const subtitle = !state.online ? 'Offline — will sync when back' : conversation?.kind === 'dm' ? (conversation.peer ? shortWallet(conversation.peer.address) : 'Direct message') : isChannel ? 'Channel' : 'Group';
 
   return (
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -310,11 +328,11 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
         <View style={styles.composer}>
           <Pressable onPress={attach} hitSlop={8} style={styles.attach} accessibilityLabel="Attach photo"><Text style={styles.attachText}>＋</Text></Pressable>
           <TextInput value={draft} onChangeText={setDraft} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={API_LIMITS.maxMessageChars * 2} style={styles.input} />
-          <Pressable disabled={!draft.trim()} onPress={send} style={[styles.send, (!draft.trim() || overLimit) && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
+          <Pressable disabled={!draft.trim() || sending} onPress={send} style={[styles.send, (!draft.trim() || overLimit || sending) && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
         </View>
         </View>
       ) : (
-        <View style={styles.readonly}><Text style={styles.readonlyText}>📢 Only the channel owner and admins can post.</Text></View>
+        <View style={styles.readonly}><Text style={styles.readonlyText}>{conversation?.kind === 'group' ? '📢 Only admins can send messages.' : '📢 Only the channel owner and admins can post.'}</Text></View>
       )}
       <Modal transparent visible={!!forwardingMessage} animationType="fade" onRequestClose={() => setForwardingMessage(null)}>
         <View style={styles.forwardOverlay}>
@@ -324,7 +342,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
               <Pressable onPress={() => setForwardingMessage(null)} hitSlop={10}><Text style={styles.forwardCancel}>Cancel</Text></Pressable>
             </View>
             <ScrollView style={styles.forwardList} keyboardShouldPersistTaps="handled">
-              {state.conversations.filter(c => c.id !== id && (c.kind === 'dm' || c.myRole === 'owner' || c.myRole === 'admin' || c.kind === 'group')).map(c => (
+              {state.conversations.filter(c => c.id !== id && (c.kind === 'dm' || c.myRole === 'owner' || c.myRole === 'admin' || (c.kind === 'group' && !c.onlyAdminsPost))).map(c => (
                 <Pressable key={c.id} style={styles.forwardDestination} onPress={() => {
                   const selected = forwardingMessage;
                   setForwardingMessage(null);

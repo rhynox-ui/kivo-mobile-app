@@ -13,7 +13,7 @@ import { KivoApi } from '@kivo/shared/api/client';
 import { activateChat, configureChat, startChatSync, stopChatSync } from '@kivo/shared/chat/store';
 import { activateProfileForWallet, configureProfileStore, getProfile, updateProfile } from '@kivo/shared/profile/store';
 import { activateTradeHistory, configureTradeHistory } from '@kivo/trading/kivo/history';
-import { addNotification } from './notificationStore';
+import { addNotification, setNotificationOwner } from './notificationStore';
 import { getWalletSession, signMessageWithLocalWallet, subscribeToWallet } from './walletStore';
 import { loadSettings } from './settingsStore';
 
@@ -98,6 +98,9 @@ export async function startKivoSession() {
     if (address?.toLowerCase() === lastAddress?.toLowerCase()) return;
     lastAddress = address;
     stopChatSync();
+    // Notifications belong to one wallet: switch (or clear on sign-out) before
+    // anything for the new wallet can be recorded.
+    setNotificationOwner(address);
     // Invalidate the previous API session immediately, before queued local
     // stores or a slow restore can leave the old wallet authenticated.
     void api.restore(address).catch(() => {});

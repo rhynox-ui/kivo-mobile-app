@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { type ApiProfile, type ProfileSocial, type PublicCommunityCard } from '@kivo/shared/api/types';
+import { hasProfileLinks, shortWallet, walletAddressOfUserId, type ApiProfile, type ProfileLinks, type ProfileSocial, type PublicCommunityCard } from '@kivo/shared/api/types';
 import { openDirectMessage, rememberProfiles } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { api, socialReady } from '../state/session';
 import { Avatar } from './ChatListScreen';
+import { ProfileLinkChips } from '../components/ProfileLinks';
 
 /** Another member's public profile: follow, message, public groups. Display data only — never proof of wallet ownership. */
 export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { userId: string; onBack: () => void; onOpenChat: (id: string) => void; onOpenCommunity: (id: string) => void }) {
@@ -14,7 +15,16 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
   const [verifiedChannels, setVerifiedChannels] = useState<Set<string>>(() => new Set());
   const [blocked, setBlocked] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<{isVerified: boolean; expiresAt: number | null; permanent: boolean} | null>(null);
-  const address = userId.replace(/^kivo:/, '');
+  // EVM (kivo:0x…) or Solana (kivo:sol:…, case-sensitive) account.
+  const address = walletAddressOfUserId(userId);
+  // Blue Star links: shown only when the server says the profile is verified and has links.
+  const [links, setLinks] = useState<ProfileLinks | null>(null);
+  useEffect(() => {
+    let active = true;
+    setLinks(null);
+    api.profileLinks(userId).then(result => { if (active && result.verified && hasProfileLinks(result.links)) setLinks(result.links); }).catch(() => {});
+    return () => { active = false; };
+  }, [userId]);
   useEffect(() => {
     api.profiles([userId]).then(found => { rememberProfiles(found); setPerson(found[0] ?? null); }).catch(() => {});
     api.social(userId).then(setStats).catch(() => {});
@@ -55,11 +65,16 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
     });
     return () => { active = false; clearInterval(timer); subscription.remove(); };
   }, [userId]);
+  // Synchronous guard: one action at a time, so a double tap never follows/blocks twice.
+  const busyRef = useRef(false);
   const guard = async (fn: () => Promise<void>) => {
     if (!socialReady()) { Alert.alert('Kivo', 'Turn on chats first (Chats tab).'); return; }
+    if (busyRef.current) return;
+    busyRef.current = true;
     try { await fn(); } catch (e) { Alert.alert('Kivo', e instanceof Error ? e.message : 'Action failed.'); }
+    finally { busyRef.current = false; }
   };
-  const name = person?.username ? '@' + person.username : `${address.slice(0, 6)}…${address.slice(-4)}`;
+  const name = person?.username ? '@' + person.username : shortWallet(address);
   return (
     <View style={styles.root}>
       <View style={styles.header}><Pressable onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.headerTitle}>Profile</Text></View>
@@ -68,6 +83,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
         <View style={styles.nameLine}><Text style={styles.name}>{name}</Text>{verificationStatus?.isVerified === true ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>
         {verificationStatus?.isVerified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verificationBadge}>★ Blue Star Verified · {verificationStatus.permanent || !verificationStatus.expiresAt ? 'permanent' : `valid until ${new Date(verificationStatus.expiresAt).toLocaleDateString()}`}</Text> : null}
         {person?.bio ? <Text style={styles.bio}>{person.bio}</Text> : null}
+        {links ? <ProfileLinkChips links={links} /> : null}
         <Text style={styles.address}>{address.slice(0, 10)}…{address.slice(-8)}</Text>
         <View style={styles.stats}>
           <Stat value={stats?.following} label="Following" />
@@ -78,7 +94,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
           <Pressable onPress={() => guard(async () => setStats(stats?.isFollowing ? await api.unfollow(userId) : await api.follow(userId)))} style={[styles.button, stats?.isFollowing ? styles.secondary : styles.primary]}>
             <Text style={stats?.isFollowing ? styles.secondaryText : styles.primaryText}>{stats?.isFollowing ? 'Following' : 'Follow'}</Text>
           </Pressable>
-          <Pressable onPress={() => guard(async () => onOpenChat(await openDirectMessage(address)))} style={[styles.button, styles.secondary]}><Text style={styles.secondaryText}>Message</Text></Pressable>
+          <Pressable onPress={() => guard(async () => onOpenChat(await openDirectMessage(person?.address ?? address)))} style={[styles.button, styles.secondary]}><Text style={styles.secondaryText}>Message</Text></Pressable>
         </View>
         <Pressable onPress={() => Alert.alert(blocked ? 'Unblock user?' : 'Block user?', blocked ? 'This user is currently blocked. Unblocking will let them message you again.' : 'This user is not blocked. Blocking will stop them from sending you direct messages.', [
           { text: 'Cancel', style: 'cancel' },

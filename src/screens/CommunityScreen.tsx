@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
-import { type ApiCommunity, type ApiMember } from '@kivo/shared/api/types';
+import { hasProfileLinks, normalizeProfileLinks, normalizeWalletAddress, shortWallet, walletAddressOfUserId, type ApiCommunity, type ApiMember, type ProfileLinks } from '@kivo/shared/api/types';
 import { canDemoteGroupAdmin, canPromoteGroupAdmin, canRemoveGroupMember } from '@kivo/shared/social/rules';
 import type { KivoGroup } from '@kivo/shared/social/types';
 import { refreshConversations } from '@kivo/shared/chat/store';
@@ -8,11 +8,11 @@ import { getProfile } from '@kivo/shared/profile/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { api, socialReady } from '../state/session';
 import { Avatar } from './ChatListScreen';
+import { LinkFields, ProfileLinkChips, linkDraftFrom, type LinkDraft } from '../components/ProfileLinks';
 
 function memberName(member: ApiMember) {
   if (member.profile?.username) return '@' + member.profile.username;
-  const address = member.userId.replace(/^kivo:/, '');
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+  return shortWallet(walletAddressOfUserId(member.userId));
 }
 
 /** Group/channel info: description, members/team and owner-controlled roles (same rules as web and the API). */
@@ -22,6 +22,18 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
   const [address, setAddress] = useState('');
   const [verifiedMembers, setVerifiedMembers] = useState<Set<string>>(() => new Set());
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  // Blue Star links: the server decides eligibility and only returns links while it holds.
+  const [links, setLinks] = useState<{ eligible: boolean; links: ProfileLinks } | null>(null);
+  const [linkDraft, setLinkDraft] = useState<LinkDraft>(() => linkDraftFrom(null));
+  const [linksError, setLinksError] = useState('');
+  // Synchronous guard: one community action at a time, so a double tap never repeats it.
+  const busyRef = useRef(false);
+  const [busy, setBusy] = useState(false);
+
+  const loadLinks = useCallback(() => api.communityLinks(id)
+    .then(result => { setLinks(result); setLinkDraft(linkDraftFrom(result.links)); setLinksError(''); })
+    .catch(() => setLinksError('Links are unavailable right now.')), [id]);
+  useEffect(() => { setLinks(null); void loadLinks(); }, [loadLinks]);
 
   useEffect(() => {
     let active = true;
@@ -50,9 +62,21 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
 
   const run = (action: () => Promise<unknown>, done?: () => void) => async () => {
     if (!socialReady()) { Alert.alert('Kivo', 'Turn on chats first (Chats tab).'); return; }
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
     try { await action(); await refreshConversations().catch(() => {}); done ? done() : void load(); }
     catch (e) { Alert.alert('Community', e instanceof Error ? e.message : 'Action failed.'); }
+    finally { busyRef.current = false; setBusy(false); }
   };
+  const saveLinks = run(async () => {
+    // Throws a readable message for an invalid link; the server re-validates.
+    const next = normalizeProfileLinks(linkDraft);
+    const saved = await api.saveCommunityLinks(id, next);
+    setLinks(saved);
+    setLinkDraft(linkDraftFrom(saved.links));
+    Alert.alert('Links', 'Links saved.');
+  });
 
   if (error) return <View style={styles.root}><Header title="Community" onBack={onBack} /><Text style={styles.muted}>{error}</Text></View>;
   if (!data) return <View style={styles.root}><Header title="Community" onBack={onBack} /><ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 40 }} /></View>;
@@ -80,6 +104,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
               : <Pressable onPress={run(() => api.join(c.id), () => onOpenChat(c.id))} style={styles.actionButton}><Text style={styles.primaryText}>{c.visibility === 'private' ? 'Private' : isChannel ? 'Subscribe' : 'Join group'}</Text></Pressable>}
             <Pressable onPress={() => Share.share({ message: `Join ${c.name} on Kivo: https://kivotrade.site/${c.kind}/${c.id}` })} style={styles.shareButton}><Text style={styles.shareButtonText}>Share</Text></Pressable>
           </View>
+          {links?.eligible && hasProfileLinks(links.links) ? <ProfileLinkChips links={links.links} /> : null}
           <View style={styles.profileDescription}>
             <Text style={styles.cardTitle}>{isChannel ? 'Channel information' : 'About this group'}</Text>
             <Text numberOfLines={descriptionExpanded ? undefined : 3} style={styles.description}>{c.description || (isChannel ? 'A Kivo channel.' : 'A Kivo group.')}</Text>
@@ -97,9 +122,29 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
           <Pressable onPress={() => onOpenVerification?.('channel', c.id, c.name)} style={styles.verifyPay}><Text style={styles.verifyPayText}>★ Get Verified</Text></Pressable>
         </View>}
         {manager && <View style={styles.card}>
+          <Text style={styles.cardTitle}>Links ★</Text>
+          {links == null && !linksError ? <ActivityIndicator color={kivoTheme.colors.accent} /> : null}
+          {linksError ? <Text style={styles.small}>{linksError}</Text> : null}
+          {links ? <>
+            <LinkFields value={linkDraft} onChange={setLinkDraft} editable={links.eligible && !busy} telegramPlaceholder={isChannel ? '@channel' : '@group'} />
+            <Text style={styles.small}>{links.eligible
+              ? `Shown on this ${isChannel ? 'channel' : 'group'}'s page while ${isChannel ? 'its or its owner’s' : 'its owner’s'} Blue Star is active.`
+              : isChannel ? 'Add a website, X and Telegram with Blue Star: verify this channel, or its owner gets Verified.' : 'Add a website, X and Telegram when the group owner has a Blue Star.'}</Text>
+            {links.eligible
+              ? <Pressable disabled={busy} onPress={saveLinks} style={[styles.secondary, busy && styles.disabled]}><Text style={styles.secondaryText}>Save links</Text></Pressable>
+              : isChannel && onOpenVerification ? <Pressable onPress={() => onOpenVerification('channel', c.id, c.name)} style={styles.secondary}><Text style={styles.secondaryText}>★ Verify channel</Text></Pressable> : null}
+          </> : null}
+        </View>}
+        {manager && <View style={styles.card}>
           <Text style={styles.cardTitle}>Add member</Text>
-          <TextInput value={address} onChangeText={setAddress} autoCapitalize="none" autoCorrect={false} placeholder="0x… wallet address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.input} />
-          <Pressable onPress={run(async () => { if (!/^0x[0-9a-fA-F]{40}$/.test(address.trim())) throw new Error('Enter a valid 0x wallet address.'); await api.addMember(c.id, address.trim()); setAddress(''); })} style={styles.secondary}><Text style={styles.secondaryText}>Add</Text></Pressable>
+          <TextInput value={address} onChangeText={setAddress} autoCapitalize="none" autoCorrect={false} placeholder="Wallet address (0x… or Solana)" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.input} />
+          <Pressable disabled={busy} onPress={run(async () => {
+            // EVM or Solana. Solana addresses are case-sensitive: normalize, never lower-case them.
+            const wallet = normalizeWalletAddress(address);
+            if (!wallet) throw new Error('Enter a valid EVM (0x…) or Solana wallet address.');
+            await api.addMember(c.id, wallet);
+            setAddress('');
+          })} style={[styles.secondary, busy && styles.disabled]}><Text style={styles.secondaryText}>Add</Text></Pressable>
         </View>}
 
         <View style={styles.card}>
@@ -196,4 +241,5 @@ const styles = StyleSheet.create({
   chipText: { color: c.cream, fontSize: 11, fontWeight: '800' },
   danger: { color: c.danger, fontWeight: '800', fontSize: 12.5 },
   leave: { alignItems: 'center', padding: 14 },
+  disabled: { opacity: 0.5 },
 });

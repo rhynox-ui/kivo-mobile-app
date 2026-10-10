@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { type ApiCommunity, type ApiProfile } from '@kivo/shared/api/types';
+import { kivoUserIdForWallet, normalizeWalletAddress, shortWallet, type ApiCommunity, type ApiProfile } from '@kivo/shared/api/types';
 import { rememberProfiles } from '@kivo/shared/chat/store';
 import type { KivoToken } from '@kivo/trading/kivo/tokens';
 import { SearchScreen } from './SearchScreen';
@@ -81,13 +81,14 @@ function People({ onOpenPerson }: { onOpenPerson: (userId: string) => void }) {
     const t = setTimeout(() => api.searchProfiles(q).then(found => { rememberProfiles(found); setPeople(found); }).catch(() => setPeople([])), 300);
     return () => clearTimeout(t);
   }, [query]);
-  const isAddress = /^0x[0-9a-fA-F]{40}$/.test(query.trim());
+  // EVM (0x…) or Solana wallet; Solana addresses are case-sensitive and kept as typed.
+  const wallet = normalizeWalletAddress(query);
   const me = getWalletSession()?.address.toLowerCase();
   return (
     <ScrollView contentContainerStyle={styles.body}>
-      <TextInput value={query} onChangeText={setQuery} autoCapitalize="none" autoCorrect={false} placeholder="@username or 0x wallet address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.input} />
+      <TextInput value={query} onChangeText={setQuery} autoCapitalize="none" autoCorrect={false} placeholder="@username or wallet address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.input} />
       <Text style={styles.muted}>Usernames are display names — a wallet session, not a username or badge, proves who owns a wallet.</Text>
-      {isAddress && !people.length && <Pressable onPress={() => onOpenPerson('kivo:' + query.trim().toLowerCase())} style={styles.card}><Avatar name={query.trim().slice(2)} size={42} /><Text style={styles.name}>{query.trim().slice(0, 6)}…{query.trim().slice(-4)}</Text></Pressable>}
+      {wallet && wallet !== me && !people.length && <Pressable onPress={() => onOpenPerson(kivoUserIdForWallet(wallet))} style={styles.card}><Avatar name={wallet.replace(/^0x/, '')} size={42} /><Text style={styles.name}>{shortWallet(wallet)}</Text></Pressable>}
       {people.filter(p => p.address !== me).map(p => (
         <Pressable key={p.userId} onPress={() => onOpenPerson(p.userId)} style={styles.card}>
           <Avatar name={p.username ?? p.address} uri={p.avatarUrl} size={42} verified={verifiedPeople.has(p.userId)} />
