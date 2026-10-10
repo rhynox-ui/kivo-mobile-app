@@ -69,8 +69,8 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
       <ScrollView contentContainerStyle={styles.body}>
         <View style={styles.profileHero}>
           <View style={styles.profileIdentity}>
-            <Avatar name={c.name} uri={c.avatarUrl} size={92} verified={isChannel && (c.isVerified === true || isOfficialKivoChannel(c.id))} />
-            <View style={styles.titleLine}><Text style={styles.title}>{c.name}</Text>{isChannel && (c.isVerified || c.id === 'ch_671d27c151fefc25c8e5') ? <Text accessibilityLabel="Verified channel" style={styles.verifiedBadge}>★</Text> : null}</View>
+            <Avatar name={c.name} uri={c.avatarUrl} size={92} verified={c.isVerified === true || isOfficialKivoChannel(c.id)} />
+            <View style={styles.titleLine}><Text style={styles.title}>{c.name}</Text>{(c.isVerified === true || isOfficialKivoChannel(c.id)) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
             <Text style={styles.profileSubtitle}>{c.visibility === 'private' ? 'Private' : 'Public'} {isChannel ? 'channel' : 'group'} · {c.memberCount} {isChannel ? 'subscribers' : 'members'}</Text>
             {c.myRole ? <Text style={styles.role}>{c.myRole.toUpperCase()}</Text> : null}
           </View>
@@ -91,7 +91,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
           </View>
         </View>
 
-        {isChannel && (c.myRole === 'owner' || c.myRole === 'admin') && !c.isVerified && c.id !== 'ch_671d27c151fefc25c8e5' && <View style={styles.card}>
+        {isChannel && (c.myRole === 'owner' || c.myRole === 'admin') && !(c.isVerified === true || isOfficialKivoChannel(c.id)) && <View style={styles.card}>
           <Text style={styles.cardTitle}>Blue Star verification</Text>
           <Text style={styles.verifyIntro}>Verify this channel with a quick wallet checkout.</Text>
           <Pressable onPress={() => onOpenVerification?.('channel', c.id, c.name)} style={styles.verifyPay}><Text style={styles.verifyPayText}>★ Get Verified</Text></Pressable>

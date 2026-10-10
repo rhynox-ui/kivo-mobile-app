@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import type { ApiCommunity, ApiProfile } from '@kivo/shared/api/types';
+import { isOfficialKivoChannel, type ApiCommunity, type ApiProfile } from '@kivo/shared/api/types';
 import { rememberProfiles } from '@kivo/shared/chat/store';
 import type { KivoToken } from '@kivo/trading/kivo/tokens';
 import { SearchScreen } from './SearchScreen';
@@ -50,9 +50,9 @@ function Communities({ kind, onOpenChat, onOpenCommunity }: { kind: 'group' | 'c
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {items == null ? <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 20 }} /> : items.length === 0 ? <Text style={styles.muted}>No public {kind}s yet.</Text> : items.map(c => (
         <Pressable key={c.id} onPress={() => (c.myRole ? onOpenChat(c.id) : onOpenCommunity(c.id))} style={styles.card}>
-          <Avatar name={c.name} uri={c.avatarUrl} size={48} />
+          <Avatar name={c.name} uri={c.avatarUrl} size={48} verified={c.isVerified === true || isOfficialKivoChannel(c.id)} />
           <View style={styles.flex}>
-            <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{c.name}</Text>{kind === 'channel' && (c.isVerified || c.id === 'ch_671d27c151fefc25c8e5') ? <Text accessibilityLabel="Verified channel" style={styles.verifiedBadge}>★</Text> : null}</View>
+            <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{c.name}</Text>{(c.isVerified === true || isOfficialKivoChannel(c.id)) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
             <Text style={styles.small}>{c.memberCount} {kind === 'channel' ? 'subscribers' : 'members'} · {c.postCount} {kind === 'channel' ? 'posts' : 'messages'}</Text>
             {c.description ? <Text style={styles.small} numberOfLines={2}>{c.description}</Text> : null}
           </View>
@@ -90,7 +90,7 @@ function People({ onOpenPerson }: { onOpenPerson: (userId: string) => void }) {
       {isAddress && !people.length && <Pressable onPress={() => onOpenPerson('kivo:' + query.trim().toLowerCase())} style={styles.card}><Avatar name={query.trim().slice(2)} size={42} /><Text style={styles.name}>{query.trim().slice(0, 6)}…{query.trim().slice(-4)}</Text></Pressable>}
       {people.filter(p => p.address !== me).map(p => (
         <Pressable key={p.userId} onPress={() => onOpenPerson(p.userId)} style={styles.card}>
-          <Avatar name={p.username ?? p.address} uri={p.avatarUrl} size={42} />
+          <Avatar name={p.username ?? p.address} uri={p.avatarUrl} size={42} verified={verifiedPeople.has(p.userId)} />
           <View style={styles.flex}><View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{p.username ? '@' + p.username : p.address}</Text>{verifiedPeople.has(p.userId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>{p.bio ? <Text style={styles.small} numberOfLines={1}>{p.bio}</Text> : null}</View>
         </Pressable>
       ))}

@@ -39,7 +39,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
     <View style={styles.root}>
       <View style={styles.header}><Pressable onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.headerTitle}>Profile</Text></View>
       <ScrollView contentContainerStyle={styles.body}>
-        <Avatar name={name} uri={person?.avatarUrl} size={96} />
+        <Avatar name={name} uri={person?.avatarUrl} size={96} verified={verificationStatus?.isVerified === true} />
         <View style={styles.nameLine}><Text style={styles.name}>{name}</Text>{verificationStatus?.isVerified === true ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>
         {verificationStatus?.isVerified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verificationBadge}>★ Blue Star Verified · {verificationStatus.permanent || !verificationStatus.expiresAt ? 'permanent' : `valid until ${new Date(verificationStatus.expiresAt).toLocaleDateString()}`}</Text> : null}
         {person?.bio ? <Text style={styles.bio}>{person.bio}</Text> : null}

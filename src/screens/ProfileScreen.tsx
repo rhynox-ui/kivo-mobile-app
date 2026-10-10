@@ -58,7 +58,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   // Verification status is public profile metadata; it must not depend on
   // enabling the separate social/chat session.
   const loadVerification = useCallback(() => {
-    api.verificationStatus('profile', profile.userId).then(setVerificationStatus).catch(() => {});
+    api.verificationStatus('profile', profile.userId).then(setVerificationStatus).catch(() => setVerificationStatus(null));
   }, [profile.userId]);
   useEffect(() => {
     loadVerification();
@@ -103,7 +103,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
       <View style={styles.identity}>
         <View style={styles.avatarRow}>
           <Pressable onPress={onEditProfile} style={styles.avatarWrap} accessibilityLabel="Edit profile">
-            {profile.avatarUri ? <Image source={{ uri: profile.avatarUri }} style={styles.avatar} /> : <View style={styles.avatar}><KivoMark size={70} /></View>}
+            {profile.avatarUri ? <Image source={{ uri: profile.avatarUri }} style={[styles.avatar, { borderRadius: verificationStatus?.isVerified === true ? 8 : 38 }]} /> : <View style={[styles.avatar, { borderRadius: verificationStatus?.isVerified === true ? 8 : 38 }]}><KivoMark size={70} /></View>}
             <View style={styles.editDot}><Text style={styles.editDotText}>✎</Text></View>
           </Pressable>
           <View style={styles.identityActions}>

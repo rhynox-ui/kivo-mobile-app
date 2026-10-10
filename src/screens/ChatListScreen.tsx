@@ -124,7 +124,7 @@ function Row({ conversation: c, onPress }: { conversation: ApiConversation; onPr
       <Avatar name={c.title} uri={c.avatarUrl} size={52} verified={verified} />
       <View style={styles.rowMain}>
         <View style={styles.rowTop}>
-          <View style={styles.rowTitleLine}><Text style={styles.rowTitle} numberOfLines={1}>{c.kind === 'channel' ? '📢 ' : c.kind === 'group' ? '👥 ' : ''}{c.title}</Text>{c.kind === 'dm' && peerVerified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}{c.kind === 'channel' && (c.isVerified || isOfficialKivoChannel(c.id)) ? <Text accessibilityLabel="Verified official Kivo channel" style={styles.verifiedBadge}>★</Text> : null}</View>
+          <View style={styles.rowTitleLine}><Text style={styles.rowTitle} numberOfLines={1}>{c.kind === 'channel' ? '📢 ' : c.kind === 'group' ? '👥 ' : ''}{c.title}</Text>{c.kind === 'dm' && peerVerified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}{c.kind !== 'dm' && (c.isVerified === true || isOfficialKivoChannel(c.id)) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
           <Text style={[styles.time, unread > 0 && styles.timeUnread]}>{timeLabel(c.lastActivityAt)}</Text>
         </View>
         <View style={styles.rowTop}>
@@ -145,6 +145,24 @@ export function Avatar({ name, uri, size, verified = false }: { name: string; ur
         ? <Image source={{ uri }} style={{ width: size, height: size, borderRadius, backgroundColor: kivoTheme.colors.surfaceRaised }} />
         : <View style={[styles.avatar, { width: size, height: size, borderRadius }]}><Text style={[styles.avatarText, { fontSize: size * 0.4 }]}>{name.replace(/^@/, '').slice(0, 1).toUpperCase()}</Text></View>}
     </View>
+  );
+}
+
+function NewChatProfileResult({ profile, onPress }: { profile: ApiProfile; onPress: () => void }) {
+  const [verified, setVerified] = useState(false);
+  useEffect(() => {
+    let active = true;
+    api.verificationStatus('profile', profile.userId).then(status => { if (active) setVerified(status.isVerified === true); }).catch(() => { if (active) setVerified(false); });
+    return () => { active = false; };
+  }, [profile.userId]);
+  return (
+    <Pressable onPress={onPress} style={styles.result}>
+      <Avatar name={profile.username ?? profile.address} uri={profile.avatarUrl} size={34} verified={verified} />
+      <View style={{ flex: 1 }}>
+        <View style={styles.resultTitleLine}><Text style={styles.resultTitle}>{profile.username ? '@' + profile.username : profile.address}</Text>{verified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>
+        {profile.bio ? <Text style={styles.muted} numberOfLines={1}>{profile.bio}</Text> : null}
+      </View>
+    </Pressable>
   );
 }
 
@@ -170,10 +188,7 @@ function NewChat({ onOpen }: { onOpen: (id: string) => void }) {
       {busy && <ActivityIndicator color={kivoTheme.colors.accent} />}
       {isAddress && <Pressable onPress={() => start(value.trim())} style={styles.result}><Text style={styles.resultTitle}>Message {value.trim().slice(0, 6)}…{value.trim().slice(-4)}</Text></Pressable>}
       {results.filter(p => p.address.toLowerCase() !== getWalletSession()?.address.toLowerCase()).map(p => (
-        <Pressable key={p.userId} onPress={() => start(p.address)} style={styles.result}>
-          <Avatar name={p.username ?? p.address} uri={p.avatarUrl} size={34} />
-          <View style={{ flex: 1 }}><Text style={styles.resultTitle}>{p.username ? '@' + p.username : p.address}</Text>{p.bio ? <Text style={styles.muted} numberOfLines={1}>{p.bio}</Text> : null}</View>
-        </Pressable>
+        <NewChatProfileResult key={p.userId} profile={p} onPress={() => start(p.address)} />
       ))}
     </View>
   );
@@ -244,6 +259,7 @@ const styles = StyleSheet.create({
   newChat: { marginHorizontal: 16, marginBottom: 10, padding: 12, borderRadius: 16, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, gap: 8 },
   newChatInput: { color: c.text, fontSize: 14, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: c.backgroundDeep },
   result: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
+  resultTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   resultTitle: { color: c.text, fontWeight: '700' },
   enable: { flex: 1, backgroundColor: c.background, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 12 },
   enableTitle: { color: c.text, fontSize: 24, fontWeight: '800', marginTop: 8 },
