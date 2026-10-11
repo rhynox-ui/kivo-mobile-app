@@ -133,8 +133,6 @@ export function isQuoteExpired(view: Pick<KivoQuoteView, 'expiresAt'>, now = Dat
 
 export function describeQuoteError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? 'Unable to get a quote.');
-  // Kivo's own blocked-trade message already carries Relay's cost breakdown; keep it intact.
-  if (message.includes('\n\nDetails: ')) return message;
   if (/AMOUNT_TOO_LOW|amount too low/i.test(message)) return 'Amount is too small for this route. Try a larger amount.';
   if (/NO_SWAP_ROUTES_FOUND|no routes|NO_QUOTES/i.test(message)) return 'No route is available for this token right now. Liquidity may be too thin.';
   if (/INSUFFICIENT_LIQUIDITY/i.test(message)) return 'Not enough liquidity for this trade size.';
