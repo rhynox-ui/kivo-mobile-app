@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, AppState, Image, Pressable, RefreshControl, S
 import { KivoMark } from '../components/KivoMark';
 import { LineChart } from '../components/LineChart';
 import { TokenIcon } from '../components/TokenIcon';
+import { NetworkIcon } from '../wallet/NetworkIcon';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useProfile } from '../state/profileStore';
 import { getWalletSession, subscribeToWallet, type WalletSession } from '../state/walletStore';
@@ -23,6 +24,45 @@ type PositionFilter = 'all' | 'tokens' | 'cash';
 const SMALL_BALANCE_THRESHOLD_USD = 0.5;
 /** Blue Star status is re-checked this often, and only while the app is in the foreground. */
 const VERIFICATION_POLL_MS = 60_000;
+type Holding = Portfolio['holdings'][number];
+/**
+ * A token Kivo can't price and the user never traded here: found only by the
+ * wallet index. Usually an unsolicited airdrop (often spam), so it goes into a
+ * collapsed group instead of mixing with real positions.
+ */
+function isUnverifiedHolding(holding: Holding): boolean {
+  return holding.kind === 'token' && holding.source === 'indexer' && holding.valueUsd == null && holding.entryPriceUsd == null;
+}
+
+function signedUsd(value: number): string {
+  return `${value >= 0 ? '+' : '−'}${formatUsd(Math.abs(value))}`;
+}
+
+function PositionRow({ h, hidden, money, unverified }: { h: Holding; hidden: boolean; money: (v: number) => string; unverified?: boolean }) {
+  const hasPnl = !hidden && h.pnlUsd != null && Number.isFinite(h.pnlUsd);
+  const pnlUp = (h.pnlUsd ?? 0) >= 0;
+  return (
+    <View style={[styles.position, unverified && styles.positionDim]}>
+      <View>
+        <View style={styles.tokenIcon}><TokenIcon kind={h.kind} symbol={h.symbol} chainKey={h.chainKey as never} address={h.address} imageUrl={h.imageUrl} /></View>
+        {h.kind !== 'cash' || h.chainKey ? <View style={styles.chainBadge}><NetworkIcon chainKey={h.chainKey as never} size={14} /></View> : null}
+      </View>
+      <View style={styles.flex}>
+        <Text style={styles.tokenName} numberOfLines={1}>{h.symbol}</Text>
+        <Text style={styles.positionSub} numberOfLines={1}>{hidden ? '••••' : `${formatAmount(h.amount)} ${h.symbol}`}</Text>
+      </View>
+      <View style={styles.positionRight}>
+        <Text style={styles.positionValue}>{h.valueUsd == null ? (unverified ? 'Unknown' : 'No price') : money(h.valueUsd)}</Text>
+        {hasPnl ? (
+          <Text style={[styles.positionPnl, pnlUp ? styles.up : styles.down]}>{signedUsd(h.pnlUsd!)}{h.pnlPct != null ? ` (${pnlUp ? '+' : '−'}${Math.abs(h.pnlPct).toFixed(2)}%)` : ''}</Text>
+        ) : !hidden && h.priceUsd != null && h.kind !== 'cash' ? (
+          <Text style={styles.positionSub}>{formatUsd(h.priceUsd)}</Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 function shouldHideSmallHolding(holding: Portfolio['holdings'][number]): boolean {
   return holding.kind !== 'native' && holding.valueUsd != null && Number.isFinite(holding.valueUsd) && holding.valueUsd < SMALL_BALANCE_THRESHOLD_USD;
 }
@@ -47,6 +87,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const hidden = settings.hideBalances;
   const [wallet, setWallet] = useState<WalletSession | null>(getWalletSession());
   const [trades, setTrades] = useState<TradeRecord[]>([]);
+  const [showUnverified, setShowUnverified] = useState(false);
   const [social, setSocial] = useState<ProfileSocial | null>(null);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [history, setHistory] = useState<PortfolioSnapshot[]>([]);
@@ -163,8 +204,10 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const points = filterHistoryByRange(history, range);
   const change = computePortfolioChange(points);
   const open = portfolio ? openHoldings(portfolio).filter(h => filter === 'all' || (filter === 'tokens' ? h.kind !== 'cash' : h.kind === 'cash')) : [];
-  const hiddenOpen = open.filter(shouldHideSmallHolding);
-  const visibleOpen = settings.hideSmallBalances ? open.filter(h => !shouldHideSmallHolding(h)) : open;
+  const hiddenOpen = open.filter(h => !isUnverifiedHolding(h) && shouldHideSmallHolding(h));
+  const unverifiedOpen = open.filter(isUnverifiedHolding);
+  const verifiedOpen = open.filter(h => !isUnverifiedHolding(h));
+  const visibleOpen = settings.hideSmallBalances ? verifiedOpen.filter(h => !shouldHideSmallHolding(h)) : verifiedOpen;
   const closed = portfolio ? closedPositions(portfolio, trades) : [];
   const money = (value: number | null | undefined) => (hidden ? '••••' : formatUsd(value));
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -266,30 +309,38 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
       {!portfolio ? (portfolioError || !wallet ? <Empty title="Balances unavailable" body={portfolioError ?? 'Connect a wallet to see balances.'} /> : <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 16 }} />)
         : positionTab === 'open'
           ? (visibleOpen.length ? visibleOpen.map(h => (
-            <View key={h.key} style={styles.position}>
-              <View style={styles.tokenIcon}><TokenIcon kind={h.kind} symbol={h.symbol} chainKey={h.chainKey as never} address={h.address} imageUrl={h.imageUrl} /></View>
-              <View style={styles.flex}><Text style={styles.tokenName}>{h.symbol}</Text><Text style={styles.small}>{hidden ? '••••' : formatAmount(h.amount)} · {tradeChainLabel(h.chainKey)}</Text>{!hidden && h.entryPriceUsd != null && h.entryPriceUsd > 0 && h.priceUsd != null && h.priceUsd > 0 ? <Text style={[styles.small, h.priceUsd >= h.entryPriceUsd ? styles.up : styles.down]}>Entry {formatUsd(h.entryPriceUsd)} · {h.priceUsd >= h.entryPriceUsd ? '▲' : '▼'} {Math.abs((h.priceUsd / h.entryPriceUsd - 1) * 100).toFixed(2)}%</Text> : null}{!hidden && h.pnlUsd != null ? <Text style={[styles.small,h.pnlUsd>=0?styles.up:styles.down]}>PnL {h.pnlUsd>=0?'+':''}{formatUsd(h.pnlUsd)} {h.pnlPct!=null?`(${h.pnlPct>=0?'+':''}${h.pnlPct.toFixed(2)}%)`:''}</Text> : null}</View>
-              <Text style={styles.positionValue}>{h.valueUsd == null ? 'No price' : money(h.valueUsd)}</Text>
-            </View>
+            <PositionRow key={h.key} h={h} hidden={hidden} money={money} />
           )) : <Empty title="No positions yet" body="Your tokens and trading positions will appear here." />)
           : (closed.length ? closed.map(p => (
             <View key={p.key} style={styles.position}>
-              <View style={styles.tokenIcon}><TokenIcon kind="token" symbol={p.symbol} chainKey={p.chainKey as never} address={p.address} imageUrl={p.imageUrl} /></View>
-              <View style={styles.flex}><Text style={styles.tokenName}>{p.symbol}</Text><Text style={styles.small}>{tradeChainLabel(p.chainKey)} · closed</Text></View>
+              <View>
+                <View style={styles.tokenIcon}><TokenIcon kind="token" symbol={p.symbol} chainKey={p.chainKey as never} address={p.address} imageUrl={p.imageUrl} /></View>
+                <View style={styles.chainBadge}><NetworkIcon chainKey={p.chainKey as never} size={14} /></View>
+              </View>
+              <View style={styles.flex}><Text style={styles.tokenName}>{p.symbol}</Text><Text style={styles.positionSub}>Closed · {tradeChainLabel(p.chainKey)}</Text></View>
             </View>
           )) : <Empty title="No closed positions" body="Tokens you fully sell appear here." />)}
-      <View style={styles.assetVisibilityRow}>
-        <View style={styles.assetVisibilityCopy}>
-          <Text style={styles.assetVisibilityTitle}>Hide zero or small balances</Text>
-          <Text style={styles.assetVisibilityHint}>Hide balances under $0.50 from this list</Text>
+      {portfolio && positionTab === 'open' && unverifiedOpen.length > 0 ? (
+        <View>
+          <Pressable style={styles.unverifiedHead} onPress={() => setShowUnverified(v => !v)} accessibilityRole="button">
+            <Text style={styles.unverifiedTitle}>Unverified tokens ({unverifiedOpen.length})</Text>
+            <Text style={styles.unverifiedChevron}>{showUnverified ? '▴' : '▾'}</Text>
+          </Pressable>
+          {showUnverified ? (
+            <>
+              <Text style={[styles.small, styles.padded]}>Sent to your wallet, not bought in Kivo, and no market price found. Often airdrop spam: don't open links or approve anything for them.</Text>
+              {unverifiedOpen.map(h => <PositionRow key={h.key} h={h} hidden={hidden} money={money} unverified />)}
+            </>
+          ) : null}
         </View>
+      ) : null}
+      <View style={styles.assetVisibilityRow}>
+        <Text style={styles.assetVisibilityTitle}>Hide balances under $0.50</Text>
         <Pressable onPress={() => updateSettings({hideSmallBalances: !settings.hideSmallBalances})} style={[styles.visibilitySwitch, settings.hideSmallBalances && styles.visibilitySwitchOn]} accessibilityRole="switch" accessibilityState={{checked: settings.hideSmallBalances}}>
           <View style={[styles.visibilityThumb, settings.hideSmallBalances && styles.visibilityThumbOn]} />
         </Pressable>
       </View>
       {settings.hideSmallBalances && hiddenOpen.length > 0 ? <Pressable style={styles.showHiddenPill} onPress={() => updateSettings({hideSmallBalances: false})}><Text style={styles.showHiddenText}>Show hidden ({hiddenOpen.length})</Text></Pressable> : null}
-
-      <Text style={[styles.small, styles.padded]}>Native coins and cash on every supported chain, tokens you traded in Kivo, and other tokens found by the wallet index.</Text>
 
       <View style={styles.positionsHead}>
         <Text style={styles.sectionTitle}>Joined groups</Text>
@@ -420,12 +471,20 @@ const styles = StyleSheet.create({
   filterActive: { backgroundColor: MINT, borderColor: MINT },
   filterText: { color: c.textMuted, fontWeight: '700' },
   filterTextActive: { color: '#10301F' },
-  position: { marginHorizontal: 20, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: 1, borderBottomColor: c.border },
+  position: { marginHorizontal: 20, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: 1, borderBottomColor: c.border },
   tokenIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   tokenImage: { width: '100%', height: '100%' },
   tokenLetter: { color: c.cream, fontWeight: '800' },
   tokenName: { color: c.text, fontWeight: '800', fontSize: 15 },
-  positionValue: { color: c.text, fontWeight: '800' },
+  positionValue: { color: c.text, fontWeight: '800', fontSize: 15 },
+  positionRight: { alignItems: 'flex-end', gap: 2 },
+  positionSub: { color: c.textMuted, fontSize: 12.5, marginTop: 2 },
+  positionPnl: { fontSize: 12.5, fontWeight: '700' },
+  positionDim: { opacity: 0.6 },
+  chainBadge: { position: 'absolute', right: -3, bottom: -3, borderRadius: 9, borderWidth: 2, borderColor: c.background, backgroundColor: c.background, overflow: 'hidden' },
+  unverifiedHead: { marginHorizontal: 20, marginTop: 6, paddingVertical: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  unverifiedTitle: { color: c.textMuted, fontWeight: '800', fontSize: 13.5 },
+  unverifiedChevron: { color: c.textMuted, fontSize: 14 },
   empty: { marginHorizontal: 18, marginTop: 12, padding: 22, borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, alignItems: 'center', gap: 6 },
   emptyIcon: { width: 54, height: 54, borderRadius: 16, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
   emptyGlyph: { color: c.accent, fontSize: 22 },
