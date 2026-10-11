@@ -43,7 +43,7 @@ import {fetchWalletPrices} from './walletPrices.ts';
 import type {DerivedAccounts} from '../wallet/keys';
 
 const RELAY_STATUS_URL = 'https://api.relay.link/intents/status/v3';
-const SOLANA_RPC_URL = 'https://rpc.solanatracker.io/public';
+export const SOLANA_RPC_URL = 'https://rpc.solanatracker.io/public';
 // Read-only token-account RPC only. Execution, simulation, signing, sending,
 // blockhashes, and confirmations continue to use SOLANA_RPC_URL unchanged.
 const SOLANA_TOKEN_ACCOUNT_READ_RPC_URL = 'https://api.mainnet.solana.com';
