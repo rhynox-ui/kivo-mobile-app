@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { notify, requestNotificationPermission } from '../notifications/localNotify';
 
 export type KivoNotification = {
   id: string;
@@ -47,6 +48,8 @@ export function setNotificationOwner(address: string | null) {
   notifications = [];
   emit();
   if (!next) return;
+  // Android 13+ asks once; earlier versions grant it at install.
+  if (!permissionAsked) { permissionAsked = true; void requestNotificationPermission(); }
   void AsyncStorage.getItem(KEY_PREFIX + next).then(raw => {
     if (generation !== ownerGeneration) return;
     const parsed: unknown = raw ? JSON.parse(raw) : [];
@@ -69,8 +72,15 @@ export function subscribeToNotifications(listener: (items: KivoNotification[]) =
 }
 
 /** Adds a notification for the active wallet. Without an active wallet nothing is recorded. */
-export function addNotification(title: string, body: string): KivoNotification | null {
+let permissionAsked = false;
+
+/**
+ * Records an in-app notification and, unless `system` is false, also shows it
+ * in the phone's notification shade (local only, nothing goes to a server).
+ */
+export function addNotification(title: string, body: string, options: {system?: boolean} = {}): KivoNotification | null {
   if (!owner) return null;
+  if (options.system !== false) void notify(title, body);
   const item: KivoNotification = {
     id: `notification-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     title,

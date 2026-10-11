@@ -1,7 +1,8 @@
 import React, {useEffect, useState} from 'react';
 import {Linking, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {kivoTheme} from '../theme/kivoTheme';
-import {explorerTxUrl, fetchRelayStatus, relayRequestUrl} from '@kivo/trading/kivo/execute';
+import {fetchRelayStatus, relayRequestUrl, transactionLink} from '@kivo/trading/kivo/execute';
+import {MAINNET_CHAIN_IDS, type ChainKey} from '@kivo/trading/core/chainData';
 import {subscribeToTradeHistory, updateTradeStatus, type TradeRecord} from '@kivo/trading/kivo/history';
 import {formatAmount, shortAddress} from '@kivo/trading/kivo/tokens';
 
@@ -37,9 +38,9 @@ export function ActivityScreen({onBack}: {onBack: () => void}) {
             <Text style={styles.subtitle} numberOfLines={1}>{trade.pay.amount} {trade.pay.symbol} → {trade.receive.amount?formatAmount(Number(trade.receive.amount)):'—'} {trade.receive.symbol}</Text>
             <Text style={styles.when}>{new Date(trade.createdAt).toLocaleString()}</Text>
             {trade.txHashes.map((hash,index)=>{
-              const url=explorerTxUrl(trade.chainIds[index]??trade.chainIds[0]??0,hash);
-              return <Pressable key={hash} disabled={!url} onPress={()=>url&&Linking.openURL(url)}>
-                <Text style={styles.link}>{trade.txHashes.length>1?`Transaction ${index+1}: `:''}{shortAddress(hash,10,6)}</Text>
+              const url=transactionLink(hash,trade.chainIds[index]??trade.chainIds[0],MAINNET_CHAIN_IDS[trade.token.chainKey as ChainKey]);
+              return <Pressable key={hash} hitSlop={8} onPress={()=>{Linking.openURL(url).catch(()=>{});}}>
+                <Text style={styles.link}>{trade.txHashes.length>1?`Transaction ${index+1}: `:''}{shortAddress(hash,10,6)}  ↗</Text>
               </Pressable>;
             })}
             {trade.requestId&&<View style={styles.actions}>

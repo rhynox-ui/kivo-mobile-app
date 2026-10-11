@@ -28,7 +28,8 @@ import { getWalletSession, loadWalletSession, subscribeToWallet, withDeviceAccou
 import { useSettings } from '../state/settingsStore';
 import { addNotification } from '../state/notificationStore';
 import { markOwnAction } from '../wallet/depositWatcher';
-import { CHAIN_LABEL, type ChainKey } from '@kivo/trading/core/chainData';
+import { CHAIN_LABEL, MAINNET_CHAIN_IDS, type ChainKey } from '@kivo/trading/core/chainData';
+import { transactionLink } from '@kivo/trading/kivo/execute';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, CASH_CHAINS, cashAssetSymbol, type CashBalanceRow } from '@kivo/trading/kivo/balances';
 import { isValidRecipientAddress, withdrawUsdc } from '@kivo/trading/kivo/cash';
 import { fetchGaslessStatus, type GaslessStatus } from '@kivo/trading/kivo/gasless';
@@ -409,6 +410,7 @@ function WithdrawSheet({
         // A NEAR withdrawal is delivered by NEAR Intents after the deposit lands; it is not "sent" yet.
         message: chain === 'near' ? `Submitted: ${amount} USDC from NEAR to ${shortAddress(to.trim())} on ${CHAIN_LABEL[destination]}. NEAR Intents delivers it in a few minutes.` : `Sent ${amount} USDC on ${CHAIN_LABEL[chain]}.`,
         hash: outcome.hash,
+        chainId: chain === 'near' ? undefined : MAINNET_CHAIN_IDS[chain as ChainKey],
       });
       addNotification(chain === 'near' ? 'Withdrawal submitted' : 'Withdrawal sent', `${amount} USDC to ${shortAddress(to.trim())}`);
       setAmount('');
@@ -525,6 +527,7 @@ This transfer cannot be reversed.`,
                         ? <Text style={styles.note}>Solana withdrawals use Kivo’s existing fee-sponsor path when your wallet does not have enough SOL for network fees.</Text>
                         : <Text style={styles.note}>EVM withdrawals require Kivo Relay sponsorship. Kivo never silently switches to a user-paid gas transfer.</Text>}
                     {result && <Text style={result.ok ? styles.ok : styles.warn}>{result.message}</Text>}
+                    {result?.hash ? <Pressable hitSlop={8} onPress={() => { Linking.openURL(transactionLink(result.hash!, result.chainId)).catch(() => {}); }}><Text style={styles.ok}>{shortAddress(result.hash)}  ↗ View on explorer</Text></Pressable> : null}
 
                     <Pressable disabled={!canReview} onPress={() => setReview(true)} style={[styles.primary, !canReview && styles.disabled]}>
                       <Text style={styles.primaryText}>Review withdrawal</Text>

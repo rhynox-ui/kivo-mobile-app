@@ -4,7 +4,7 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { CHAIN_LABEL, TOKEN_ADDRESSES, type ChainKey } from '@kivo/trading/core/chainData';
 import { fetchCashBalances, totalCashUsd, readTokenBalance, type CashBalanceRow, type TokenBalance } from '@kivo/trading/kivo/balances';
 import { planUnifiedBuy, totalSpendableCash, type UnifiedPlan } from '@kivo/trading/kivo/unified';
-import { explorerTxUrl, KivoExecutionError, preflightKivoQuote, relayRequestUrl, type ExecutionUpdate } from '@kivo/trading/kivo/execute';
+import { transactionLink, KivoExecutionError, preflightKivoQuote, relayRequestUrl, type ExecutionUpdate } from '@kivo/trading/kivo/execute';
 import { loadGaslessTradingEnabled } from '../settings/gaslessTradingPrefs';
 import { executeRelayQuote, getPartialTxHashes } from '@kivo/trading/core/executeRelayQuote';
 import bs58 from 'bs58';
@@ -238,7 +238,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       // Bookkeeping must never turn a sent trade into an error.
       void markOwnAction(address!).catch(() => {});
       recordTrade({ side, token: tokenInfo, pay: { amount: view.pay.amount, symbol: view.pay.symbol, chainKey: view.pay.chainKey }, receive: { amount: view.receive.amount, symbol: view.receive.symbol, chainKey: view.receive.chainKey }, txHashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId, status: outcome.status });
-      addNotification(outcome.status === 'success' ? 'Trade complete' : outcome.status === 'refunded' ? 'Trade refunded' : 'Trade submitted', `${side === 'buy' ? 'Buy' : 'Sell'} ${token.symbol}: ${view.pay.amount} ${view.pay.symbol}`);
+      addNotification(outcome.status === 'success' ? (side === 'buy' ? `Bought ${token.symbol}` : `Sold ${token.symbol}`) : outcome.status === 'refunded' ? 'Trade refunded' : 'Trade submitted', `${view.pay.amount} ${view.pay.symbol}${view.receive.amount ? ` → ${Number(view.receive.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${view.receive.symbol}` : ''} on ${chainLabel(token.chainKey)}`);
     } catch (error) {
       const hashes = error instanceof KivoExecutionError ? error.txHashes : [];
       const message = error instanceof Error ? error.message : 'Trade failed.';
@@ -488,8 +488,8 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
             )}
             {result && <Text style={result.tone === 'error' ? styles.error : styles.okText}>{result.message}</Text>}
             {result?.hashes.map((hash, index) => {
-              const url = explorerTxUrl(result.chainIds[index] ?? result.chainIds[0] ?? 0, hash);
-              return <Pressable key={hash} disabled={!url} onPress={() => url && Linking.openURL(url)}><Text style={styles.link}>Transaction {index + 1}: {shortAddress(hash, 10, 6)}</Text></Pressable>;
+              const url = transactionLink(hash, result.chainIds[index] ?? result.chainIds[0], token ? MAINNET_CHAIN_IDS[token.chainKey] : null);
+              return <Pressable key={hash} hitSlop={8} onPress={() => { Linking.openURL(url).catch(() => {}); }}><Text style={styles.link}>Transaction {index + 1}: {shortAddress(hash, 10, 6)}  ↗ View on explorer</Text></Pressable>;
             })}
             {result?.requestId && <Pressable onPress={() => Linking.openURL(relayRequestUrl(result.requestId!))}><Text style={styles.link}>Route status</Text></Pressable>}
             {result ? (

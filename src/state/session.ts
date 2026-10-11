@@ -108,7 +108,8 @@ export async function startKivoSession() {
     api,
     storage,
     maxPerConversation: 3000,
-    onIncoming: (conversation, message) => addNotification(conversation?.title ?? 'New message', message.text ? message.text.slice(0, 90) : '📷 Photo'),
+    // Shown in the phone's shade only while Kivo is in the background.
+    onIncoming: (conversation, message) => addNotification(conversation?.title ?? 'New message', message.text ? message.text.slice(0, 90) : '📷 Photo', { system: AppState.currentState !== 'active' }),
   });
   AppState.addEventListener('change', syncChatForAppState);
   subscribeToWallet(wallet => {

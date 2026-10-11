@@ -84,6 +84,22 @@ export function explorerTxUrl(chainId: number, hash: string): string | null {
   return base ? `${base.replace(/\/$/, '')}/tx/${hash}` : null;
 }
 
+/**
+ * Explorer link for any hash Kivo shows: Solana signatures open on Solscan,
+ * NEAR hashes on NearBlocks,
+ * EVM hashes on the chain's explorer, or Blockscan's multi-chain search when
+ * the chain is not known. Never null, so every hash can be tapped.
+ */
+export function transactionLink(hash: string, chainId?: number | null, fallbackChainId?: number | null): string {
+  if (/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(hash)) return `https://solscan.io/tx/${hash}`;
+  if (/^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(hash)) return `https://nearblocks.io/txns/${hash}`;
+  for (const id of [chainId, fallbackChainId]) {
+    const url = id ? explorerTxUrl(id, hash) : null;
+    if (url) return url;
+  }
+  return `https://blockscan.com/tx/${hash}`;
+}
+
 export function relayRequestUrl(requestId: string): string {
   return `https://relay.link/transaction/${requestId}`;
 }
