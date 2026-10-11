@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChatListScreen } from './ChatListScreen';
 import { ConversationScreen } from './ConversationScreen';
 import { CommunitiesScreen } from './CommunitiesScreen';
@@ -39,6 +39,13 @@ const TAB_GLYPH: Record<Tab, string> = { Chats: '💬', Discover: '◎', Trade: 
 
 export function MainShell({ onLogout }: { onLogout?: () => void }) {
   const [tab, setTab] = useState<Tab>('Chats');
+  const tabHistory = useRef<Tab[]>(['Chats']);
+  const changeTab = useCallback((next: Tab) => {
+    setTab(current => {
+      if (current !== next) tabHistory.current = [...tabHistory.current, next];
+      return next;
+    });
+  }, []);
   const [stack, setStack] = useState<View_[]>([{ name: 'main' }]);
   const [selectedToken, setSelectedToken] = useState<KivoToken | null>(null);
   const [tradeSide, setTradeSide] = useState<TradeSide>('buy');
@@ -47,8 +54,30 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
 
   const view = stack[stack.length - 1];
   const push = (next: View_) => setStack(s => [...s, next]);
-  const back = () => setStack(s => (s.length > 1 ? s.slice(0, -1) : s));
-  const home = (next: Tab) => { setStack([{ name: 'main' }]); setTab(next); };
+  const back = useCallback(() => setStack(s => (s.length > 1 ? s.slice(0, -1) : s)), []);
+  const home = (next: Tab) => { setStack([{ name: 'main' }]); changeTab(next); };
+
+  // Android system Back follows the in-app navigation history first. Nested
+  // pages are popped before returning to the previously visited bottom tab.
+  // At the app's root, return false so Android can use its normal exit behavior.
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (stack.length > 1) {
+        back();
+        return true;
+      }
+      if (tabHistory.current.length > 1) {
+        const history = [...tabHistory.current];
+        history.pop();
+        const previous = history[history.length - 1];
+        tabHistory.current = history;
+        setTab(previous);
+        return true;
+      }
+      return false;
+    });
+    return () => subscription.remove();
+  }, [stack.length, back]);
   const openChat = (id: string) => push({ name: 'conversation', id });
   const openCommunity = (id: string) => push({ name: 'community', id });
   const openToken = (token: KivoToken) => { setSelectedToken(token); push({ name: 'token' }); };
@@ -84,15 +113,15 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
           onEditProfile={() => push({ name: 'editProfile' })}
           onOpenChat={openChat}
           onOpenCommunities={() => push({ name: 'communities', kind: 'group' })}
-          onOpenTrade={() => setTab('Trade')}
-          onOpenChats={() => setTab('Chats')}
+          onOpenTrade={() => changeTab('Trade')}
+          onOpenChats={() => changeTab('Chats')}
           onOpenVerification={(subjectId, subjectName) => push({ name: 'verification', subjectType: 'profile', subjectId, subjectName })}
           onOpenToken={openToken}
         />}
       </View>
       <View style={styles.nav}>
         {(['Chats', 'Discover', 'Trade', 'Profile'] as Tab[]).map(item => (
-          <Pressable key={item} accessibilityRole="tab" accessibilityState={{ selected: tab === item }} onPress={() => setTab(item)} style={styles.navItem}>
+          <Pressable key={item} accessibilityRole="tab" accessibilityState={{ selected: tab === item }} onPress={() => changeTab(item)} style={styles.navItem}>
             <View>
               <Text style={[styles.navGlyph, tab === item && styles.navActive]}>{TAB_GLYPH[item]}</Text>
               {item === 'Chats' && unread > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{unread > 99 ? '99+' : unread}</Text></View>}
