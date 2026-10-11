@@ -26,6 +26,12 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode appVersionCode
         versionName appVersionName
+        // Phone CPUs only. x86_64 is for emulators/Chromebooks, and a prebuilt
+        // x86_64 library from react-native-keychain (Conceal) is not 16 KB
+        // aligned, which Google Play requires (scripts/check-apk-16kb.py).
+        ndk {
+            abiFilters "arm64-v8a", "armeabi-v7a"
+        }
     }
 
     signingConfigs {
