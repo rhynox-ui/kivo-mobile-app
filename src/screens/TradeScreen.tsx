@@ -252,7 +252,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       // Bookkeeping must never turn a sent trade into an error.
       void markOwnAction(address!).catch(() => {});
       recordTrade({ side, token: tokenInfo, pay: { amount: view.pay.amount, symbol: view.pay.symbol, chainKey: view.pay.chainKey }, receive: { amount: view.receive.amount, symbol: view.receive.symbol, chainKey: view.receive.chainKey }, txHashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId, status: outcome.status });
-      addNotification(outcome.status === 'success' ? (side === 'buy' ? `Bought ${token.symbol}` : `Sold ${token.symbol}`) : outcome.status === 'refunded' ? 'Trade refunded' : 'Trade submitted', `${Number(view.pay.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${view.pay.symbol}${view.receive.amount ? ` → ${Number(view.receive.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${view.receive.symbol}` : ''} on ${chainLabel(token.chainKey)}`);
+      addNotification(outcome.status === 'success' ? (side === 'buy' ? `Bought ${token.symbol}` : `Sold ${token.symbol}`) : outcome.status === 'refunded' ? 'Trade refunded' : 'Trade submitted', `${Number(view.pay.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${cashLabel(view.pay.symbol)}${view.receive.amount ? ` → ${Number(view.receive.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${cashLabel(view.receive.symbol)}` : ''} on ${chainLabel(token.chainKey)}`);
     } catch (error) {
       const hashes = error instanceof KivoExecutionError ? error.txHashes : [];
       const message = error instanceof Error ? error.message : 'Trade failed.';
@@ -278,7 +278,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const cashTotal = cash ? totalCashUsd(cash).total : null;
   const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && !extremePriceImpact && walletKind(wallet) === 'evm-local';
   const tradeChain: ChainKey | null = token?.chainKey ?? (selectedToken?.chainKey !== 'near' ? selectedToken?.chainKey ?? null : null);
-  const receiveSymbol = side === 'buy' ? token?.symbol ?? '' : token ? sellProceedsAsset(token.chainKey).symbol : '';
+  const receiveSymbol = side === 'buy' ? token?.symbol ?? '' : token ? cashLabel(sellProceedsAsset(token.chainKey).symbol) : '';
   const hint = extremePriceImpact ? 'Trade blocked — route price impact is above 50%.'
     : !wallet ? 'Create or import a Kivo wallet on this phone to trade.'
     : amountProblem ?? (parsed == null ? `Enter an amount to ${side} ${token?.symbol ?? ''}`
@@ -409,7 +409,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
             </View>
             {view && showDetails && (
               <View style={styles.details}>
-                <QuoteRow label="Minimum received" value={view.minimumReceived ? `${formatAmount(Number(view.minimumReceived))} ${view.receive.symbol}` : 'Not provided by route'} />
+                <QuoteRow label="Minimum received" value={view.minimumReceived ? `${formatAmount(Number(view.minimumReceived))} ${cashLabel(view.receive.symbol)}` : 'Not provided by route'} />
                 <QuoteRow label="Price impact" value={view.priceImpactPct == null ? '—' : `${view.priceImpactPct.toFixed(2)}%`} danger={view.priceImpactPct != null && Math.abs(view.priceImpactPct) >= 5} />
                 <QuoteRow label="Route fees" value={formatUsd(view.totalFeeUsd)} />
                 <QuoteRow label="Network gas" value="Paid by Kivo" />
@@ -483,9 +483,9 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
             <Text style={styles.sheetTitle}>Confirm {side}</Text>
             {view && <>
               <View style={styles.summary}>
-                <View style={styles.flex}><Text style={styles.small}>You pay</Text><Text style={styles.summaryValue}>{view.pay.amount} {view.pay.symbol}</Text><Text style={styles.small}>{CHAIN_LABEL[view.pay.chainKey]}</Text></View>
+                <View style={styles.flex}><Text style={styles.small}>You pay</Text><Text style={styles.summaryValue}>{view.pay.amount} {cashLabel(view.pay.symbol)}</Text><Text style={styles.small}>{CHAIN_LABEL[view.pay.chainKey]}</Text></View>
                 <Text style={styles.chevron}>›</Text>
-                <View style={[styles.flex, styles.right]}><Text style={styles.small}>Minimum received</Text><Text style={styles.summaryValue}>{view.minimumReceived ? formatAmount(Number(view.minimumReceived)) : '—'} {view.receive.symbol}</Text><Text style={styles.small}>{CHAIN_LABEL[view.receive.chainKey]}</Text></View>
+                <View style={[styles.flex, styles.right]}><Text style={styles.small}>Minimum received</Text><Text style={styles.summaryValue}>{view.minimumReceived ? formatAmount(Number(view.minimumReceived)) : '—'} {cashLabel(view.receive.symbol)}</Text><Text style={styles.small}>{CHAIN_LABEL[view.receive.chainKey]}</Text></View>
               </View>
               <QuoteRow label="Route fees" value={formatUsd(view.totalFeeUsd)} />
               <QuoteRow label="Network gas" value="Paid by Kivo" />
@@ -531,6 +531,11 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
 }
 
 const USDC_LOGO_URI = 'https://tokens.1inch.io/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.png';
+
+/** Robinhood's cash coin (USDG) is part of the one USDC cash balance, so it reads as USDC, like Mango Pro. */
+function cashLabel(symbol: string): string {
+  return symbol === 'USDG' ? 'USDC' : symbol;
+}
 
 function AssetChip({ symbol, uri }: { symbol: string; uri?: string | null }) {
   const imageUri = uri ?? (symbol.toUpperCase() === 'USDC' ? USDC_LOGO_URI : null);
