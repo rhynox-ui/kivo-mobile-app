@@ -15,7 +15,7 @@ import { ProfileLinkChips } from '../components/ProfileLinks';
 import { CHAIN_LABEL, tradeChainLabel } from '@kivo/trading/core/chainData';
 import { subscribeToTradeHistory, type TradeRecord } from '@kivo/trading/kivo/history';
 import { chartTotal, closedPositions, computePortfolioChange, fetchPortfolio, filterHistoryByRange, getPortfolioHistory, missingSourceNames, openHoldings, recordPortfolioSnapshot, type ChartTotal, type Portfolio, type PortfolioRange, type PortfolioSnapshot } from '@kivo/trading/kivo/portfolio';
-import { formatAmount, formatUsd } from '@kivo/trading/kivo/tokens';
+import { formatAmount, formatUsd, type KivoToken } from '@kivo/trading/kivo/tokens';
 import { ConvertCashSheet } from '../components/ConvertCashSheet';
 
 const RANGES: PortfolioRange[] = ['24h', '7d', '30d', 'All'];
@@ -34,15 +34,19 @@ function isUnverifiedHolding(holding: Holding): boolean {
   return holding.kind === 'token' && holding.source === 'indexer' && holding.valueUsd == null && holding.entryPriceUsd == null;
 }
 
+function tokenFrom(chainKey: Holding['chainKey'], tokenAddress: string, symbol: string, name: string, imageUrl: string | null, priceUsd: number | null): KivoToken {
+  return { chainKey, tokenAddress, symbol, name, imageUrl, priceUsd, change24h: null, marketCapUsd: null, liquidityUsd: null };
+}
+
 function signedUsd(value: number): string {
   return `${value >= 0 ? '+' : '−'}${formatUsd(Math.abs(value))}`;
 }
 
-function PositionRow({ h, hidden, money, unverified }: { h: Holding; hidden: boolean; money: (v: number) => string; unverified?: boolean }) {
+function PositionRow({ h, hidden, money, unverified, onPress }: { h: Holding; hidden: boolean; money: (v: number) => string; unverified?: boolean; onPress?: () => void }) {
   const hasPnl = !hidden && h.pnlUsd != null && Number.isFinite(h.pnlUsd);
   const pnlUp = (h.pnlUsd ?? 0) >= 0;
   return (
-    <View style={[styles.position, unverified && styles.positionDim]}>
+    <Pressable disabled={!onPress} onPress={onPress} accessibilityRole={onPress ? 'button' : undefined} style={({ pressed }) => [styles.position, unverified && styles.positionDim, pressed && styles.positionPressed]}>
       <View>
         <View style={styles.tokenIcon}><TokenIcon kind={h.kind} symbol={h.symbol} chainKey={h.chainKey as never} address={h.address} imageUrl={h.imageUrl} /></View>
         {h.kind !== 'cash' || h.chainKey ? <View style={styles.chainBadge}><NetworkIcon chainKey={h.chainKey as never} size={14} /></View> : null}
@@ -59,7 +63,7 @@ function PositionRow({ h, hidden, money, unverified }: { h: Holding; hidden: boo
           <Text style={styles.positionSub}>{formatUsd(h.priceUsd)}</Text>
         ) : null}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -68,7 +72,7 @@ function shouldHideSmallHolding(holding: Portfolio['holdings'][number]): boolean
 }
 
 /** Mango Pro profile layout with Kivo graphics: identity + social row, portfolio chart, cash, positions, joined groups. */
-export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onOpenNotifications, onEditProfile, onOpenChat, onOpenCommunities, onOpenTrade, onOpenChats, onOpenVerification }: {
+export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onOpenNotifications, onEditProfile, onOpenChat, onOpenCommunities, onOpenTrade, onOpenChats, onOpenVerification, onOpenToken }: {
   onOpenSettings: () => void;
   onOpenWallet: (action?: 'deposit' | 'withdraw') => void;
   onOpenHistory?: () => void;
@@ -79,6 +83,8 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   onOpenTrade?: () => void;
   onOpenChats?: () => void;
   onOpenVerification?: (subjectId: string, subjectName: string) => void;
+  /** Opens a held token's page (buy/sell from there). */
+  onOpenToken?: (token: KivoToken) => void;
 }) {
   const profile = useProfile();
   const chat = useChatState();
@@ -98,6 +104,11 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const [range, setRange] = useState<PortfolioRange>('24h');
   const [positionTab, setPositionTab] = useState<PositionTab>('open');
   const [convertOpen, setConvertOpen] = useState(false);
+  // Tokens open their page; cash opens Convert. Native coins (ETH, BNB, SOL…) have no token market page.
+  const positionPress = (h: Holding): (() => void) | undefined =>
+    h.kind === 'cash' ? () => setConvertOpen(true)
+      : h.kind === 'token' && onOpenToken ? () => onOpenToken(tokenFrom(h.chainKey, h.address, h.symbol, h.name, h.imageUrl, h.priceUsd))
+        : undefined;
   const [filter, setFilter] = useState<PositionFilter>('all');
   const [verificationStatus, setVerificationStatus] = useState<{isVerified: boolean; expiresAt: number | null; permanent: boolean} | null>(null);
   const [verifiedChannels, setVerifiedChannels] = useState<Set<string>>(() => new Set());
@@ -309,16 +320,16 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
       {!portfolio ? (portfolioError || !wallet ? <Empty title="Balances unavailable" body={portfolioError ?? 'Connect a wallet to see balances.'} /> : <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 16 }} />)
         : positionTab === 'open'
           ? (visibleOpen.length ? visibleOpen.map(h => (
-            <PositionRow key={h.key} h={h} hidden={hidden} money={money} />
+            <PositionRow key={h.key} h={h} hidden={hidden} money={money} onPress={positionPress(h)} />
           )) : <Empty title="No positions yet" body="Your tokens and trading positions will appear here." />)
           : (closed.length ? closed.map(p => (
-            <View key={p.key} style={styles.position}>
+            <Pressable key={p.key} disabled={!onOpenToken} onPress={() => onOpenToken?.(tokenFrom(p.chainKey, p.address, p.symbol, p.symbol, p.imageUrl, null))} accessibilityRole="button" style={({ pressed }) => [styles.position, pressed && styles.positionPressed]}>
               <View>
                 <View style={styles.tokenIcon}><TokenIcon kind="token" symbol={p.symbol} chainKey={p.chainKey as never} address={p.address} imageUrl={p.imageUrl} /></View>
                 <View style={styles.chainBadge}><NetworkIcon chainKey={p.chainKey as never} size={14} /></View>
               </View>
               <View style={styles.flex}><Text style={styles.tokenName}>{p.symbol}</Text><Text style={styles.positionSub}>Closed · {tradeChainLabel(p.chainKey)}</Text></View>
-            </View>
+            </Pressable>
           )) : <Empty title="No closed positions" body="Tokens you fully sell appear here." />)}
       {portfolio && positionTab === 'open' && unverifiedOpen.length > 0 ? (
         <View>
@@ -329,7 +340,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
           {showUnverified ? (
             <>
               <Text style={[styles.small, styles.padded]}>Sent to your wallet, not bought in Kivo, and no market price found. Often airdrop spam: don't open links or approve anything for them.</Text>
-              {unverifiedOpen.map(h => <PositionRow key={h.key} h={h} hidden={hidden} money={money} unverified />)}
+              {unverifiedOpen.map(h => <PositionRow key={h.key} h={h} hidden={hidden} money={money} unverified onPress={positionPress(h)} />)}
             </>
           ) : null}
         </View>
@@ -480,6 +491,7 @@ const styles = StyleSheet.create({
   positionRight: { alignItems: 'flex-end', gap: 2 },
   positionSub: { color: c.textMuted, fontSize: 12.5, marginTop: 2 },
   positionPnl: { fontSize: 12.5, fontWeight: '700' },
+  positionPressed: { opacity: 0.7 },
   positionDim: { opacity: 0.6 },
   chainBadge: { position: 'absolute', right: -3, bottom: -3, borderRadius: 9, borderWidth: 2, borderColor: c.background, backgroundColor: c.background, overflow: 'hidden' },
   unverifiedHead: { marginHorizontal: 20, marginTop: 6, paddingVertical: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

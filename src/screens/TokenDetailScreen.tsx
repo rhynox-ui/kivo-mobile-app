@@ -8,6 +8,7 @@ import { LineChart } from '../components/LineChart';
 import { MAINNET_CHAIN_IDS } from '@kivo/trading/core/chainData';
 import { checkSolanaTokenSecurity, checkTokenSecurity, type TokenSecuritySummary } from '@kivo/trading/core/goplusTokenSecurity';
 import { openHttpsUrl } from '../utils/openExternal';
+import Clipboard from '@react-native-clipboard/clipboard';
 
 const RANGES: ChartRange[] = ['1H', '1D', '1W', '1M'];
 
@@ -25,6 +26,7 @@ export function TokenDetailScreen({ token, onBuy, onSell, onBack, onMarket }: {
   const [candles, setCandles] = useState<Candle[] | null>(null);
   const [security, setSecurity] = useState<TokenSecuritySummary | null>(null);
   const [securityLoading, setSecurityLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -81,7 +83,12 @@ export function TokenDetailScreen({ token, onBuy, onSell, onBack, onMarket }: {
         {live.imageUrl ? <Image source={{ uri: live.imageUrl }} style={styles.icon} /> : <View style={styles.icon}><Text style={styles.letter}>{live.symbol.slice(0, 1).toUpperCase()}</Text></View>}
         <View style={styles.flex}>
           <Text style={styles.name} numberOfLines={1}>{live.name}</Text>
-          <Text style={styles.muted}>{live.symbol} · {chainLabel(live.chainKey)} · {shortAddress(live.tokenAddress)}</Text>
+          <View style={styles.caRow}>
+            <Text style={styles.muted} numberOfLines={1}>{live.symbol} · {chainLabel(live.chainKey)} · </Text>
+            <Pressable onPress={() => { Clipboard.setString(live.tokenAddress); setCopied(true); setTimeout(() => setCopied(false), 2000); }} hitSlop={8} style={styles.caChip} accessibilityRole="button" accessibilityLabel="Copy contract address">
+              <Text style={styles.caText}>{copied ? 'Copied ✓' : `${shortAddress(live.tokenAddress)} ⧉`}</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
 
@@ -158,6 +165,9 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   name: { color: c.text, fontSize: 18, fontWeight: '800' },
   muted: { color: c.textMuted, fontSize: 12, lineHeight: 18 },
+  caRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2 },
+  caChip: { borderRadius: kivoTheme.radius.pill, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, paddingHorizontal: 8, paddingVertical: 2 },
+  caText: { color: c.accent, fontSize: 12, fontWeight: '700' },
   price: { color: c.cream, fontSize: 34, fontWeight: '800', marginTop: 20 },
   change: { fontSize: 13, marginTop: 2, fontWeight: '700' },
   ranges: { flexDirection: 'row', gap: 6, marginTop: 16 },
