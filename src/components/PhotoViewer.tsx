@@ -53,7 +53,9 @@ export function PhotoViewer({ uri, title, subtitle, onClose, onReply }: PhotoVie
     setDataUrl(null); setError(null); setSaveNote(null); setMenuOpen(false);
     if (!uri) return;
     let active = true;
-    api.fetchMedia(uri)
+    // A photo still uploading (or failed) is the picker's local file; server photos need the session.
+    const load = /^(file|content):/i.test(uri) ? fetch(uri).then(response => response.blob()) : api.fetchMedia(uri);
+    load
       .then(blobToDataUrl)
       .then(url => { if (active) setDataUrl(url); })
       .catch(e => { if (active) setError(e instanceof Error ? e.message : 'Could not load this photo.'); });
