@@ -339,6 +339,8 @@ function WithdrawSheet({
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
   const [review, setReview] = useState(false);
+  // Full result screen after a send (success or failure), instead of a small line of text.
+  const [showOutcome, setShowOutcome] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string; hash?: string; chainId?: number } | null>(null);
 
   // Mango parity: the withdrawal picker always shows every supported cash network, not only networks with a positive balance. The selected network then shows its live available balance (including 0), so users can still choose the network before funding it.
@@ -357,6 +359,7 @@ function WithdrawSheet({
     if (!visible) return;
     setResult(null);
     setReview(false);
+    setShowOutcome(false);
     setTo('');
     setAmount('');
     setChain(null);
@@ -415,9 +418,11 @@ function WithdrawSheet({
       setAmount('');
       setTo('');
       setReview(false);
+      setShowOutcome(true);
       onDone();
     } catch (error) {
       setResult({ ok: false, message: error instanceof Error ? error.message : 'Withdrawal failed. Nothing was sent.' });
+      setShowOutcome(true);
     } finally {
       setBusy(false);
     }
@@ -435,7 +440,22 @@ function WithdrawSheet({
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable style={styles.backdrop} onPress={() => { if (!busy) onClose(); }}>
           <Pressable style={styles.sheet} onPress={() => {}}>
-            {!review ? (
+            {showOutcome && result ? (
+              <View style={styles.outcome}>
+                <View style={[styles.outcomeIcon, result.ok ? styles.outcomeIconOk : styles.outcomeIconFail]}>
+                  <Text style={styles.outcomeIconText}>{result.ok ? '✓' : '✕'}</Text>
+                </View>
+                <Text style={styles.outcomeTitle}>{result.ok ? (chain === 'near' ? 'Withdrawal submitted' : 'Withdrawal sent') : 'Withdrawal failed'}</Text>
+                <Text style={styles.outcomeBody}>{result.message}</Text>
+                {result.hash ? (
+                  <Pressable hitSlop={8} onPress={() => { Linking.openURL(transactionLink(result.hash!, result.chainId)).catch(() => {}); }}>
+                    <Text style={styles.outcomeLink}>{shortAddress(result.hash)}  ↗ View on explorer</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable onPress={() => { setShowOutcome(false); setResult(null); onClose(); }} style={[styles.primary, styles.outcomeButton]}><Text style={styles.primaryText}>Done</Text></Pressable>
+                {!result.ok ? <Pressable onPress={() => { setShowOutcome(false); setResult(null); }} style={styles.ghost}><Text style={styles.ghostText}>Try again</Text></Pressable> : null}
+              </View>
+            ) : !review ? (
               <>
                 <View style={styles.sheetHeader}>
                   <Text style={styles.sheetTitle}>Withdraw USDC</Text>
@@ -663,6 +683,15 @@ const styles = StyleSheet.create({
   confirmCancel: { borderWidth: 1, borderColor: c.border },
   confirmCancelText: { color: c.cream, fontWeight: '800', fontSize: 15 },
   confirmGo: { backgroundColor: c.accent },
+  outcome: { alignItems: 'center', paddingTop: 8, paddingBottom: 4 },
+  outcomeIcon: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  outcomeIconOk: { backgroundColor: c.accent },
+  outcomeIconFail: { backgroundColor: c.danger },
+  outcomeIconText: { color: c.backgroundDeep, fontSize: 34, fontWeight: '900' },
+  outcomeTitle: { color: c.cream, fontSize: 20, fontWeight: '900', textAlign: 'center' },
+  outcomeBody: { color: c.textMuted, fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 8, paddingHorizontal: 8 },
+  outcomeLink: { color: c.accent, fontWeight: '800', fontSize: 13.5, marginTop: 12 },
+  outcomeButton: { alignSelf: 'stretch', marginTop: 20 },
   ghost: { height: 44, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   ghostText: { color: c.cream, fontWeight: '800' },
   disabled: { opacity: 0.45 },
