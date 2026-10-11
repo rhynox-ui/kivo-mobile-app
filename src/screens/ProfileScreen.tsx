@@ -17,6 +17,7 @@ import { subscribeToTradeHistory, type TradeRecord } from '@kivo/trading/kivo/hi
 import { chartTotal, closedPositions, computePortfolioChange, fetchPortfolio, filterHistoryByRange, getPortfolioHistory, missingSourceNames, openHoldings, recordPortfolioSnapshot, type ChartTotal, type Portfolio, type PortfolioRange, type PortfolioSnapshot } from '@kivo/trading/kivo/portfolio';
 import { formatAmount, formatUsd, type KivoToken } from '@kivo/trading/kivo/tokens';
 import { ConvertCashSheet } from '../components/ConvertCashSheet';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const RANGES: PortfolioRange[] = ['24h', '7d', '30d', 'All'];
 type PositionTab = 'open' | 'closed';
@@ -67,6 +68,20 @@ function PositionRow({ h, hidden, money, unverified, onPress }: { h: Holding; hi
   );
 }
 
+// Last answers saved on the phone so Profile opens instantly (badge, balances)
+// and refreshes in the background; the pull-to-refresh spinner shows while it does.
+type VerificationStatus = {isVerified: boolean; expiresAt: number | null; permanent: boolean};
+const VERIFICATION_CACHE = 'kivo:profile-verification:v1:';
+const PORTFOLIO_CACHE = 'kivo:profile-portfolio:v1:';
+const verificationMemory = new Map<string, VerificationStatus>();
+const portfolioMemory = new Map<string, {portfolio: Portfolio; chart: ChartTotal}>();
+async function readCache<T>(key: string): Promise<T | null> {
+  try { const raw = await AsyncStorage.getItem(key); return raw ? (JSON.parse(raw) as T) : null; } catch { return null; }
+}
+function writeCache(key: string, value: unknown) {
+  AsyncStorage.setItem(key, JSON.stringify(value)).catch(() => {});
+}
+
 function shouldHideSmallHolding(holding: Portfolio['holdings'][number]): boolean {
   return holding.kind !== 'native' && holding.valueUsd != null && Number.isFinite(holding.valueUsd) && holding.valueUsd < SMALL_BALANCE_THRESHOLD_USD;
 }
@@ -110,7 +125,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
       : h.kind === 'token' && onOpenToken ? () => onOpenToken(tokenFrom(h.chainKey, h.address, h.symbol, h.name, h.imageUrl, h.priceUsd))
         : undefined;
   const [filter, setFilter] = useState<PositionFilter>('all');
-  const [verificationStatus, setVerificationStatus] = useState<{isVerified: boolean; expiresAt: number | null; permanent: boolean} | null>(null);
+  const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(() => verificationMemory.get(profile.userId) ?? null);
   const [verifiedChannels, setVerifiedChannels] = useState<Set<string>>(() => new Set());
   useEffect(() => subscribeToWallet(setWallet), []);
   useEffect(() => subscribeToTradeHistory(setTrades), []);
@@ -119,12 +134,24 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   // enabling the separate social/chat session.
   const loadVerification = useCallback(() => {
     // A failed refresh keeps the last server answer instead of flickering the badge or the Get Verified button.
-    api.verificationStatus('profile', profile.userId).then(setVerificationStatus).catch(() => {});
+    const userId = profile.userId;
+    api.verificationStatus('profile', userId).then(status => {
+      verificationMemory.set(userId, status);
+      writeCache(VERIFICATION_CACHE + userId, status);
+      setVerificationStatus(status);
+    }).catch(() => {});
   }, [profile.userId]);
   useEffect(() => {
     // Never carry the previous account's verified presentation across an
     // account switch while the new server status is still loading.
-    setVerificationStatus(null);
+    // A saved answer for this same account is shown until the server replies.
+    const userId = profile.userId;
+    setVerificationStatus(verificationMemory.get(userId) ?? null);
+    if (!verificationMemory.has(userId)) {
+      void readCache<VerificationStatus>(VERIFICATION_CACHE + userId).then(saved => {
+        if (saved && !verificationMemory.has(userId)) setVerificationStatus(current => current ?? saved);
+      });
+    }
     loadVerification();
     // Keep the profile badge in sync after checkout activates a subscription,
     // without polling in the background. The Profile tab is unmounted when
@@ -156,11 +183,21 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   useEffect(() => {
     // Never show the previous wallet's balances, chart or error for a new wallet.
     requestSeq.current += 1;
-    setPortfolio(null);
+    const saved = walletAddress ? portfolioMemory.get(walletAddress) : undefined;
+    setPortfolio(saved?.portfolio ?? null);
     setHistory([]);
-    setChart(null);
+    setChart(saved?.chart ?? null);
     setPortfolioError(null);
     setLoading(false);
+    // This wallet's last balances, saved on the phone, while fresh ones load.
+    if (walletAddress && !saved) {
+      const seq = requestSeq.current;
+      void readCache<{portfolio: Portfolio; chart: ChartTotal}>(PORTFOLIO_CACHE + walletAddress.toLowerCase()).then(cached => {
+        if (!cached || seq !== requestSeq.current || walletRef.current !== walletAddress) return;
+        setPortfolio(current => current ?? cached.portfolio);
+        setChart(current => current ?? cached.chart);
+      });
+    }
   }, [walletAddress]);
 
   const load = useCallback(async (forceFresh = false) => {
@@ -179,6 +216,8 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
       if (!current()) return;
       setPortfolio(next);
       setChart(nextChart);
+      portfolioMemory.set(owner, {portfolio: next, chart: nextChart});
+      writeCache(PORTFOLIO_CACHE + owner.toLowerCase(), {portfolio: next, chart: nextChart});
       setHistory(nextHistory);
       setPortfolioError(null);
     } catch {
