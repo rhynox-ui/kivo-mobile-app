@@ -32,7 +32,7 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [composing, setComposing] = useState(false);
-  const [publicChannels, setPublicChannels] = useState<ApiCommunity[]>([]);
+  const [publicCommunities, setPublicCommunities] = useState<ApiCommunity[]>([]);
   const [verificationRefreshTick, setVerificationRefreshTick] = useState(0);
 
   // One shared timer refreshes conversations and asks mounted rows to refresh
@@ -52,15 +52,18 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
     return state.conversations.filter(c => (filter === 'all' || c.kind === filter) && (!q || c.title.toLowerCase().includes(q)));
   }, [state.conversations, filter, query]);
 
+  // Public groups and channels you have not joined yet (Chats = DMs only).
   useEffect(() => {
-    if (filter !== 'channel' || !ready) { setPublicChannels([]); return; }
+    if (filter === 'dm' || !ready) { setPublicCommunities([]); return; }
     let active = true;
-    api.discover('channel', query.trim()).then(found => {
-      if (!active) return;
-      const joined = new Set(state.conversations.filter(c => c.kind === 'channel').map(c => c.id));
-      setPublicChannels(found.filter(c => !joined.has(c.id)));
-    }).catch(() => { if (active) setPublicChannels([]); });
-    return () => { active = false; };
+    const timer = setTimeout(() => {
+      api.discover(filter === 'all' ? undefined : filter, query.trim()).then(found => {
+        if (!active) return;
+        const joined = new Set(state.conversations.map(c => c.id));
+        setPublicCommunities(found.filter(c => c.visibility === 'public' && !c.myRole && !joined.has(c.id)));
+      }).catch(() => { if (active) setPublicCommunities([]); });
+    }, query.trim() ? 300 : 0);
+    return () => { active = false; clearTimeout(timer); };
   }, [filter, query, ready, state.conversations]);
 
   if (!ready) return <EnableSocial />;
@@ -89,14 +92,15 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
         data={list}
         keyExtractor={item => item.id}
         renderItem={({ item }) => <Row conversation={item} verificationRefreshTick={verificationRefreshTick} onPress={() => onOpenChat(item.id)} />}
-        ListEmptyComponent={filter === 'channel' && publicChannels.length ? undefined : <View style={styles.empty}><Text style={styles.emptyTitle}>{filter === 'channel' ? 'No channels yet' : 'No chats yet'}</Text><Text style={styles.muted}>Discover public channels or join communities to see them here.</Text></View>}
-        ListFooterComponent={filter === 'channel' && publicChannels.length ? <View style={styles.discoverSection}>
-          {publicChannels.map(c => <Pressable key={c.id} style={styles.row} onPress={async () => {
+        ListEmptyComponent={publicCommunities.length ? undefined : <View style={styles.empty}><Text style={styles.emptyTitle}>{filter === 'channel' ? 'No channels yet' : filter === 'group' ? 'No groups yet' : 'No chats yet'}</Text><Text style={styles.muted}>{filter === 'dm' ? 'Tap ✎ to message someone.' : 'Public groups and channels you can join will show here.'}</Text></View>}
+        ListFooterComponent={publicCommunities.length ? <View style={styles.discoverSection}>
+          <Text style={styles.discoverTitle}>{filter === 'channel' ? 'Public channels' : filter === 'group' ? 'Public groups' : 'Discover groups and channels'}</Text>
+          {publicCommunities.map(c => <Pressable key={c.id} style={({ pressed }) => [styles.row, pressed && styles.pressed]} onPress={async () => {
             try { await api.join(c.id); await refreshConversations().catch(() => {}); onOpenChat(c.id); }
-            catch (e) { kivoAlert(c.name, e instanceof Error ? e.message : 'Unable to subscribe to channel.'); }
+            catch (e) { kivoAlert(c.name, e instanceof Error ? e.message : c.kind === 'channel' ? 'Unable to subscribe to channel.' : 'Unable to join group.'); }
           }}>
             <Avatar name={c.name} uri={c.avatarUrl} size={52} verified={c.isVerified === true} />
-            <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>📢 {c.name}{c.isVerified === true ? ' ★' : ''}</Text></View><Text style={styles.preview}>Public channel · Tap to subscribe</Text></View>
+            <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>{c.kind === 'channel' ? '📢 ' : '👥 '}{c.name}{c.isVerified === true ? ' ★' : ''}</Text></View><Text style={styles.preview} numberOfLines={1}>{c.kind === 'channel' ? `Public channel · ${c.memberCount.toLocaleString()} subscriber${c.memberCount === 1 ? '' : 's'} · Tap to subscribe` : `Public group · ${c.memberCount.toLocaleString()} member${c.memberCount === 1 ? '' : 's'} · Tap to join`}</Text></View>
           </Pressable>)}
         </View> : undefined}
         contentContainerStyle={styles.listContent}
