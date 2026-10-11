@@ -210,6 +210,36 @@ export type RelayQuote = {
  */
 const quoteIntents = new WeakMap<object, {intent: TransactionIntent; quotedAt: number}>();
 
+/** Kivo's quote proxy reports whether Relay accepted sponsorship (x-kivo-sponsorship); kept per quote for diagnostics. */
+const quoteSponsorship = new WeakMap<object, string>();
+
+const usd = (value: unknown): string | null => {
+  const n = Number(value);
+  return Number.isFinite(n) ? `$${Math.abs(n) < 0.01 && n !== 0 ? Math.abs(n).toFixed(4) : Math.abs(n).toFixed(2)}` : null;
+};
+
+/**
+ * One-line cost breakdown of a quote, straight from Relay's numbers, shown
+ * when Kivo blocks a trade as too expensive so the real cause is visible
+ * (which fee, and whether sponsorship was applied).
+ */
+export function describeQuoteCost(quote: RelayQuote): string {
+  const d = quote?.details;
+  const x = quote?.expandedPriceImpact ?? d?.expandedPriceImpact;
+  const parts: string[] = [];
+  const pay = usd(d?.currencyIn?.amountUsd), get = usd(d?.currencyOut?.amountUsd);
+  if (pay || get) parts.push(`pay ${pay ?? '?'} → get ${get ?? '?'}`);
+  const named: Array<[string, unknown]> = x
+    ? [['swap', x.swap?.usd], ['relay', x.relay?.usd], ['gas', x.execution?.usd], ['app', x.app?.usd], ['sponsored', x.sponsored?.usd]]
+    : [['gas', quote?.fees?.gas?.amountUsd], ['relayer', quote?.fees?.relayer?.amountUsd ?? quote?.fees?.relayerService?.amountUsd], ['app', quote?.fees?.app?.amountUsd]];
+  const fees = named.map(([k, v]) => (usd(v) ? `${k} ${usd(v)}` : null)).filter(Boolean);
+  if (fees.length) parts.push(fees.join(', '));
+  if (d?.swapImpact?.percent != null) parts.push(`swap impact ${Number(d.swapImpact.percent).toFixed(1)}%`);
+  const sponsorship = quoteSponsorship.get(quote);
+  if (sponsorship) parts.push(`sponsorship ${sponsorship}`);
+  return parts.join(' · ');
+}
+
 /** Reads back the intent+timestamp getRelayQuote() tagged this exact quote object with — undefined for any quote not obtained from getRelayQuote(). */
 export function intentForQuote(quote: RelayQuote): {intent: TransactionIntent; quotedAt: number} | undefined {
   return quoteIntents.get(quote);
@@ -318,6 +348,7 @@ export async function getRelayQuote(params: GetRelayQuoteParams): Promise<RelayQ
     throw new Error(`Relay quote failed (${res.status}): ${reason || res.statusText || 'Relay gave no reason. Try again in a minute.'}`);
   }
   let quote = (await res.json()) as RelayQuote;
+  let sponsorship = res.headers.get('x-kivo-sponsorship');
 
   // Relay already runs a competitive filler market, so do not add another
   // router or alter normal quotes. The one safe optimization here is a
@@ -337,7 +368,7 @@ export async function getRelayQuote(params: GetRelayQuoteParams): Promise<RelayQ
       const retry = await postRelayQuote(body);
       if (retry.ok) {
         const candidate = (await retry.json()) as RelayQuote;
-        if (isBetterExactInputQuote(candidate, quote)) quote = candidate;
+        if (isBetterExactInputQuote(candidate, quote)) { quote = candidate; sponsorship = retry.headers.get('x-kivo-sponsorship'); }
       }
     } catch {
       // Quote optimization is strictly best-effort. Never turn a valid
@@ -350,6 +381,7 @@ export async function getRelayQuote(params: GetRelayQuoteParams): Promise<RelayQ
   // firewall check circular. quotedAt rides in the same entry so
   // executeRelayQuote.ts can refuse a stale quote's gas/rate numbers
   // without a second, separate tagging mechanism.
+  if (quote && typeof quote === 'object' && sponsorship) quoteSponsorship.set(quote, sponsorship);
   if (quote && typeof quote === 'object') {
     quoteIntents.set(quote, {
       intent: buildTransactionIntent({

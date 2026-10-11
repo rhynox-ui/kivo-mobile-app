@@ -18,6 +18,7 @@
 import type {ChainKey} from '../core/chainData';
 import type {CashBalanceRow} from './balances';
 import {requestKivoQuote, type KivoQuote, type KivoQuoteView} from './quote';
+import {describeQuoteCost} from '../core/relayQuote';
 import type {KivoToken} from './tokens';
 import {spendableCash} from './balances';
 
@@ -70,7 +71,7 @@ export async function planUnifiedBuy(params: {
         tokenDecimals, slippageBps, execution: 'gasless',
       });
       const impact = quote.view.priceImpactPct;
-      if (impact != null && Math.abs(impact) > EXTREME_PRICE_IMPACT_PCT) throw new Error(Math.abs(impact) >= 100 ? 'Fees for this route are more than the amount itself, so Kivo blocked it. Try a larger amount, or a token on the same network as your USDC.' : `Fees and price impact would take about ${Math.round(Math.abs(impact))}% of this trade, so Kivo blocked it. Small amounts cost relatively more; try a larger amount.`);
+      if (impact != null && Math.abs(impact) > EXTREME_PRICE_IMPACT_PCT) throw new Error(`${Math.abs(impact) >= 100 ? 'Fees for this route are more than the amount itself, so Kivo blocked it. Try a larger amount, or a token on the same network as your USDC.' : `Fees and price impact would take about ${Math.round(Math.abs(impact))}% of this trade, so Kivo blocked it. Small amounts cost relatively more; try a larger amount.`}\n\nDetails: ${describeQuoteCost(quote.quote)}`);
       if (quote.view.unsupportedReason) throw new Error(quote.view.unsupportedReason);
       const outUsd = quote.view.receive.usd;
       const outAmount = Number(quote.view.receive.amount ?? NaN);
