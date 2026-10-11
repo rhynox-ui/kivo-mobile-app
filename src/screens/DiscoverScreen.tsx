@@ -102,8 +102,8 @@ function People({ onOpenPerson }: { onOpenPerson: (userId: string) => void }) {
 const c = kivoTheme.colors;
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: c.background },
-  switcher: { flexDirection: 'row', marginHorizontal: 16, marginTop: 10, marginBottom: 4, padding: 4, borderRadius: 999, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
-  tab: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 999 },
+  switcher: { flexDirection: 'row', marginHorizontal: 16, marginTop: 6, marginBottom: 2, padding: 3, borderRadius: 999, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+  tab: { flex: 1, alignItems: 'center', paddingVertical: 6, borderRadius: 999 },
   activeTab: { backgroundColor: c.cream },
   tabText: { color: c.textMuted, fontSize: 11, fontWeight: '800' },
   activeText: { color: c.backgroundDeep },

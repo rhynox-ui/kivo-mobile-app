@@ -84,9 +84,6 @@ export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: Token
 
   return (
     <View style={styles.root}>
-      <Text style={styles.eyebrow}>KIVO SEARCH</Text>
-      <Text style={styles.title}>What do you want to buy?</Text>
-
       <View style={styles.filterBar} onLayout={event => setMenuTop(event.nativeEvent.layout.y + event.nativeEvent.layout.height + 4)}>
         <Pressable onPress={() => setSortOpen(open => !open)} style={[styles.sortButton, sort !== 'default' && styles.sortButtonActive]} accessibilityRole="button" accessibilityLabel="Sort tokens" hitSlop={4}>
           <View style={[styles.sortLine, { width: 14 }]} /><View style={[styles.sortLine, { width: 10 }]} /><View style={[styles.sortLine, { width: 6 }]} />
@@ -190,10 +187,8 @@ function TokenRow({ result, onPress }: { result: TokenSearchResult; onPress: () 
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: kivoTheme.colors.background, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 0 },
-  eyebrow: { color: kivoTheme.colors.accent, fontSize: 9, fontWeight: '800', letterSpacing: 1.8, marginBottom: 2 },
-  title: { color: kivoTheme.colors.text, fontSize: 22, lineHeight: 27, fontWeight: '800', marginTop: 2, marginBottom: 12 },
-  filterBar: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  root: { flex: 1, backgroundColor: kivoTheme.colors.background, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 0 },
+  filterBar: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   filterScroll: { flexGrow: 0, flexShrink: 1 },
   sortButton: { width: 30, height: 28, borderRadius: 10, borderWidth: 1, borderColor: kivoTheme.colors.border, backgroundColor: kivoTheme.colors.surface, alignItems: 'center', justifyContent: 'center', gap: 2.5 },
   sortButtonActive: { borderColor: kivoTheme.colors.accent },
@@ -210,16 +205,16 @@ const styles = StyleSheet.create({
   filterActive: { backgroundColor: kivoTheme.colors.cream, borderColor: kivoTheme.colors.cream },
   filterText: { color: kivoTheme.colors.textMuted, fontSize: 10, fontWeight: '700' },
   filterTextActive: { color: kivoTheme.colors.backgroundDeep },
-  searchBox: { minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: kivoTheme.colors.border, backgroundColor: kivoTheme.colors.surface, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 },
-  searchGlyph: { color: kivoTheme.colors.textMuted, fontSize: 21, lineHeight: 24, marginRight: 6 },
-  input: { flex: 1, color: kivoTheme.colors.text, fontSize: 14, paddingVertical: 8 },
+  searchBox: { minHeight: 38, borderRadius: 12, borderWidth: 1, borderColor: kivoTheme.colors.border, backgroundColor: kivoTheme.colors.surface, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 },
+  searchGlyph: { color: kivoTheme.colors.textMuted, fontSize: 18, lineHeight: 21, marginRight: 6 },
+  input: { flex: 1, color: kivoTheme.colors.text, fontSize: 14, paddingVertical: 6 },
   state: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28, paddingBottom: 100 },
   stateTitle: { color: kivoTheme.colors.text, fontSize: 18, fontWeight: '800', marginBottom: 7 },
   hint: { color: kivoTheme.colors.textMuted, fontSize: 13, lineHeight: 20, textAlign: 'center' },
   retry: { marginTop: 14, paddingHorizontal: 18, height: 38, borderRadius: 19, backgroundColor: kivoTheme.colors.surfaceRaised, justifyContent: 'center' },
   retryText: { color: kivoTheme.colors.cream, fontWeight: '800' },
   list: { paddingTop: 4, paddingBottom: 28 },
-  sectionTitle: { color: kivoTheme.colors.text, fontSize: 16, fontWeight: '800', marginTop: 8, marginBottom: 2 },
+  sectionTitle: { color: kivoTheme.colors.text, fontSize: 15, fontWeight: '800', marginTop: 6, marginBottom: 0 },
   row: { minHeight: 64, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: kivoTheme.colors.border, paddingVertical: 8 },
   rowPressed: { opacity: 0.72 },
   icon: { width: 40, height: 40, borderRadius: 13, backgroundColor: kivoTheme.colors.surfaceRaised },
