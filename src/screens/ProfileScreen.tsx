@@ -66,11 +66,25 @@ function PositionRow({ h, hidden, money, unverified, onPress }: { h: Holding; hi
       <View style={styles.flex}>
         <Text style={styles.tokenName} numberOfLines={1}>{h.symbol}</Text>
         <Text style={styles.positionSub} numberOfLines={1}>{hidden ? '••••' : `${formatAmount(h.amount)} ${h.symbol}`}</Text>
+        {h.entryMarketCapUsd != null && h.entryMarketCapUsd > 0 ? (
+          <Text style={styles.positionMc} numberOfLines={1}>
+            Entry MC <Text style={styles.positionMcValue}>{formatUsd(h.entryMarketCapUsd, { compact: true })}</Text>
+            {h.marketCapUsd != null ? <Text>{'  ·  '}Now <Text style={styles.positionMcValue}>{formatUsd(h.marketCapUsd, { compact: true })}</Text></Text> : null}
+          </Text>
+        ) : null}
       </View>
       <View style={styles.positionRight}>
         <Text style={styles.positionValue}>{h.valueUsd == null ? (unverified ? 'Unknown' : 'No price') : money(h.valueUsd)}</Text>
         {hasPnl ? (
-          <Text style={[styles.positionPnl, pnlUp ? styles.up : styles.down]}>{signedUsd(h.pnlUsd!)}{h.pnlPct != null ? ` (${pnlUp ? '+' : '−'}${Math.abs(h.pnlPct).toFixed(2)}%)` : ''}</Text>
+          <>
+            {h.pnlPct != null ? (
+              <View style={[styles.pnlPill, pnlUp ? styles.pnlPillUp : styles.pnlPillDown]}>
+                <View style={[styles.pnlDot, pnlUp ? styles.pnlDotUp : styles.pnlDotDown]} />
+                <Text style={[styles.pnlPillText, pnlUp ? styles.up : styles.down]}>{pnlUp ? '▲ +' : '▼ −'}{Math.abs(h.pnlPct).toFixed(2)}%</Text>
+              </View>
+            ) : null}
+            <Text style={[styles.positionPnlUsd, pnlUp ? styles.up : styles.down]}>{signedUsd(h.pnlUsd!)}</Text>
+          </>
         ) : !hidden && h.priceUsd != null && h.kind !== 'cash' ? (
           <Text style={styles.positionSub}>{formatUsd(h.priceUsd)}</Text>
         ) : null}
@@ -541,6 +555,16 @@ const styles = StyleSheet.create({
   positionRight: { alignItems: 'flex-end', gap: 2 },
   positionSub: { color: c.textMuted, fontSize: 12.5, marginTop: 2 },
   positionPnl: { fontSize: 12.5, fontWeight: '700' },
+  positionPnlUsd: { fontSize: 11.5, fontWeight: '700', opacity: 0.85 },
+  positionMc: { color: c.textMuted, fontSize: 11.5, marginTop: 3 },
+  positionMcValue: { color: c.cream, fontWeight: '700' },
+  pnlPill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, borderWidth: 1, marginTop: 2 },
+  pnlPillUp: { backgroundColor: 'rgba(47, 214, 123, 0.12)', borderColor: 'rgba(47, 214, 123, 0.35)' },
+  pnlPillDown: { backgroundColor: 'rgba(255, 107, 107, 0.12)', borderColor: 'rgba(255, 107, 107, 0.35)' },
+  pnlDot: { width: 7, height: 7, borderRadius: 4 },
+  pnlDotUp: { backgroundColor: '#2FD67B' },
+  pnlDotDown: { backgroundColor: '#FF6B6B' },
+  pnlPillText: { fontSize: 12, fontWeight: '800' },
   positionPressed: { opacity: 0.7 },
   positionDim: { opacity: 0.6 },
   chainBadge: { position: 'absolute', right: -3, bottom: -3, borderRadius: 9, borderWidth: 2, borderColor: c.background, backgroundColor: c.background, overflow: 'hidden' },

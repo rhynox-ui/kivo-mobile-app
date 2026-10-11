@@ -66,6 +66,7 @@ export type ResolvedPair = {
   socialLinks: TokenSocialLink[];
   priceUsd: number | null;
   marketCapUsd: number | null;
+  imageUrl?: string | null;
 };
 
 function socialKindFor(type: string | undefined): 'x' | 'telegram' | null {
@@ -149,6 +150,7 @@ async function resolveDexScreenerPairUncached(chainId: string, tokenAddress: str
       socialLinks: extractSocialLinks(best),
       priceUsd: Number.isFinite(priceUsd) ? priceUsd : null,
       marketCapUsd: Number.isFinite(marketCapUsd) ? marketCapUsd : null,
+      imageUrl: typeof best.info?.imageUrl === 'string' && best.info.imageUrl ? best.info.imageUrl : null,
     };
   } catch {
     return null;
