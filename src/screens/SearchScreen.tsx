@@ -4,6 +4,7 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { CHAIN_LABEL, tradeChainLabel, type TradeChain, searchTokens, fmtCompactUsd } from '../trading/tokenSearch';
 import { fetchTrendingTokens, fetchTrendingTokensForChain } from '@kivo/trading/core/discoveryFeed';
 import { toKivoToken, type KivoToken } from '@kivo/trading/kivo/tokens';
+import { TOKEN_SORT_OPTIONS, sortTokens, type TokenSortKey } from '@kivo/trading/kivo/sort';
 
 type TokenSearchResult = KivoToken;
 
@@ -18,6 +19,9 @@ export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: Token
   const [searchError, setSearchError] = useState('');
   const [retry, setRetry] = useState(0);
   const [chainFilter, setChainFilter] = useState<'All' | TradeChain>('All');
+  const [sort, setSort] = useState<TokenSortKey>('default');
+  const [sortOpen, setSortOpen] = useState(false);
+  const [menuTop, setMenuTop] = useState(0);
   // Every chain Kivo trades on, popular ones first.
   const chainFilters: Array<'All' | TradeChain> = ['All', 'solana', 'base', 'ethereum', 'bnb', 'robinhood', 'arbitrum', 'avalanche', 'unichain', 'hyperevm', 'ink', 'abstract', 'plasma', 'stable', 'xlayer', 'arc'].filter(key => key === 'All' || key in CHAIN_LABEL) as Array<'All' | TradeChain>;
   const [chainTrending, setChainTrending] = useState<{ chain: TradeChain; tokens: TokenSearchResult[]; error: string } | null>(null);
@@ -75,14 +79,20 @@ export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: Token
 
   const chainList = chainFilter !== 'All' && chainTrending?.chain === chainFilter ? chainTrending.tokens : null;
   const source = query.trim() ? results : chainList ?? trending;
-  const visibleResults = chainFilter === 'All' ? source : source.filter(item => item.chainKey === chainFilter);
+  const filtered = chainFilter === 'All' ? source : source.filter(item => item.chainKey === chainFilter);
+  const visibleResults = sortTokens(filtered, sort);
 
   return (
     <View style={styles.root}>
       <Text style={styles.eyebrow}>KIVO SEARCH</Text>
       <Text style={styles.title}>What do you want to buy?</Text>
 
+      <View style={styles.filterBar} onLayout={event => setMenuTop(event.nativeEvent.layout.y + event.nativeEvent.layout.height + 4)}>
+        <Pressable onPress={() => setSortOpen(open => !open)} style={[styles.sortButton, sort !== 'default' && styles.sortButtonActive]} accessibilityRole="button" accessibilityLabel="Sort tokens" hitSlop={4}>
+          <View style={[styles.sortLine, { width: 14 }]} /><View style={[styles.sortLine, { width: 10 }]} /><View style={[styles.sortLine, { width: 6 }]} />
+        </Pressable>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filters}>{chainFilters.map(filter => <Pressable key={filter} onPress={() => setChainFilter(filter)} style={[styles.filter, chainFilter === filter && styles.filterActive]}><Text style={[styles.filterText, chainFilter === filter && styles.filterTextActive]}>{filter === 'All' ? 'All chains' : tradeChainLabel(filter)}</Text></Pressable>)}</ScrollView>
+      </View>
 
       <View style={styles.searchBox}>
         <Text style={styles.searchGlyph}>⌕</Text>
@@ -126,6 +136,21 @@ export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: Token
           renderItem={({ item }) => <TokenRow result={item} onPress={() => onSelectToken?.(item)} />}
         />
       )}
+
+      {sortOpen ? (
+        <>
+          <Pressable style={styles.sortBackdrop} onPress={() => setSortOpen(false)} accessibilityLabel="Close sort menu" />
+          <View style={[styles.sortMenu, { top: menuTop }]}>
+            <Text style={styles.sortHeading}>SORT BY</Text>
+            {TOKEN_SORT_OPTIONS.map(option => (
+              <Pressable key={option.key} onPress={() => { setSort(option.key); setSortOpen(false); }} style={({ pressed }) => [styles.sortItem, pressed && styles.rowPressed]} accessibilityRole="button" accessibilityState={{ selected: sort === option.key }}>
+                <Text style={[styles.sortItemText, sort === option.key && styles.sortItemTextActive]}>{option.label}</Text>
+                {sort === option.key ? <Text style={styles.sortCheck}>✓</Text> : null}
+              </Pressable>
+            ))}
+          </View>
+        </>
+      ) : null}
     </View>
   );
 }
@@ -168,7 +193,18 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: kivoTheme.colors.background, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 0 },
   eyebrow: { color: kivoTheme.colors.accent, fontSize: 9, fontWeight: '800', letterSpacing: 1.8, marginBottom: 2 },
   title: { color: kivoTheme.colors.text, fontSize: 22, lineHeight: 27, fontWeight: '800', marginTop: 2, marginBottom: 12 },
-  filterScroll: { flexGrow: 0, marginBottom: 8 },
+  filterBar: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  filterScroll: { flexGrow: 0, flexShrink: 1 },
+  sortButton: { width: 30, height: 28, borderRadius: 10, borderWidth: 1, borderColor: kivoTheme.colors.border, backgroundColor: kivoTheme.colors.surface, alignItems: 'center', justifyContent: 'center', gap: 2.5 },
+  sortButtonActive: { borderColor: kivoTheme.colors.accent },
+  sortLine: { height: 1.5, borderRadius: 1, backgroundColor: kivoTheme.colors.cream },
+  sortBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20 },
+  sortMenu: { position: 'absolute', left: 16, right: 16, zIndex: 21, elevation: 12, borderRadius: kivoTheme.radius.lg, backgroundColor: kivoTheme.colors.surface, borderWidth: 1, borderColor: kivoTheme.colors.border, paddingVertical: 10 },
+  sortHeading: { color: kivoTheme.colors.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 1.2, paddingHorizontal: 18, paddingTop: 4, paddingBottom: 6 },
+  sortItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 11 },
+  sortItemText: { color: kivoTheme.colors.text, fontSize: 14.5, fontWeight: '700' },
+  sortItemTextActive: { color: kivoTheme.colors.accent },
+  sortCheck: { color: kivoTheme.colors.accent, fontSize: 16, fontWeight: '900' },
   filters: { flexDirection: 'row', gap: 6, paddingRight: 16 },
   filter: { paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999, backgroundColor: kivoTheme.colors.surface, borderWidth: 1, borderColor: kivoTheme.colors.border },
   filterActive: { backgroundColor: kivoTheme.colors.cream, borderColor: kivoTheme.colors.cream },

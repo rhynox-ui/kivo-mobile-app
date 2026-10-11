@@ -18,6 +18,10 @@ export type KivoToken = {
   marketCapUsd: number | null;
   liquidityUsd: number | null;
   volumeUsd24h?: number | null;
+  /** 24h buy+sell count, when the market source reports it. */
+  txCount24h?: number | null;
+  /** Unix ms the token/pair was created, when the market source reports it. */
+  createdAt?: number | null;
 };
 
 export type TradeSide = 'buy' | 'sell';
@@ -81,6 +85,8 @@ export function toKivoToken(input: {
   marketCapUsd: number | null;
   liquidityUsd?: number | null;
   volumeUsd24h?: number | null;
+  txCount24h?: number | null;
+  createdAt?: number | null;
 }): KivoToken {
   return {
     chainKey: input.chainKey,
@@ -93,6 +99,8 @@ export function toKivoToken(input: {
     marketCapUsd: input.marketCapUsd,
     liquidityUsd: input.liquidityUsd ?? null,
     volumeUsd24h: input.volumeUsd24h ?? null,
+    txCount24h: input.txCount24h ?? null,
+    createdAt: input.createdAt ?? null,
   };
 }
 
