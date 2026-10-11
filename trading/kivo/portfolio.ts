@@ -33,6 +33,9 @@ export type Holding = {
   valueUsd: number | null;
   imageUrl: string | null;
   entryPriceUsd?: number | null;
+  /** Market cap now, and what it was at the average buy price (same supply). */
+  marketCapUsd?: number | null;
+  entryMarketCapUsd?: number | null;
   pnlUsd?: number | null;
   pnlPct?: number | null;
   /** Set when only the wallet-asset indexer reported this holding. */
@@ -133,7 +136,7 @@ async function fetchPortfolioUncached(owner: string, history: TradeRecord[], add
         token.chainKey === 'solana' ? readSolanaTokenBalance(token.address, addresses?.solanaAddress ?? owner, token.symbol) : readTokenBalance(token.chainKey as ChainKey, token.address, owner, token.symbol),
         resolveDexScreenerPair({chainKey: token.chainKey, tokenAddress: token.address}),
       ]);
-      return {token, balance, priceUsd: pair?.priceUsd ?? null};
+      return {token, balance, priceUsd: pair?.priceUsd ?? null, marketCapUsd: pair?.marketCapUsd ?? null, imageUrl: pair?.imageUrl ?? null};
     })),
     // The indexer is one source among several: when it fails or hangs, the
     // rest of the portfolio still loads and the index is reported missing.
@@ -152,6 +155,8 @@ async function fetchPortfolioUncached(owner: string, history: TradeRecord[], add
       // Kivo also read it on-chain: it no longer depends on the indexer alone.
       existing.source = undefined;
     }
+    if (!existing.imageUrl && row.imageUrl) existing.imageUrl = row.imageUrl;
+    if (existing.marketCapUsd == null && row.marketCapUsd != null) existing.marketCapUsd = row.marketCapUsd;
   };
   natives.forEach((outcome, index) => {
     const chainKey = nativeChains[index];
@@ -208,8 +213,8 @@ async function fetchPortfolioUncached(owner: string, history: TradeRecord[], add
       if (!byKey.has(key)) miss(key);
       return;
     }
-    const {token, balance, priceUsd} = outcome.value;
-    addToken({key, kind: 'token', chainKey: token.chainKey, address: token.address, symbol: token.symbol, name: token.name, amount: balance.amount, priceUsd, valueUsd: priceUsd == null ? null : balance.amount * priceUsd, imageUrl: token.imageUrl});
+    const {token, balance, priceUsd, marketCapUsd, imageUrl} = outcome.value;
+    addToken({key, kind: 'token', chainKey: token.chainKey, address: token.address, symbol: token.symbol, name: token.name, amount: balance.amount, priceUsd, valueUsd: priceUsd == null ? null : balance.amount * priceUsd, imageUrl: token.imageUrl ?? imageUrl, marketCapUsd});
   });
 
   const totalUsd = holdings.reduce((sum, h) => sum + (h.valueUsd ?? 0), 0);
@@ -226,6 +231,8 @@ async function fetchPortfolioUncached(owner: string, history: TradeRecord[], add
     if (boughtAmount > 0 && boughtCost > 0) {
       const entry = boughtCost / boughtAmount;
       holding.entryPriceUsd = entry;
+      // Supply does not change between buy and now, so market cap scales with price.
+      if (holding.marketCapUsd != null && holding.priceUsd != null && holding.priceUsd > 0) holding.entryMarketCapUsd = holding.marketCapUsd * (entry / holding.priceUsd);
       if (holding.valueUsd != null) {
         const cost = holding.amount * entry;
         holding.pnlUsd = holding.valueUsd - cost;
