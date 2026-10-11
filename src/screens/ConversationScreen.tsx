@@ -9,6 +9,7 @@ import { Avatar } from './ChatListScreen';
 import { api } from '../state/session';
 import { KivoModal } from '../components/KivoModal';
 import { BottomSheet } from '../components/BottomSheet';
+import { PhotoViewer } from '../components/PhotoViewer';
 
 type Item = { type: 'day'; key: string; label: string } | { type: 'message'; key: string; message: LocalMessage; showName: boolean; showAvatar: boolean };
 
@@ -38,7 +39,7 @@ async function pickCompressedPhoto(): Promise<{ bytes: Blob; type: string; width
   return { bytes, type: asset.type === 'image/png' ? 'image/png' : 'image/jpeg', width: asset.width ?? 0, height: asset.height ?? 0, previewUrl: asset.uri };
 }
 
-function MessagePhoto({ uri, width, height }: { uri: string; width: number | null; height: number | null }) {
+function MessagePhoto({ uri, width, height, onOpen, onLongPress }: { uri: string; width: number | null; height: number | null; onOpen?: () => void; onLongPress?: () => void }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => { setFailed(false); }, [uri]);
   const dimensions = width && height ? { aspectRatio: width / height } : null;
@@ -50,13 +51,15 @@ function MessagePhoto({ uri, width, height }: { uri: string; width: number | nul
     );
   }
   return (
-    <Image
-      source={{ uri: uri.split('?')[0], headers: api.mediaHeaders(uri.split('?')[0]) }}
-      style={[styles.photo, dimensions]}
-      resizeMode="cover"
-      onError={() => setFailed(true)}
-      accessibilityLabel="Message photo"
-    />
+    <Pressable onPress={onOpen} onLongPress={onLongPress} disabled={!onOpen} accessibilityRole="imagebutton" accessibilityLabel="Open photo">
+      <Image
+        source={{ uri: uri.split('?')[0], headers: api.mediaHeaders(uri.split('?')[0]) }}
+        style={[styles.photo, dimensions]}
+        resizeMode="cover"
+        onError={() => setFailed(true)}
+        accessibilityLabel="Message photo"
+      />
+    </Pressable>
   );
 }
 
@@ -70,6 +73,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
   type MenuItem = { text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void };
   const [optionsMenu, setOptionsMenu] = useState<MenuItem[] | null>(null);
   const [replyingTo, setReplyingTo] = useState<LocalMessage | null>(null);
+  const [viewing, setViewing] = useState<LocalMessage | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<LocalMessage | null>(null);
   const list = useRef<FlatList<Item>>(null);
   const atBottom = useRef(true);
@@ -296,7 +300,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
               <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
-                {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} />}
+                {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
                 {message.replyTo && !message.deleted ? (() => {
                   const quoted = messages.find(item => item.id === message.replyTo);
                   return <View style={styles.replyQuote}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={2}>{quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available'}</Text></View>;
@@ -380,6 +384,13 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
         ))}
         <Pressable style={styles.sheetRow} accessibilityRole="button" onPress={() => setOptionsMenu(null)}><Text style={styles.sheetCancel}>Cancel</Text></Pressable>
       </BottomSheet>
+      <PhotoViewer
+        uri={viewing?.media?.url ?? null}
+        title={viewing ? displayName(viewing.senderId) : undefined}
+        subtitle={viewing ? new Date(viewing.createdAt).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : undefined}
+        onClose={() => setViewing(null)}
+        onReply={viewing && canPost ? () => { const target = viewing; setEditingMessageId(null); setReplyingTo(target); } : undefined}
+      />
     </KeyboardAvoidingView>
   );
 }
