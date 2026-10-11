@@ -21,6 +21,7 @@ import { checkSolanaTokenSecurity, checkTokenSecurity } from '@kivo/trading/core
 import { NearTradePanel } from './NearTradePanel';
 import { normalizeAmountInput } from '../utils/amountInput';
 import { KivoModal } from '../components/KivoModal';
+import Clipboard from '@react-native-clipboard/clipboard';
 
 type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
 type ExecResult = { tone: 'success' | 'pending' | 'error'; message: string; hashes: string[]; chainIds: number[]; requestId: string | null };
@@ -61,6 +62,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const [customSlippage, setCustomSlippage] = useState('');
   const [pressedPreset, setPressedPreset] = useState<number | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [caCopied, setCaCopied] = useState(false);
   const [gaslessTradingEnabled, setGaslessTradingEnabled] = useState(true);
   const extremePriceImpact = plan?.legs.some(leg => leg.quote.view.priceImpactPct != null && Math.abs(leg.quote.view.priceImpactPct) > 50) ?? false;
   const quoteSeq = useRef(0);
@@ -301,6 +303,11 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
           <Text style={styles.tokenSymbol}>{selectedToken ? selectedToken.symbol : 'Choose a token'}</Text>
           <Text style={styles.muted} numberOfLines={1}>{selectedToken ? `${selectedToken.name} · ${chainLabel(selectedToken.chainKey)}` : 'Search any token, any chain'}</Text>
         </View>
+        {selectedToken?.tokenAddress ? (
+          <Pressable onPress={() => { Clipboard.setString(selectedToken.tokenAddress); setCaCopied(true); setTimeout(() => setCaCopied(false), 2000); }} hitSlop={8} style={[styles.copyCa, caCopied && styles.copyCaDone]} accessibilityRole="button" accessibilityLabel={caCopied ? 'Contract address copied' : 'Copy contract address'}>
+            <Text style={styles.copyCaText}>{caCopied ? '✓' : '⧉'}</Text>
+          </Pressable>
+        ) : null}
         {selectedToken ? <View style={styles.right}><Text style={styles.tokenPrice}>{formatUsd(selectedToken.priceUsd)}</Text>{selectedToken.change24h != null && <Text style={[styles.small, { color: selectedToken.change24h >= 0 ? kivoTheme.colors.success : kivoTheme.colors.danger }]}>{selectedToken.change24h >= 0 ? '+' : ''}{selectedToken.change24h.toFixed(2)}%</Text>}</View> : <Text style={styles.chevron}>›</Text>}
         {onOpenHistory ? <Pressable onPress={onOpenHistory} hitSlop={10} style={styles.historyButton} accessibilityLabel="Trade history"><Text style={styles.gear}>⟲</Text></Pressable> : null}
       </Pressable>
@@ -568,6 +575,9 @@ const styles = StyleSheet.create({
   tokenLetter: { color: c.cream, fontWeight: '800', fontSize: 15 },
   tokenSymbol: { color: c.text, fontWeight: '800', fontSize: 16 },
   tokenPrice: { color: c.text, fontWeight: '800', fontSize: 14 },
+  copyCa: { width: 30, height: 30, borderRadius: 9, borderWidth: 1, borderColor: c.border, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  copyCaDone: { borderColor: c.accent },
+  copyCaText: { color: c.accent, fontSize: 15, fontWeight: '800' },
   historyButton: { width: 26, height: 26, borderRadius: 13, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center', marginLeft: 4 },
   chevron: { color: c.textMuted, fontSize: 22 },
   notice: { marginTop: 8, padding: 14, borderRadius: 16, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
