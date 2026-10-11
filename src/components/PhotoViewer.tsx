@@ -1,14 +1,12 @@
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, NativeModules, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { WebView } from 'react-native-webview';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Image, NativeModules, PanResponder, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
 import { KivoModal } from './KivoModal';
 import { kivoTheme } from '../theme/kivoTheme';
 import { api } from '../state/session';
 
 // Full-screen photo, Telegram style: pinch or double-tap to zoom, drag to pan,
-// Save to put it in the gallery (Pictures/Kivo). The photo is fetched with the
-// user's own session and shown from memory; the WebView never loads anything
-// from the network and runs no JavaScript.
+// Save to put it in the gallery (Pictures/Kivo). Shown with the same native
+// Image loading as the chat thumbnail; Save downloads the bytes only when asked.
 
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -19,16 +17,88 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-function viewerHtml(dataUrl: string): string {
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=8, user-scalable=yes">
-<style>html,body{margin:0;height:100%;background:#000;display:flex;align-items:center;justify-content:center}img{max-width:100%;max-height:100%;object-fit:contain}</style>
-</head><body><img src="${dataUrl}" alt=""></body></html>`;
-}
-
 async function canWriteGallery(): Promise<boolean> {
   if (Platform.OS !== 'android' || Platform.Version >= 29) return true;
   const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE);
   return result === PermissionsAndroid.RESULTS.GRANTED;
+}
+
+const MAX_ZOOM = 5;
+const DOUBLE_TAP_ZOOM = 2.5;
+
+function distance(event: GestureResponderEvent): number {
+  const [a, b] = event.nativeEvent.touches;
+  return Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY);
+}
+
+/** Pinch to zoom, drag to pan when zoomed, double-tap to zoom in/out. No extra libraries. */
+function ZoomableImage({ source, onError }: { source: { uri: string; headers?: Record<string, string> }; onError: () => void }) {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const scale = useRef(new Animated.Value(1)).current;
+  const translate = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const state = useRef({ scale: 1, x: 0, y: 0, startScale: 1, startX: 0, startY: 0, startDistance: 0, lastTap: 0, moved: false });
+
+  const clamp = (x: number, y: number, s: number) => {
+    const maxX = ((s - 1) * size.width) / 2;
+    const maxY = ((s - 1) * size.height) / 2;
+    return { x: Math.max(-maxX, Math.min(maxX, x)), y: Math.max(-maxY, Math.min(maxY, y)) };
+  };
+  const animateTo = (s: number, x: number, y: number) => {
+    Object.assign(state.current, { scale: s, x, y });
+    Animated.parallel([
+      Animated.spring(scale, { toValue: s, useNativeDriver: true, friction: 7 }),
+      Animated.spring(translate, { toValue: { x, y }, useNativeDriver: true, friction: 7 }),
+    ]).start();
+  };
+
+  const responder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: event => {
+      const st = state.current;
+      Object.assign(st, { startScale: st.scale, startX: st.x, startY: st.y, moved: false, startDistance: event.nativeEvent.touches.length === 2 ? distance(event) : 0 });
+    },
+    onPanResponderMove: (event, gesture) => {
+      const st = state.current;
+      if (Math.abs(gesture.dx) > 6 || Math.abs(gesture.dy) > 6) st.moved = true;
+      if (event.nativeEvent.touches.length === 2) {
+        st.moved = true;
+        if (!st.startDistance) { st.startDistance = distance(event); st.startScale = st.scale; return; }
+        const next = Math.max(1, Math.min(MAX_ZOOM, (st.startScale * distance(event)) / st.startDistance));
+        const pos = clamp(st.x, st.y, next);
+        Object.assign(st, { scale: next, x: pos.x, y: pos.y });
+        scale.setValue(next);
+        translate.setValue(pos);
+      } else if (st.scale > 1) {
+        const pos = clamp(st.startX + gesture.dx, st.startY + gesture.dy, st.scale);
+        Object.assign(st, { x: pos.x, y: pos.y });
+        translate.setValue(pos);
+      }
+    },
+    onPanResponderRelease: () => {
+      const st = state.current;
+      if (!st.moved) {
+        const now = Date.now();
+        if (now - st.lastTap < 300) {
+          st.lastTap = 0;
+          if (st.scale > 1) animateTo(1, 0, 0); else animateTo(DOUBLE_TAP_ZOOM, 0, 0);
+          return;
+        }
+        st.lastTap = now;
+      }
+      if (st.scale <= 1.01) animateTo(1, 0, 0);
+    },
+    onPanResponderTerminationRequest: () => false,
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [size.width, size.height]);
+
+  return (
+    <View style={styles.zoomArea} onLayout={e => setSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })} {...responder.panHandlers}>
+      <Animated.View style={[styles.zoomArea, { transform: [{ translateX: translate.x }, { translateY: translate.y }, { scale }] }]}>
+        <Image source={source} style={styles.fullImage} resizeMode="contain" onError={onError} accessibilityLabel="Photo" />
+      </Animated.View>
+    </View>
+  );
 }
 
 export type PhotoViewerProps = {
@@ -44,32 +114,28 @@ export type PhotoViewerProps = {
 
 export function PhotoViewer({ uri, title, subtitle, onClose, onReply }: PhotoViewerProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saveNote, setSaveNote] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    setDataUrl(null); setError(null); setSaveNote(null); setMenuOpen(false);
-    if (!uri) return;
-    let active = true;
-    // A photo still uploading (or failed) is the picker's local file; server photos need the session.
-    const load = /^(file|content):/i.test(uri) ? fetch(uri).then(response => response.blob()) : api.fetchMedia(uri);
-    load
-      .then(blobToDataUrl)
-      .then(url => { if (active) setDataUrl(url); })
-      .catch(e => { if (active) setError(e instanceof Error ? e.message : 'Could not load this photo.'); });
-    return () => { active = false; };
-  }, [uri]);
+  useEffect(() => { setError(null); setSaveNote(null); setMenuOpen(false); }, [uri]);
+
+  // A photo still uploading (or failed) is the picker's local file; server photos need the session.
+  const isLocal = Boolean(uri && /^(file|content):/i.test(uri));
+  const cleanUri = uri ? (isLocal ? uri : uri.split('?')[0]) : null;
+  const source = cleanUri ? (isLocal ? { uri: cleanUri } : { uri: cleanUri, headers: api.mediaHeaders(cleanUri) }) : null;
 
   const save = async () => {
-    if (!dataUrl || saving) return;
+    if (!cleanUri || saving) return;
     const native = NativeModules.MediaSaveModule;
     if (!native?.saveImage) { setSaveNote('Saving is not available in this version of the app.'); return; }
     setSaving(true); setSaveNote(null);
     try {
       if (!(await canWriteGallery())) { setSaveNote('Allow storage access to save photos.'); return; }
-      const [, mime = 'image/jpeg', base64 = ''] = /^data:([^;]+);base64,(.*)$/.exec(dataUrl) ?? [];
+      const blob = isLocal ? await fetch(cleanUri).then(response => response.blob()) : await api.fetchMedia(cleanUri);
+      const dataUrl = await blobToDataUrl(blob);
+      const [, sniffed = '', base64 = ''] = /^data:([^;,]*)[^,]*,(.*)$/.exec(dataUrl) ?? [];
+      const mime = sniffed.startsWith('image/') ? sniffed : 'image/jpeg';
       const extension = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
       await native.saveImage(base64, mime, `kivo-${Date.now()}.${extension}`);
       setSaveNote('Saved to Pictures/Kivo ✓');
@@ -93,7 +159,7 @@ export function PhotoViewer({ uri, title, subtitle, onClose, onReply }: PhotoVie
         </View>
         {menuOpen ? (
           <View style={styles.menu}>
-            <Pressable style={[styles.menuItem, (!dataUrl || saving) && styles.disabled]} disabled={!dataUrl || saving} onPress={() => { setMenuOpen(false); void save(); }}>
+            <Pressable style={[styles.menuItem, (!cleanUri || saving) && styles.disabled]} disabled={!cleanUri || saving} onPress={() => { setMenuOpen(false); void save(); }}>
               <Text style={styles.menuIcon}>⤓</Text><Text style={styles.menuText}>{saving ? 'Saving…' : 'Save to Gallery'}</Text>
             </Pressable>
             <Pressable style={styles.menuItem} onPress={() => { setMenuOpen(false); onClose(); }}>
@@ -107,17 +173,8 @@ export function PhotoViewer({ uri, title, subtitle, onClose, onReply }: PhotoVie
           </View>
         ) : null}
         <View style={styles.body}>
-          {dataUrl ? (
-            <WebView
-              source={{ html: viewerHtml(dataUrl) }}
-              originWhitelist={['about:blank']}
-              javaScriptEnabled={false}
-              scalesPageToFit
-              setBuiltInZoomControls
-              setDisplayZoomControls={false}
-              onShouldStartLoadWithRequest={request => request.url === 'about:blank'}
-              style={styles.web}
-            />
+          {source && !error ? (
+            <ZoomableImage key={source.uri} source={source} onError={() => setError('Could not load this photo.')} />
           ) : error ? <Text style={styles.note}>{error}</Text> : <ActivityIndicator color={kivoTheme.colors.cream} />}
         </View>
         {saveNote ? <Text style={styles.note}>{saveNote}</Text> : <Text style={styles.hint}>Pinch or double-tap to zoom</Text>}
@@ -140,7 +197,8 @@ const styles = StyleSheet.create({
   menuText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   disabled: { opacity: 0.5 },
   body: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  web: { flex: 1, width: '100%', backgroundColor: '#000' },
+  zoomArea: { flex: 1, width: '100%', alignSelf: 'stretch' },
+  fullImage: { width: '100%', height: '100%' },
   note: { color: kivoTheme.colors.cream, textAlign: 'center', padding: 14, fontSize: 13 },
   hint: { color: 'rgba(255,255,255,0.5)', textAlign: 'center', padding: 12, fontSize: 12 },
 });
