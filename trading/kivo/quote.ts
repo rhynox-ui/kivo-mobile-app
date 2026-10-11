@@ -138,5 +138,14 @@ export function describeQuoteError(error: unknown): string {
   if (/INSUFFICIENT_LIQUIDITY/i.test(message)) return 'Not enough liquidity for this trade size.';
   if (/INVALID_INPUT_CURRENCY|INVALID_OUTPUT_CURRENCY|UNSUPPORTED_CURRENCY/i.test(message)) return 'This asset is not supported by the selected route.';
   if (/Failed to fetch|Network request failed|NetworkError/i.test(message)) return 'Could not reach the routing service. Check your connection and try again.';
+  // Relay's documented quote error codes (docs.relay.link, Handling Quote Errors).
+  if (/AMOUNT_TOO_HIGH/.test(message)) return 'Amount is too large for this route. Try a smaller amount.';
+  if (/SWAP_IMPACT_TOO_HIGH/.test(message)) return 'Price impact is too high for this trade. Try a smaller amount.';
+  if (/INSUFFICIENT_FUNDS/.test(message)) return 'Not enough balance for this trade.';
+  if (/PRICE_FETCH_FAILED|REQUEST_TIMED_OUT|RPC_HTTP_ERROR|SERVICE_UNAVAILABLE|ROUTE_TEMPORARILY_RESTRICTED/.test(message)) return 'The routing service is busy right now. Try again in a moment.';
+  if (/CHAIN_DISABLED|UNSUPPORTED_CHAIN|UNSUPPORTED_ROUTE/.test(message)) return 'This network or route is not available right now.';
+  if (/SANCTIONED_/.test(message)) return 'This trade cannot be routed.';
+  if (/INVALID_ADDRESS|INVALID_RECIPIENT|USER_RECIPIENT_MISMATCH/.test(message)) return 'The wallet address for this route is not valid.';
+  if (/INVALID_SLIPPAGE_TOLERANCE/.test(message)) return 'Slippage setting is not valid. Pick a value between 0% and 100%.';
   return message.length > 220 ? message.slice(0, 220) + '…' : message;
 }

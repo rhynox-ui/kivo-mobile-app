@@ -314,7 +314,7 @@ export async function getRelayQuote(params: GetRelayQuoteParams): Promise<RelayQ
     // 5xx apart instead of guessing.
     const text = await res.text().catch(() => '');
     let reason = text.trim();
-    try { const parsed = JSON.parse(reason) as {message?: string; error?: string}; reason = parsed.message || parsed.error || reason; } catch {}
+    try { const parsed = JSON.parse(reason) as {message?: string; error?: string; errorCode?: string}; const text = parsed.message || parsed.error || ''; reason = text || parsed.errorCode ? `${text}${parsed.errorCode ? ` [${parsed.errorCode}]` : ''}`.trim() : reason; } catch {}
     throw new Error(`Relay quote failed (${res.status}): ${reason || res.statusText || 'Relay gave no reason. Try again in a minute.'}`);
   }
   let quote = (await res.json()) as RelayQuote;
