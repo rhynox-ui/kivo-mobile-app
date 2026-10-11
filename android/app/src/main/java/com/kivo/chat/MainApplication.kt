@@ -14,6 +14,7 @@ class MainApplication : Application(), ReactApplication {
       packageList = PackageList(this).packages.apply {
         add(Pbkdf2Package())
         add(ScreenSecurityPackage())
+        add(LocalNotifyPackage())
       },
     )
   }
