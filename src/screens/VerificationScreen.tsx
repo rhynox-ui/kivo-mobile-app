@@ -332,7 +332,9 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
         }
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Payment was not sent.';
+      // Never leave the screen silent: an error with no text still gets a message.
+      const message = (error instanceof Error ? error.message : String(error ?? '')).trim()
+        || 'The payment did not go through and no reason was given. Check your Activity before trying again.';
       if (!mountedRef.current) return;
       setNote(/cancel|denied|reject|locked/i.test(message) ? 'Payment cancelled. Nothing was sent.' : message);
       setStage('form');
