@@ -146,10 +146,12 @@ async function pollRelayStatus(requestId: string, {intervalMs = 2000, timeoutMs 
     try {
       const res = await fetch(`${RELAY_STATUS_URL}?requestId=${requestId}`);
       if (res.ok) {
-        const data = (await res.json()) as {status?: string};
+        const data = (await res.json()) as {status?: string; failReason?: string};
         if (data.status === 'success') return 'success';
         if (data.status === 'refund' || data.status === 'refunded') return 'refunded';
-        if (data.status === 'failure') throw new Error('Relay reported this trade failed — check the requestId on relay.link for details.');
+        // Relay's documented failReason (e.g. SLIPPAGE, EXECUTION_REVERTED); "N/A"/"UNKNOWN" add nothing.
+        const reason = data.failReason && !/^(N\/A|UNKNOWN)$/i.test(data.failReason) ? ` (${data.failReason.replace(/_/g, ' ').toLowerCase()})` : '';
+        if (data.status === 'failure') throw new Error(`Relay reported this trade failed${reason} — check the requestId on relay.link for details.`);
       }
     } catch (error) {
       if (error instanceof Error && error.message.startsWith('Relay reported')) throw error;

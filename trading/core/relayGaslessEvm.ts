@@ -96,10 +96,11 @@ async function pollRelayStatus(requestId: string): Promise<string> {
   while (Date.now() - started < 10 * 60 * 1000) {
     const res = await fetch(`${RELAY_STATUS_URL}?requestId=${encodeURIComponent(requestId)}`);
     if (res.ok) {
-      const body = await res.json() as {status?: string; message?: string; txHashes?: string[]};
+      const body = await res.json() as {status?: string; message?: string; failReason?: string; txHashes?: string[]};
       if (body.status === 'success') return body.txHashes?.[0] || requestId;
       if (body.status === 'failure' || body.status === 'refund') {
-        throw new Error(body.message || `Relay gasless execution ended with status ${body.status}.`);
+        const reason = body.failReason && !/^(N\/A|UNKNOWN)$/i.test(body.failReason) ? ` (${body.failReason.replace(/_/g, ' ').toLowerCase()})` : '';
+        throw new Error(body.message || `Relay gasless execution ended with status ${body.status}${reason}.`);
       }
     }
     await new Promise<void>(resolve => setTimeout(() => resolve(), 2000));
