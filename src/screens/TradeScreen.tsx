@@ -4,6 +4,7 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { CHAIN_LABEL, TOKEN_ADDRESSES, type ChainKey } from '@kivo/trading/core/chainData';
 import { fetchCashBalances, totalCashUsd, readTokenBalance, type CashBalanceRow, type TokenBalance } from '@kivo/trading/kivo/balances';
 import { planUnifiedBuy, totalSpendableCash, type UnifiedPlan } from '@kivo/trading/kivo/unified';
+import { executeDirectPlan, planDirectTrade } from '@kivo/trading/kivo/direct';
 import { transactionLink, KivoExecutionError, preflightKivoQuote, relayRequestUrl, type ExecutionUpdate } from '@kivo/trading/kivo/execute';
 import { loadGaslessTradingEnabled } from '../settings/gaslessTradingPrefs';
 import { executeRelayQuote, getPartialTxHashes } from '@kivo/trading/core/executeRelayQuote';
@@ -124,6 +125,12 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
     const seq = ++quoteSeq.current;
     setQuoteState('loading'); setQuote(null); setQuoteError('');
     try {
+      // Same network as the user's cash: straight to Uniswap, Relay pays the gas.
+      const direct = gaslessTradingEnabled
+        ? await planDirectTrade({ side, token, amount: parsed, userAddress: address, cash, tokenBalance, tokenDecimals: side === 'buy' ? tokenDecimals : tokenBalance?.decimals ?? 18, slippageBps: settings.slippageBps ?? undefined }).catch(() => null)
+        : null;
+      if (seq !== quoteSeq.current) return;
+      if (direct) { setQuote({ legs: [], view: direct.view, direct }); setQuoteState('ready'); return; }
       const next: UnifiedPlan = side === 'buy'
         ? await planUnifiedBuy({ token, amountUsd: parsed, userAddress: address, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined, cash: cash!, tokenDecimals, slippageBps: settings.slippageBps ?? undefined })
         : await (async () => {
@@ -204,6 +211,11 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
           authMethod: 'seed' as const,
         };
         const done = { status: 'success' as 'success' | 'pending' | 'refunded', txHashes: [] as string[], chainIds: [] as number[], requestId: null as string | null };
+        if (plan.direct) {
+          setUpdate({stage: 'awaiting-signature', step: 1, totalSteps: 1, txHashes: [], requestId: null, message: 'Processing trade…'});
+          const sent = await executeDirectPlan(plan.direct, session);
+          return { ...done, txHashes: sent.txHashes, chainIds: sent.chainIds, requestId: sent.requestId };
+        }
         for (let index = 0; index < plan.legs.length; index++) {
           const leg = plan.legs[index];
           try {

@@ -19,11 +19,12 @@ import type {ChainKey} from '../core/chainData';
 import type {CashBalanceRow} from './balances';
 import {requestKivoQuote, type KivoQuote, type KivoQuoteView} from './quote';
 import {describeQuoteCost} from '../core/relayQuote';
+import type {DirectPlan} from './direct';
 import type {KivoToken} from './tokens';
 import {spendableCash} from './balances';
 
 export type UnifiedLeg = {chainKey: ChainKey; amountUsd: number; quote: KivoQuote};
-export type UnifiedPlan = {legs: UnifiedLeg[]; view: KivoQuoteView};
+export type UnifiedPlan = {legs: UnifiedLeg[]; view: KivoQuoteView; /** Same-network trade straight on Uniswap (Relay pays gas); legs is empty. */ direct?: DirectPlan};
 
 const EXTREME_PRICE_IMPACT_PCT = 50;
 const MIN_LEG_USD = 0.05;

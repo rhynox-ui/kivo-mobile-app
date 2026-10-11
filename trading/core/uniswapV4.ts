@@ -128,7 +128,7 @@ export function uniswapV4SupportsChain(chainId: number): boolean {
   return Boolean(UNIVERSAL_ROUTER_ADDRESSES[chainId] && UNISWAP_V3_ADDRESSES[chainId]);
 }
 
-type PoolKey = {currency0: `0x${string}`; currency1: `0x${string}`; fee: number; tickSpacing: number; hooks: `0x${string}`};
+export type PoolKey = {currency0: `0x${string}`; currency1: `0x${string}`; fee: number; tickSpacing: number; hooks: `0x${string}`};
 
 // True if currencyA sorts before currencyB under V4's own PoolKey
 // ordering rule: native (the zero address) always sorts first;
@@ -208,7 +208,7 @@ export async function quoteUniswapV4({chainId, tokenIn, tokenOut, amountIn}: {ch
   return best;
 }
 
-function encodeV4SwapActions({poolKey, zeroForOne, amountIn, minAmountOut, currencyIn, currencyOut}: {poolKey: PoolKey; zeroForOne: boolean; amountIn: bigint; minAmountOut: bigint; currencyIn: `0x${string}`; currencyOut: `0x${string}`}): `0x${string}` {
+export function encodeV4SwapActions({poolKey, zeroForOne, amountIn, minAmountOut, currencyIn, currencyOut}: {poolKey: PoolKey; zeroForOne: boolean; amountIn: bigint; minAmountOut: bigint; currencyIn: `0x${string}`; currencyOut: `0x${string}`}): `0x${string}` {
   // Actions.SWAP_EXACT_IN_SINGLE (6), SETTLE_ALL (12), TAKE_ALL (15) —
   // concatenated as raw single-byte action codes (NOT abi-encoded
   // individually) to form the `actions` bytes string V4Router's own
