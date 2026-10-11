@@ -1,5 +1,6 @@
 import React from 'react';
-import { Alert, Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { kivoAlert } from '../components/KivoAlert';
 import { kivoTheme } from '../theme/kivoTheme';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { getTradeHistory } from '@kivo/trading/kivo/history';
@@ -44,25 +45,25 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecu
         return;
       case 'language': updateSettings({language:settings.language==='System'?'English':'System'}); return;
       case 'security': onOpenSecurity?.(); return;
-      case 'legal': Linking.openURL('https://kivo-web.pages.dev/docs/').catch(()=>Alert.alert('Legal and Privacy','Unable to open Kivo documentation right now.')); return;
+      case 'legal': Linking.openURL('https://kivo-web.pages.dev/docs/').catch(()=>kivoAlert('Legal and Privacy','Unable to open Kivo documentation right now.')); return;
       case 'taxes': {
         const rows = getTradeHistory();
-        if (!rows.length) { Alert.alert('Taxes','No signed trades are recorded on this device yet.'); return; }
+        if (!rows.length) { kivoAlert('Taxes','No signed trades are recorded on this device yet.'); return; }
         const csv = ['Date,Side,Chain,Pay,Receive,Status,Transaction hash', ...rows.map(r => [new Date(r.createdAt).toISOString(),r.side,r.token.chainKey,`${r.pay.amount} ${r.pay.symbol}`,`${r.receive.amount ?? ''} ${r.receive.symbol}`,r.status,r.txHashes[0] ?? ''].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','))].join('\\n');
         Share.share({message:csv,title:'Kivo trade history.csv'}).catch(()=>{});
         return;
       }
-      case 'help': Linking.openURL('mailto:support@kivotrade.site?subject=Kivo%20Support').catch(()=>Alert.alert('Help and Support','Unable to open your email app right now.')); return;
-      case 'docs': Linking.openURL('https://kivo-web.pages.dev/docs/').catch(()=>Alert.alert('Documentation','Unable to open documentation right now.')); return;
-      case 'x': Linking.openURL('https://x.com/Kivotrade').catch(()=>Alert.alert('Kivo on X','Unable to open X right now.')); return;
-      case 'telegram': Linking.openURL('https://t.me/Kivotrade').catch(()=>Alert.alert('Kivo Telegram','Unable to open Telegram right now.')); return;
+      case 'help': Linking.openURL('mailto:support@kivotrade.site?subject=Kivo%20Support').catch(()=>kivoAlert('Help and Support','Unable to open your email app right now.')); return;
+      case 'docs': Linking.openURL('https://kivo-web.pages.dev/docs/').catch(()=>kivoAlert('Documentation','Unable to open documentation right now.')); return;
+      case 'x': Linking.openURL('https://x.com/Kivotrade').catch(()=>kivoAlert('Kivo on X','Unable to open X right now.')); return;
+      case 'telegram': Linking.openURL('https://t.me/Kivotrade').catch(()=>kivoAlert('Kivo Telegram','Unable to open Telegram right now.')); return;
       case 'logout':
-        Alert.alert('Log out','End the current Kivo session on this device?',[
+        kivoAlert('Log out','End the current Kivo session on this device?',[
           {text:'Cancel',style:'cancel'},
           {text:'Log Out',style:'destructive',onPress:()=>onLogout?.()},
         ]); return;
       case 'delete':
-        Alert.alert('Delete account','This permanently removes the local Kivo session after confirmation. Production account deletion must also be authorized by the backend.',[
+        kivoAlert('Delete account','This permanently removes the local Kivo session after confirmation. Production account deletion must also be authorized by the backend.',[
           {text:'Cancel',style:'cancel'},
           {text:'Delete',style:'destructive',onPress:()=>onLogout?.()},
         ]); return;

@@ -5,6 +5,7 @@ import {
   SafeAreaView,
 } from 'react-native-safe-area-context';
 import { RootNavigator } from './src/navigation/RootNavigator';
+import { KivoAlertHost } from './src/components/KivoAlert';
 import { kivoTheme } from './src/theme/kivoTheme';
 import { CrashBoundary, installCrashReporter } from './src/debug/crashReporter';
 import { configureRelayEndpoints } from './trading/core/relayQuote';
@@ -32,6 +33,7 @@ export default function App() {
           barStyle="light-content"
         />
         <RootNavigator />
+        <KivoAlertHost />
       </SafeAreaView>
       </CrashBoundary>
     </SafeAreaProvider>

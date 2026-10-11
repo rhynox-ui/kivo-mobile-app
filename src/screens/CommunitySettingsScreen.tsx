@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { kivoAlert } from '../components/KivoAlert';
 import { API_LIMITS, normalizeWalletAddress, shortWallet, walletAddressOfUserId, type ApiBan, type ApiCommunity, type ApiMember, type CommunitySettingsInput } from '@kivo/shared/api/types';
 import { canDemoteGroupAdmin, canPromoteGroupAdmin, canRemoveGroupMember } from '@kivo/shared/social/rules';
 import type { KivoGroup } from '@kivo/shared/social/types';
@@ -58,7 +59,7 @@ export function CommunitySettingsScreen({ id, onBack, onDeleted, onOpenPerson }:
   /** Run one server action; report the server's own error; refresh only after real success. */
   const run = async (work: () => Promise<unknown>, success: string, opts: { resetFields?: boolean; after?: () => void } = {}) => {
     if (busyRef.current) return;
-    if (!socialReady()) { Alert.alert('Kivo', 'Turn on chats first (Chats tab).'); return; }
+    if (!socialReady()) { kivoAlert('Kivo', 'Turn on chats first (Chats tab).'); return; }
     busyRef.current = true;
     setBusy(true);
     setNotice('');
@@ -70,12 +71,12 @@ export function CommunitySettingsScreen({ id, onBack, onDeleted, onOpenPerson }:
       await load(opts.resetFields);
     } catch (e) {
       if (e instanceof CancelledPick) return;
-      Alert.alert('Manage', e instanceof Error ? e.message : 'Action failed. Please try again.');
+      kivoAlert('Manage', e instanceof Error ? e.message : 'Action failed. Please try again.');
     } finally { busyRef.current = false; setBusy(false); }
   };
   const save = (input: CommunitySettingsInput, success: string, resetFields = false) => run(() => api.updateCommunity(id, input), success, { resetFields });
   const confirm = (title: string, message: string, label: string, onConfirm: () => void) =>
-    Alert.alert(title, message, [{ text: 'Cancel', style: 'cancel' }, { text: label, style: 'destructive', onPress: onConfirm }]);
+    kivoAlert(title, message, [{ text: 'Cancel', style: 'cancel' }, { text: label, style: 'destructive', onPress: onConfirm }]);
 
   if (error && !data) return <View style={styles.root}><Header title="Manage" onBack={onBack} /><Text style={styles.mutedCenter}>{error}</Text></View>;
   if (!data) return <View style={styles.root}><Header title="Manage" onBack={onBack} /><ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 40 }} /></View>;
@@ -214,7 +215,7 @@ export function CommunitySettingsScreen({ id, onBack, onDeleted, onOpenPerson }:
             <Chip label="Add" disabled={busy || !address.trim()} onPress={() => {
               // Solana addresses are case-sensitive: normalize, never lower-case them.
               const wallet = normalizeWalletAddress(address.trim());
-              if (!wallet) { Alert.alert('Add', 'Enter a valid EVM (0x…) or Solana wallet address.'); return; }
+              if (!wallet) { kivoAlert('Add', 'Enter a valid EVM (0x…) or Solana wallet address.'); return; }
               void run(async () => { await api.addMember(id, wallet); setAddress(''); }, 'Added');
             }} />
           </View>

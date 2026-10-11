@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { kivoAlert } from '../components/KivoAlert';
 import QRCode from 'react-native-qrcode-svg';
 import { api, storage, useSocialReady } from '../state/session';
 import { getWalletSession, localEvmSigner, withDeviceAccounts } from '../state/walletStore';
@@ -349,7 +350,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   const elapsed = Math.max(0, Math.round((now - startedAt) / 1000));
   const elapsedLabel = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
   const progressRatio = confirmations ? confirmations.have / confirmations.need : Math.min(0.9, elapsed / EXPECTED_SECONDS[chain]);
-  const openTx = (p: PendingPayment) => Linking.openURL(explorerTx(p.chain, p.txHash)).catch(() => Alert.alert('Kivo', 'Could not open the block explorer.'));
+  const openTx = (p: PendingPayment) => Linking.openURL(explorerTx(p.chain, p.txHash)).catch(() => kivoAlert('Kivo', 'Could not open the block explorer.'));
   const receiptPayer = receipt?.payer ?? receipt?.payer_address ?? 'Shown on verified payment record';
   const connected = Boolean(getWalletSession());
 

@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { kivoAlert } from '../components/KivoAlert';
 import { kivoTheme } from '../theme/kivoTheme';
 import { enableBiometricUnlockWithPassword } from '../state/walletStore';
 
@@ -28,7 +28,7 @@ export function BiometricScreen({
       await enableBiometricUnlockWithPassword(password);
       onContinue();
     } catch (error) {
-      Alert.alert(
+      kivoAlert(
         'Biometrics',
         error instanceof Error
           ? error.message

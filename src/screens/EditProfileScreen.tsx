@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { kivoAlert } from '../components/KivoAlert';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { API_LIMITS, normalizeProfileLinks, shortWallet, type ProfileLinks } from '@kivo/shared/api/types';
 import { validBio, validProfileUsername } from '../domain/socialValidation';
@@ -53,11 +54,11 @@ export function EditProfileScreen({ onBack, onOpenVerification }: { onBack: () =
     try {
       bytes = await (await fetch(asset.uri)).blob();
     } catch {
-      Alert.alert('Avatar', 'Kivo could not read this photo. Choose a JPG or PNG image.');
+      kivoAlert('Avatar', 'Kivo could not read this photo. Choose a JPG or PNG image.');
       return;
     }
-    if (!bytes.size) { Alert.alert('Avatar', 'This photo is empty. Choose another one.'); return; }
-    if (bytes.size > API_LIMITS.maxAvatarBytes) { Alert.alert('Avatar', 'That photo is too large even after compression. Try another one.'); return; }
+    if (!bytes.size) { kivoAlert('Avatar', 'This photo is empty. Choose another one.'); return; }
+    if (bytes.size > API_LIMITS.maxAvatarBytes) { kivoAlert('Avatar', 'That photo is too large even after compression. Try another one.'); return; }
     setAvatarUri(asset.uri);
     setAvatarFile({ bytes, type: asset.type === 'image/png' ? 'image/png' : 'image/jpeg' });
   };
@@ -68,7 +69,7 @@ export function EditProfileScreen({ onBack, onOpenVerification }: { onBack: () =
     let links: ProfileLinks | undefined;
     if (linksEditable) {
       try { links = normalizeProfileLinks(linkDraft); }
-      catch (error) { Alert.alert('Links', error instanceof Error ? error.message : 'Check your links.'); return; }
+      catch (error) { kivoAlert('Links', error instanceof Error ? error.message : 'Check your links.'); return; }
     }
     savingRef.current = true;
     setBusy(true);
@@ -96,10 +97,10 @@ export function EditProfileScreen({ onBack, onOpenVerification }: { onBack: () =
         finalAvatar = saved.avatarUrl ?? undefined;
       }
       updateProfile({ username, bio, avatarUri: finalAvatar });
-      if (!socialReady()) Alert.alert('Profile', 'Saved on this phone. Turn on chats to publish your @username to Kivo.');
+      if (!socialReady()) kivoAlert('Profile', 'Saved on this phone. Turn on chats to publish your @username to Kivo.');
       onBack();
     } catch (error) {
-      Alert.alert('Profile', error instanceof Error ? error.message : 'Unable to save profile.');
+      kivoAlert('Profile', error instanceof Error ? error.message : 'Unable to save profile.');
     } finally { savingRef.current = false; setBusy(false); }
   };
 

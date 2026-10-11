@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { kivoAlert } from '../components/KivoAlert';
 import { hasProfileLinks, normalizeProfileLinks, shortWallet, walletAddressOfUserId, type ApiCommunity, type ApiMember, type ProfileLinks } from '@kivo/shared/api/types';
 import { refreshConversations } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
@@ -58,12 +59,12 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
   }, [load]);
 
   const run = (action: () => Promise<unknown>, done?: () => void) => async () => {
-    if (!socialReady()) { Alert.alert('Kivo', 'Turn on chats first (Chats tab).'); return; }
+    if (!socialReady()) { kivoAlert('Kivo', 'Turn on chats first (Chats tab).'); return; }
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
     try { await action(); await refreshConversations().catch(() => {}); done ? done() : void load(); }
-    catch (e) { Alert.alert('Community', e instanceof Error ? e.message : 'Action failed.'); }
+    catch (e) { kivoAlert('Community', e instanceof Error ? e.message : 'Action failed.'); }
     finally { busyRef.current = false; setBusy(false); }
   };
   const saveLinks = run(async () => {
@@ -72,7 +73,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
     const saved = await api.saveCommunityLinks(id, next);
     setLinks(saved);
     setLinkDraft(linkDraftFrom(saved.links));
-    Alert.alert('Links', 'Links saved.');
+    kivoAlert('Links', 'Links saved.');
   });
 
   if (error) return <View style={styles.root}><Header title="Community" onBack={onBack} /><Text style={styles.muted}>{error}</Text></View>;
