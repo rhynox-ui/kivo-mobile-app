@@ -239,7 +239,7 @@ async function fetchGeckoTerminalWithRetry(url: string): Promise<Response> {
 
 type GeckoTerminalTokenAttrs = {address?: string; symbol?: string; name?: string; image_url?: string};
 
-async function fetchTrendingPoolsForChain(chainKey: ChainKey): Promise<DiscoveryToken[]> {
+async function fetchTrendingPoolsForChain(chainKey: ChainKey, limit = GECKOTERMINAL_POOLS_PER_CHAIN): Promise<DiscoveryToken[]> {
   const network = geckoTerminalNetworkForChainOrNull(chainKey);
   if (!network) return [];
   try {
@@ -269,7 +269,7 @@ async function fetchTrendingPoolsForChain(chainKey: ChainKey): Promise<Discovery
     }
 
     const tokens: DiscoveryToken[] = [];
-    for (const pool of pools.slice(0, GECKOTERMINAL_POOLS_PER_CHAIN)) {
+    for (const pool of pools.slice(0, limit)) {
       const baseId = pool?.relationships?.base_token?.data?.id;
       const token = baseId ? tokensById.get(baseId) : undefined;
       const address = token?.address;
@@ -323,6 +323,19 @@ async function fetchTrendingPoolsForChain(chainKey: ChainKey): Promise<Discovery
  * discipline) — an error is only ever surfaced if BOTH sources returned
  * nothing at all, never when one degrades and the other still has data.
  */
+/** Trending tokens on one chain (GeckoTerminal's trending pools), for a chain filter. */
+export async function fetchTrendingTokensForChain(chainKey: ChainKey, limit = 20): Promise<DiscoveryResult> {
+  const tokens = await fetchTrendingPoolsForChain(chainKey, limit);
+  const seen = new Set<string>();
+  const unique = tokens.filter(token => {
+    const key = token.tokenAddress.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return {tokens: unique, error: unique.length ? null : 'No trending tokens found on this network right now.'};
+}
+
 export async function fetchTrendingTokens(): Promise<DiscoveryResult> {
   const [dexScreenerResult, geckoTerminalSettled] = await Promise.all([
     fetchDexScreenerBoostedTrending(),
