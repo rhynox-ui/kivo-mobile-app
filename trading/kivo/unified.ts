@@ -70,7 +70,7 @@ export async function planUnifiedBuy(params: {
         tokenDecimals, slippageBps, execution: 'gasless',
       });
       const impact = quote.view.priceImpactPct;
-      if (impact != null && Math.abs(impact) > EXTREME_PRICE_IMPACT_PCT) throw new Error('route price impact too high');
+      if (impact != null && Math.abs(impact) > EXTREME_PRICE_IMPACT_PCT) throw new Error(`Fees and price impact would take about ${Math.round(Math.abs(impact))}% of this trade, so Kivo blocked it. Small amounts cost relatively more; try a larger amount.`);
       if (quote.view.unsupportedReason) throw new Error(quote.view.unsupportedReason);
       const outUsd = quote.view.receive.usd;
       const outAmount = Number(quote.view.receive.amount ?? NaN);
