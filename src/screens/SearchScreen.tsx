@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { kivoTheme } from '../theme/kivoTheme';
 import { CHAIN_LABEL, tradeChainLabel, type TradeChain, searchTokens, fmtCompactUsd } from '../trading/tokenSearch';
-import { fetchTrendingTokens } from '@kivo/trading/core/discoveryFeed';
+import { fetchTrendingTokens, fetchTrendingTokensForChain } from '@kivo/trading/core/discoveryFeed';
 import { toKivoToken, type KivoToken } from '@kivo/trading/kivo/tokens';
 
 type TokenSearchResult = KivoToken;
@@ -18,10 +18,23 @@ export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: Token
   const [searchError, setSearchError] = useState('');
   const [retry, setRetry] = useState(0);
   const [chainFilter, setChainFilter] = useState<'All' | TradeChain>('All');
-  const chainFilters: Array<'All' | TradeChain> = ['All', 'ethereum', 'base', 'bnb', 'arbitrum', 'solana'];
+  // Every chain Kivo trades on, popular ones first.
+  const chainFilters: Array<'All' | TradeChain> = ['All', 'solana', 'base', 'ethereum', 'bnb', 'robinhood', 'arbitrum', 'avalanche', 'unichain', 'hyperevm', 'ink', 'abstract', 'plasma', 'stable', 'xlayer', 'arc'].filter(key => key === 'All' || key in CHAIN_LABEL) as Array<'All' | TradeChain>;
+  const [chainTrending, setChainTrending] = useState<{ chain: TradeChain; tokens: TokenSearchResult[]; error: string } | null>(null);
   const [trending, setTrending] = useState<TokenSearchResult[]>([]);
   const [trendingError, setTrendingError] = useState('');
   useEffect(() => { fetchTrendingTokens().then(result => { setTrending(result.tokens.map(toKivoToken)); setTrendingError(result.error ?? ''); }); }, []);
+  // A chain filter loads that chain's own trending list, so smaller chains
+  // (Robinhood, Unichain, ...) are not crowded out of the mixed list.
+  useEffect(() => {
+    if (chainFilter === 'All' || chainFilter === 'near') { setChainTrending(null); return; }
+    let active = true;
+    setChainTrending(null);
+    fetchTrendingTokensForChain(chainFilter).then(result => {
+      if (active) setChainTrending({ chain: chainFilter, tokens: result.tokens.map(toKivoToken), error: result.error ?? '' });
+    });
+    return () => { active = false; };
+  }, [chainFilter]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef(0);
 
@@ -60,7 +73,8 @@ export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: Token
     };
   }, [query, retry]);
 
-  const source = query.trim() ? results : trending;
+  const chainList = chainFilter !== 'All' && chainTrending?.chain === chainFilter ? chainTrending.tokens : null;
+  const source = query.trim() ? results : chainList ?? trending;
   const visibleResults = chainFilter === 'All' ? source : source.filter(item => item.chainKey === chainFilter);
 
   return (
@@ -68,7 +82,7 @@ export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: Token
       <Text style={styles.eyebrow}>KIVO SEARCH</Text>
       <Text style={styles.title}>What do you want to buy?</Text>
 
-      <View style={styles.filters}>{chainFilters.map(filter => <Pressable key={filter} onPress={() => setChainFilter(filter)} style={[styles.filter, chainFilter === filter && styles.filterActive]}><Text style={[styles.filterText, chainFilter === filter && styles.filterTextActive]}>{filter === 'All' ? 'All chains' : tradeChainLabel(filter)}</Text></Pressable>)}</View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filters}>{chainFilters.map(filter => <Pressable key={filter} onPress={() => setChainFilter(filter)} style={[styles.filter, chainFilter === filter && styles.filterActive]}><Text style={[styles.filterText, chainFilter === filter && styles.filterTextActive]}>{filter === 'All' ? 'All chains' : tradeChainLabel(filter)}</Text></Pressable>)}</ScrollView>
 
       <View style={styles.searchBox}>
         <Text style={styles.searchGlyph}>⌕</Text>
@@ -100,7 +114,7 @@ export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: Token
       )}
 
       {!loading && !query.trim() && (
-        <Text style={styles.sectionTitle}>{trending.length ? 'Trending tokens' : trendingError || 'Loading trending tokens…'}</Text>
+        <Text style={styles.sectionTitle}>{chainFilter !== 'All' ? (chainList ? (chainList.length ? `Trending on ${tradeChainLabel(chainFilter)}` : chainTrending?.error || 'No trending tokens on this network right now.') : `Loading ${tradeChainLabel(chainFilter)}…`) : trending.length ? 'Trending tokens' : trendingError || 'Loading trending tokens…'}</Text>
       )}
 
       {visibleResults.length > 0 && (
@@ -154,7 +168,8 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: kivoTheme.colors.background, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 0 },
   eyebrow: { color: kivoTheme.colors.accent, fontSize: 9, fontWeight: '800', letterSpacing: 1.8, marginBottom: 2 },
   title: { color: kivoTheme.colors.text, fontSize: 22, lineHeight: 27, fontWeight: '800', marginTop: 2, marginBottom: 12 },
-  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  filterScroll: { flexGrow: 0, marginBottom: 8 },
+  filters: { flexDirection: 'row', gap: 6, paddingRight: 16 },
   filter: { paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999, backgroundColor: kivoTheme.colors.surface, borderWidth: 1, borderColor: kivoTheme.colors.border },
   filterActive: { backgroundColor: kivoTheme.colors.cream, borderColor: kivoTheme.colors.cream },
   filterText: { color: kivoTheme.colors.textMuted, fontSize: 10, fontWeight: '700' },
