@@ -15,6 +15,7 @@ class MainApplication : Application(), ReactApplication {
         add(Pbkdf2Package())
         add(ScreenSecurityPackage())
         add(LocalNotifyPackage())
+        add(MediaSavePackage())
       },
     )
   }
