@@ -32,7 +32,7 @@ import { transactionLink } from '@kivo/trading/kivo/execute';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, CASH_CHAINS, cashAssetSymbol, type CashBalanceRow } from '@kivo/trading/kivo/balances';
 import { isValidRecipientAddress, withdrawUsdc } from '@kivo/trading/kivo/cash';
 import { fetchGaslessStatus, type GaslessStatus } from '@kivo/trading/kivo/gasless';
-import { USDC_CHAINS, formatAmount, formatUsd, shortAddress } from '@kivo/trading/kivo/tokens';
+import { formatAmount, formatUsd, shortAddress } from '@kivo/trading/kivo/tokens';
 import { NetworkIcon } from '../wallet/NetworkIcon';
 import QRCode from 'react-native-qrcode-svg';
 import { normalizeAmountInput } from '../utils/amountInput';
@@ -45,6 +45,11 @@ type WithdrawNetwork = ChainKey | 'near';
 
 const DEPOSIT_CHAINS: DepositNetwork[] = [...new Set<DepositNetwork>([...CASH_CHAINS, 'near'])];
 
+
+/** The real coin on each network: USDG on Robinhood, USDC everywhere else. */
+function cashCoin(network: DepositNetwork | null | undefined): string {
+  return network && network !== 'near' ? cashAssetSymbol(network) : 'USDC';
+}
 
 function networkLabel(network: DepositNetwork): string {
   return network === 'near' ? 'NEAR' : CHAIN_LABEL[network];
@@ -84,7 +89,7 @@ export function WalletSummaryScreen({
   const load = () => {
     if (!wallet) return;
     setRows(null);
-    fetchCashBalances(wallet.address, USDC_CHAINS.includes('solana') ? USDC_CHAINS : [...USDC_CHAINS, 'solana'], wallet.solanaAddress).then(setRows).catch(() => setRows((USDC_CHAINS.includes('solana') ? USDC_CHAINS : [...USDC_CHAINS, 'solana']).map((chainKey): CashBalanceRow => ({chainKey: chainKey as CashBalanceRow['chainKey'], status: 'error', error: 'Balance unavailable.'}))));
+    fetchCashBalances(wallet.address, CASH_CHAINS, wallet.solanaAddress).then(setRows).catch(() => setRows((CASH_CHAINS).map((chainKey): CashBalanceRow => ({chainKey: chainKey as CashBalanceRow['chainKey'], status: 'error', error: 'Balance unavailable.'}))));
     if (wallet.nearAddress) fetchNearTokenBalance(NEAR_USDC, wallet.nearAddress).then(v => setNearBalance(Number(v) / 10 ** NEAR_USDC_DECIMALS)).catch(() => setNearBalance(0));
   };
 
@@ -98,7 +103,7 @@ export function WalletSummaryScreen({
   useEffect(() => {
     if (!wallet) return;
     setRows(null);
-    fetchCashBalances(wallet.address, [...USDC_CHAINS, 'solana'], wallet.solanaAddress).then(setRows).catch(() => setRows(([...USDC_CHAINS, 'solana']).map((chainKey): CashBalanceRow => ({chainKey: chainKey as CashBalanceRow['chainKey'], status: 'error', error: 'Balance unavailable.'}))));
+    fetchCashBalances(wallet.address, CASH_CHAINS, wallet.solanaAddress).then(setRows).catch(() => setRows((CASH_CHAINS).map((chainKey): CashBalanceRow => ({chainKey: chainKey as CashBalanceRow['chainKey'], status: 'error', error: 'Balance unavailable.'}))));
     if (wallet.nearAddress) fetchNearTokenBalance(NEAR_USDC, wallet.nearAddress).then(v => setNearBalance(Number(v) / 10 ** NEAR_USDC_DECIMALS)).catch(() => setNearBalance(0));
   }, [wallet?.address]);
 
@@ -164,7 +169,7 @@ export function WalletSummaryScreen({
                 <View key={row.chainKey} style={styles.row}>
                   <View style={styles.rowLeft}>
                     <NetworkBadge network={row.chainKey} />
-                    <Text style={styles.rowName}>USDC · {CHAIN_LABEL[row.chainKey]}</Text>
+                    <Text style={styles.rowName}>{cashCoin(row.chainKey)} · {CHAIN_LABEL[row.chainKey]}</Text>
                   </View>
                   <Text style={styles.rowValue}>{row.status === 'ok' ? mask(formatAmount(row.balance.amount, 2)) : 'Unavailable'}</Text>
                 </View>
@@ -246,7 +251,7 @@ function DepositSheet({
                 <Pressable onPress={onClose}><Text style={styles.ghostText}>Close</Text></Pressable>
               </View>
 
-              <Text style={styles.note}>Choose the network you want to receive USDC on.</Text>
+              <Text style={styles.note}>Choose the network you want to receive on (USDC, or USDG on Robinhood Chain).</Text>
 
               <ScrollView
                 style={styles.networkList}
@@ -305,7 +310,7 @@ function DepositSheet({
               </Text>
 
               <Text style={styles.warn}>
-                Only send USDC on {networkLabel(selected)}. Other assets or unsupported networks may be lost.
+                Only send {cashCoin(selected)} on {networkLabel(selected)}. Other assets or unsupported networks may be lost.
               </Text>
 
             </>
@@ -379,7 +384,7 @@ function WithdrawSheet({
           : !Number.isFinite(parsed) || parsed <= 0
             ? 'Enter an amount greater than zero.'
             : parsed > available + 1e-9
-              ? `More than the ${formatAmount(available, 2)} USDC available on ${chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}.`
+              ? `More than the ${formatAmount(available, 2)} ${cashCoin(chain)} available on ${chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}.`
               : sponsorshipNeeded && gasless?.available === false
                 ? gasless.reason ?? 'Gasless EVM withdrawals are not configured yet.'
                 : null;
@@ -389,7 +394,7 @@ function WithdrawSheet({
     setBusy(true);
     setResult(null);
     try {
-      const outcome = await withDeviceAccounts(`Send ${amount} USDC`, async accounts => {
+      const outcome = await withDeviceAccounts(`Send ${amount} ${cashCoin(chain)}`, async accounts => {
         if (chain !== 'near') return withdrawUsdc(chain, accounts.evm, accounts.solana, to.trim(), amount);
         const tokens = await fetchOneClickTokens();
         const move = nearCashMoveRequest({direction: 'from-near', chainKey: destination, amountBaseUnits: parseUnits(amount, NEAR_USDC_DECIMALS).toString(), session: accounts.relay, tokens, dry: false, recipient: to.trim()});
@@ -410,11 +415,11 @@ function WithdrawSheet({
       setResult({
         ok: true,
         // A NEAR withdrawal is delivered by NEAR Intents after the deposit lands; it is not "sent" yet.
-        message: chain === 'near' ? `Submitted: ${amount} USDC from NEAR to ${shortAddress(to.trim())} on ${CHAIN_LABEL[destination]}. NEAR Intents delivers it in a few minutes.` : `Sent ${amount} USDC on ${CHAIN_LABEL[chain]}.`,
+        message: chain === 'near' ? `Submitted: ${amount} USDC from NEAR to ${shortAddress(to.trim())} on ${CHAIN_LABEL[destination]}. NEAR Intents delivers it in a few minutes.` : `Sent ${amount} ${cashCoin(chain)} on ${CHAIN_LABEL[chain]}.`,
         hash: outcome.hash,
         chainId: chain === 'near' ? undefined : MAINNET_CHAIN_IDS[chain as ChainKey],
       });
-      addNotification(chain === 'near' ? 'Withdrawal submitted' : 'Withdrawal sent', `${amount} USDC to ${shortAddress(to.trim())}`);
+      addNotification(chain === 'near' ? 'Withdrawal submitted' : 'Withdrawal sent', `${amount} ${cashCoin(chain)} to ${shortAddress(to.trim())}`);
       setAmount('');
       setTo('');
       setReview(false);
@@ -458,11 +463,11 @@ function WithdrawSheet({
             ) : !review ? (
               <>
                 <View style={styles.sheetHeader}>
-                  <Text style={styles.sheetTitle}>Withdraw USDC</Text>
+                  <Text style={styles.sheetTitle}>Withdraw {chain ? cashCoin(chain) : 'cash'}</Text>
                   <Pressable onPress={onClose} disabled={busy}><Text style={styles.ghostText}>Close</Text></Pressable>
                 </View>
 
-                <Text style={styles.note}>Choose a network to withdraw from. Your balance is shown for every supported USDC network.</Text>
+                <Text style={styles.note}>Choose a network to withdraw from. Your balance is shown for every supported network (USDG on Robinhood Chain, USDC elsewhere).</Text>
 
                 {!chain ? (
                   <ScrollView style={styles.networkList} nestedScrollEnabled showsVerticalScrollIndicator>
@@ -512,7 +517,7 @@ function WithdrawSheet({
                       style={styles.input}
                     />
 
-                    <Text style={styles.label}>Amount (USDC)</Text>
+                    <Text style={styles.label}>Amount ({cashCoin(chain)})</Text>
                     <View style={styles.amountRow}>
                       <TextInput
                         value={amount}
@@ -554,8 +559,8 @@ function WithdrawSheet({
                 </View>
 
                 <ReviewRow label="Network" value={chain === 'near' ? `NEAR → ${CHAIN_LABEL[destination]}` : chain ? CHAIN_LABEL[chain] : '—'} />
-                <ReviewRow label="Asset" value="USDC" />
-                <ReviewRow label="Amount" value={`${amount} USDC`} />
+                <ReviewRow label="Asset" value={cashCoin(chain)} />
+                <ReviewRow label="Amount" value={`${amount} ${cashCoin(chain)}`} />
                 <View style={styles.reviewAddressBlock}>
                   <Text style={styles.reviewLabel}>To</Text>
                   <Text style={styles.reviewAddress} selectable>{to.trim()}</Text>
@@ -565,7 +570,7 @@ function WithdrawSheet({
 
                 {confirming && !busy ? (
                   <View style={styles.confirmCard}>
-                    <Text style={styles.confirmTitle}>Send {amount} USDC?</Text>
+                    <Text style={styles.confirmTitle}>Send {amount} {cashCoin(chain)}?</Text>
                     <Text style={styles.confirmBody}>
                       {chain === 'near'
                         ? `From NEAR to ${CHAIN_LABEL[destination]} at ${shortAddress(to.trim())}.`
