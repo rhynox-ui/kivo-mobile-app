@@ -1,12 +1,9 @@
 import {parseUnits} from 'viem';
-import {CHAIN_LABEL, TOKEN_ADDRESSES, assetDecimalsForChain, currencyAddress, type ChainKey} from '@kivo/trading/core/chainData';
+import {TOKEN_ADDRESSES, assetDecimalsForChain, currencyAddress, type ChainKey} from '@kivo/trading/core/chainData';
 import {getRelayQuote, type GetRelayQuoteParams} from '@kivo/trading/core/relayQuote';
 import {executeRelayQuote} from '@kivo/trading/core/executeRelayQuote';
 import {cashAssetSymbol, spendableCash, type CashBalanceRow} from '@kivo/trading/kivo/balances';
-import {recordTrade} from '@kivo/trading/kivo/history';
 import {getWalletSession, isWalletUnlocked, withDeviceAccounts} from '../state/walletStore';
-import {getSettings} from '../state/settingsStore';
-import {addNotification} from '../state/notificationStore';
 import {markOwnAction, msSinceOwnAction} from './depositWatcher';
 
 // Base is Kivo's home network for cash, as Relay's Unified Balance guide
@@ -15,6 +12,7 @@ import {markOwnAction, msSinceOwnAction} from './depositWatcher';
 // it). Solana USDC stays where it is: Solana buys from it are same-network.
 // Runs only while the wallet is unlocked (no fingerprint prompt out of the
 // blue), never right after the user's own move, one network at a time.
+// Silent by design: nothing is shown to the user; the balance just stays usable.
 
 export const HOME_CHAIN: ChainKey = 'base';
 const MIN_MOVE_USD = 0.5;
@@ -40,7 +38,7 @@ function movable(row: CashBalanceRow): {chainKey: ChainKey; amount: number} | nu
 
 /** Moves one network's USDC to Base if it qualifies. Returns the dollars moved, or null. */
 export async function autoMoveCashToBase(rows: CashBalanceRow[]): Promise<number | null> {
-  if (running || !getSettings().autoMoveToBase || !isWalletUnlocked()) return null;
+  if (running || !isWalletUnlocked()) return null;
   const wallet = getWalletSession();
   if (!wallet || wallet.source !== 'local') return null;
   const candidate = rows.map(movable).find((x): x is {chainKey: ChainKey; amount: number} => x !== null);
@@ -68,19 +66,10 @@ export async function autoMoveCashToBase(rows: CashBalanceRow[]): Promise<number
     // Kivo is meant to pay the fees; if the quote would still cost the user
     // a real share (sponsorship refused or capped), leave the money alone.
     if (!(received > 0) || received < candidate.amount * (1 - MAX_LOSS_SHARE)) return null;
-    const result = await withDeviceAccounts('Move cash to Base', session =>
+    await withDeviceAccounts('Move cash to Base', session =>
       executeRelayQuote(quote, session.relay, () => {}, {useGaslessTrading: true, requote: () => getRelayQuote(params)}));
     await markOwnAction(wallet.address).catch(() => {});
     lastAttempt.delete(candidate.chainKey);
-    const from = CHAIN_LABEL[candidate.chainKey] ?? candidate.chainKey;
-    recordTrade({
-      side: 'buy',
-      token: {chainKey: HOME_CHAIN, address: currencyAddress(HOME_CHAIN, 'USDC'), symbol: 'USDC', name: 'USDC', imageUrl: null},
-      pay: {amount: candidate.amount.toFixed(2), symbol: 'USDC', chainKey: candidate.chainKey},
-      receive: {amount: received.toFixed(2), symbol: 'USDC', chainKey: HOME_CHAIN},
-      txHashes: result.txHashes, chainIds: [], requestId: result.requestId ?? null, status: result.status ?? 'success',
-    });
-    addNotification('Cash moved to Base', `$${candidate.amount.toFixed(2)} USDC moved from ${from} to Base. Kivo paid the fees.`);
     return candidate.amount;
   } catch {
     // Quiet by design: the money stays where it is and is retried later.
