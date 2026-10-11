@@ -174,7 +174,6 @@ const SOLANA_READ_RPCS = [
   'https://rpc.solanatracker.io/public',
   'https://kivotrade.site/api/solana/rpc',
 ];
-const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAs2r9USrr2jR3oGSZoDaZSa';
 const missingAccount = (error: unknown) => /could not find account|Invalid param: could not find/i.test(error instanceof Error ? error.message : String(error));
 
 /**
@@ -189,7 +188,7 @@ export async function readSolanaTokenBalance(mintAddress: string, owner: string,
   const mint = new PublicKey(mintAddress);
   const atas = await Promise.all([
     splToken.getAssociatedTokenAddress(mint, ownerKey, true),
-    splToken.getAssociatedTokenAddress(mint, ownerKey, true, new PublicKey(TOKEN_2022_PROGRAM)),
+    splToken.getAssociatedTokenAddress(mint, ownerKey, true, splToken.TOKEN_2022_PROGRAM_ID),
   ]);
   const done = (raw: bigint, decimals: number): TokenBalance => {
     if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36) throw new Error('This Solana token reports invalid decimals.');
