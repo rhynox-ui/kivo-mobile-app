@@ -19,6 +19,8 @@ const STABLES = new Set(['USDC', 'USDT', 'USDT0', 'USDG']);
  */
 export function TokenIcon({kind, symbol, chainKey, address, imageUrl, size = 38}: {kind: 'native' | 'cash' | 'token'; symbol: string; chainKey: ChainKey; address: string; imageUrl?: string | null; size?: number}) {
   const [sourceIndex, setSourceIndex] = useState(0);
+  // Reset fallback attempts when this component is reused for another holding.
+  useEffect(() => { setSourceIndex(0); }, [imageUrl, address, chainKey]);
   const box = {width: size, height: size, borderRadius: size / 2};
   if (kind === 'cash' && symbol.toUpperCase() === 'USDC') return <View style={[styles.box, box]}><UsdcLogo size={size} /></View>;
   if (kind === 'native') return <View style={[styles.box, box, styles.bg]}><NetworkIcon chainKey={chainKey} size={Math.round(size * 0.7)} /></View>;
@@ -29,10 +31,6 @@ export function TokenIcon({kind, symbol, chainKey, address, imageUrl, size = 38}
     : null;
   const sources = [...new Set([imageUrl, dexScreenerUri].filter((uri): uri is string => typeof uri === 'string' && uri.trim().length > 0))];
   const source = sources[sourceIndex];
-
-  // A row can be reused for a different holding as the portfolio refreshes.
-  // Reset the fallback chain when its token or preferred image changes.
-  useEffect(() => { setSourceIndex(0); }, [imageUrl, address, chainKey]);
 
   if (source) {
     return <Image
