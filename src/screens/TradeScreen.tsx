@@ -238,7 +238,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       // Bookkeeping must never turn a sent trade into an error.
       void markOwnAction(address!).catch(() => {});
       recordTrade({ side, token: tokenInfo, pay: { amount: view.pay.amount, symbol: view.pay.symbol, chainKey: view.pay.chainKey }, receive: { amount: view.receive.amount, symbol: view.receive.symbol, chainKey: view.receive.chainKey }, txHashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId, status: outcome.status });
-      addNotification(outcome.status === 'success' ? (side === 'buy' ? `Bought ${token.symbol}` : `Sold ${token.symbol}`) : outcome.status === 'refunded' ? 'Trade refunded' : 'Trade submitted', `${view.pay.amount} ${view.pay.symbol}${view.receive.amount ? ` → ${Number(view.receive.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${view.receive.symbol}` : ''} on ${chainLabel(token.chainKey)}`);
+      addNotification(outcome.status === 'success' ? (side === 'buy' ? `Bought ${token.symbol}` : `Sold ${token.symbol}`) : outcome.status === 'refunded' ? 'Trade refunded' : 'Trade submitted', `${Number(view.pay.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${view.pay.symbol}${view.receive.amount ? ` → ${Number(view.receive.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${view.receive.symbol}` : ''} on ${chainLabel(token.chainKey)}`);
     } catch (error) {
       const hashes = error instanceof KivoExecutionError ? error.txHashes : [];
       const message = error instanceof Error ? error.message : 'Trade failed.';
