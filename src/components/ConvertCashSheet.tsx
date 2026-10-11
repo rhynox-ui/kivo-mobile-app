@@ -57,7 +57,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
      if(requestId!==quoteRequestIdRef.current)return; rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setQuote({totalFeeUsd:null,etaSeconds:response.quote.timeEstimate??null,receivedAmountFormatted:response.quote.amountOutFormatted??null,payAmountUsd:Number(response.quote.amountInUsd)||null,receiveAmountUsd:Number(response.quote.amountOutUsd)||null,priceImpactPct:null});
    } else {
      const user=from==='solana'?wallet.solanaAddress:wallet.address; const recipient=to==='solana'?wallet.solanaAddress:wallet.address; if(!user||!recipient)throw new Error('Selected wallet address is unavailable.');
-     const quoteParams={fromChainKey:from as ChainKey,toChainKey:to as ChainKey,originCurrency:currencyAddress(from as ChainKey,cashAssetSymbol(from as ChainKey)),destinationCurrency:currencyAddress(to as ChainKey,cashAssetSymbol(to as ChainKey)),amountBaseUnits,userAddress:user,recipientAddress:recipient,originAmountUsd:n,waiveAppFee:true};
+     const quoteParams={fromChainKey:from as ChainKey,toChainKey:to as ChainKey,originCurrency:currencyAddress(from as ChainKey,cashAssetSymbol(from as ChainKey)),destinationCurrency:currencyAddress(to as ChainKey,cashAssetSymbol(to as ChainKey)),amountBaseUnits,userAddress:user,recipientAddress:recipient,originAmountUsd:n,...(to==='base'&&from!=='solana'&&cashAssetSymbol(from as ChainKey)==='USDC'?{fundingTransfer:true}:{waiveAppFee:true})};
      const q=await getRelayQuote(quoteParams); if(requestId!==quoteRequestIdRef.current)return; rawQuoteRef.current=q; lastQuoteParamsRef.current=quoteParams;
      setQuote(summarizeQuote(q,assetDecimalsForChain(to as ChainKey,'USDC')??6));
    }

@@ -27,6 +27,12 @@ async function save(address: string, state: State) {
   await AsyncStorage.setItem(PREFIX + address.toLowerCase(), JSON.stringify(state));
 }
 
+/** Milliseconds since the user's last own cash move (trade, Convert, withdrawal), or Infinity. */
+export async function msSinceOwnAction(address: string): Promise<number> {
+  const x = await load(address);
+  return x?.lastOwnActionAt ? Date.now() - x.lastOwnActionAt : Number.POSITIVE_INFINITY;
+}
+
 export async function markOwnAction(address: string) {
   const x = await load(address);
   await save(address, {balances: x?.balances ?? {}, lastOwnActionAt: Date.now()});

@@ -11,7 +11,7 @@ type SettingsItem = {
   icon: string;
   value?: string;
   destructive?: boolean;
-  action: 'wallet' | 'profile' | 'haptics' | 'notifications' | 'language' | 'security' | 'legal' | 'taxes' | 'help' | 'docs' | 'x' | 'telegram' | 'logout' | 'delete';
+  action: 'wallet' | 'profile' | 'haptics' | 'notifications' | 'autoMove' | 'language' | 'security' | 'legal' | 'taxes' | 'help' | 'docs' | 'x' | 'telegram' | 'logout' | 'delete';
 };
 
 export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecurity, onLogout }: { onBack:()=>void; onOpenWallet?:()=>void; onOpenProfile?:()=>void; onOpenSecurity?:()=>void; onLogout?:()=>void }) {
@@ -22,6 +22,7 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecu
     { label:'Appearance and Haptics',icon:'◐',value:settings.haptics?'On':'Off',action:'haptics' },
     { label:'Language',icon:'◎',value:settings.language,action:'language' },
     { label:'Notifications',icon:'♧',value:settings.notifications?'On':'Off',action:'notifications' },
+    { label:'Keep cash on Base',icon:'⇄',value:settings.autoMoveToBase?'On':'Off',action:'autoMove' },
     { label:'Security',icon:'♢',action:'security' },
     { label:'Deposit and Withdraw',icon:'♜',action:'wallet' },
     { label:'Legal and Privacy',icon:'⚖',action:'legal' },
@@ -39,6 +40,7 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecu
       case 'wallet': onOpenWallet?.(); return;
       case 'profile': onOpenProfile?.(); return;
       case 'haptics': setShowAppearance(true); return;
+      case 'autoMove': updateSettings({autoMoveToBase:!settings.autoMoveToBase}); return;
       case 'notifications':
         updateSettings({notifications:!settings.notifications});
         Linking.openSettings().catch(()=>{});

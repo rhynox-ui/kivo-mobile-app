@@ -12,6 +12,8 @@ export type KivoSettings = {
   hideBalances: boolean;
   /** Max slippage for trade routes in basis points; null lets the router choose (Auto). */
   slippageBps: number | null;
+  /** Move USDC that lands on other EVM networks to Base, Kivo's home network for cash (fees paid by Kivo). */
+  autoMoveToBase: boolean;
 };
 
 const DEFAULT_SETTINGS: KivoSettings = {
@@ -21,6 +23,7 @@ const DEFAULT_SETTINGS: KivoSettings = {
   hideSmallBalances: false,
   hideBalances: false,
   slippageBps: null,
+  autoMoveToBase: true,
 };
 
 let settings: KivoSettings = { ...DEFAULT_SETTINGS };
