@@ -13,3 +13,4 @@ export * from './KivoStat';
 export * from './KivoText';
 export * from './TradeQuotePanel';
 export * from './TradeConfirmation';
+export * from './KivoAlert';

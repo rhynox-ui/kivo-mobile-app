@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { kivoAlert } from '../components/KivoAlert';
 import { hasProfileLinks, shortWallet, walletAddressOfUserId, type ApiProfile, type ProfileLinks, type ProfileSocial, type PublicCommunityCard } from '@kivo/shared/api/types';
 import { openDirectMessage, rememberProfiles } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
@@ -68,10 +69,10 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
   // Synchronous guard: one action at a time, so a double tap never follows/blocks twice.
   const busyRef = useRef(false);
   const guard = async (fn: () => Promise<void>) => {
-    if (!socialReady()) { Alert.alert('Kivo', 'Turn on chats first (Chats tab).'); return; }
+    if (!socialReady()) { kivoAlert('Kivo', 'Turn on chats first (Chats tab).'); return; }
     if (busyRef.current) return;
     busyRef.current = true;
-    try { await fn(); } catch (e) { Alert.alert('Kivo', e instanceof Error ? e.message : 'Action failed.'); }
+    try { await fn(); } catch (e) { kivoAlert('Kivo', e instanceof Error ? e.message : 'Action failed.'); }
     finally { busyRef.current = false; }
   };
   const name = person?.username ? '@' + person.username : shortWallet(address);
@@ -96,7 +97,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
           </Pressable>
           <Pressable onPress={() => guard(async () => onOpenChat(await openDirectMessage(person?.address ?? address)))} style={[styles.button, styles.secondary]}><Text style={styles.secondaryText}>Message</Text></Pressable>
         </View>
-        <Pressable onPress={() => Alert.alert(blocked ? 'Unblock user?' : 'Block user?', blocked ? 'This user is currently blocked. Unblocking will let them message you again.' : 'This user is not blocked. Blocking will stop them from sending you direct messages.', [
+        <Pressable onPress={() => kivoAlert(blocked ? 'Unblock user?' : 'Block user?', blocked ? 'This user is currently blocked. Unblocking will let them message you again.' : 'This user is not blocked. Blocking will stop them from sending you direct messages.', [
           { text: 'Cancel', style: 'cancel' },
           { text: blocked ? 'Unblock user' : 'Block user', style: blocked ? 'default' : 'destructive', onPress: () => guard(async () => { if (blocked) await api.unblockUser(userId); else await api.blockUser(userId); setBlocked(!blocked); }) },
         ])} style={[styles.button, styles.blockButton, blocked && styles.blockedButton]}><Text style={[styles.blockButtonText, blocked && styles.blockedButtonText]}>{blocked ? 'Blocked · Tap to unblock' : 'Block user'}</Text></Pressable>

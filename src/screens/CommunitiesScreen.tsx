@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { kivoAlert } from '../components/KivoAlert';
 import { launchImageLibrary, type Asset } from 'react-native-image-picker';
 import { type ApiCommunity, type CommunityKind } from '@kivo/shared/api/types';
 import { API_LIMITS, ownedCommunityLimit, ownedCommunityLimitMessage } from '@kivo/shared/api/types';
@@ -47,11 +48,11 @@ export function CommunitiesScreen({ kind: initialKind = 'group', onOpenChat, onO
   // Synchronous guard: a double tap must never send two join requests.
   const joiningRef = useRef(false);
   const join = async (c: ApiCommunity) => {
-    if (!ready) { Alert.alert('Kivo', 'Turn on chats first (Chats tab).'); return; }
+    if (!ready) { kivoAlert('Kivo', 'Turn on chats first (Chats tab).'); return; }
     if (joiningRef.current) return;
     joiningRef.current = true;
     try { await api.join(c.id); await refreshConversations().catch(() => {}); onOpenChat(c.id); }
-    catch (e) { Alert.alert(c.name, e instanceof Error ? e.message : 'Unable to join.'); }
+    catch (e) { kivoAlert(c.name, e instanceof Error ? e.message : 'Unable to join.'); }
     finally { joiningRef.current = false; }
   };
 
@@ -129,7 +130,7 @@ function CreateForm({ kind, onCreated, onOpenVerification }: { kind: CommunityKi
       }
       setPhoto(asset);
     } catch (e) {
-      Alert.alert('Photo', e instanceof Error ? e.message : 'Could not read this photo. Please try another image.');
+      kivoAlert('Photo', e instanceof Error ? e.message : 'Could not read this photo. Please try another image.');
     }
   };
   /**
@@ -172,7 +173,7 @@ function CreateForm({ kind, onCreated, onOpenVerification }: { kind: CommunityKi
       const created = await api.createCommunity({ kind, name, description, visibility, avatarKey });
       await refreshConversations().catch(() => {});
       onCreated(created);
-    } catch (e) { Alert.alert('Create', e instanceof Error ? e.message : 'Unable to create.'); }
+    } catch (e) { kivoAlert('Create', e instanceof Error ? e.message : 'Unable to create.'); }
     finally { busyRef.current = false; setBusy(false); }
   };
   return (

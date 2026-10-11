@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { kivoAlert } from '../components/KivoAlert';
 import { normalizeWalletAddress, shortWallet, type ApiCommunity, type ApiConversation, type ApiProfile } from '@kivo/shared/api/types';
 import { displayName, myUserId, openDirectMessage, rememberProfiles, unreadCount } from '@kivo/shared/chat/store';
 import { KivoMark } from '../components/KivoMark';
@@ -92,7 +93,7 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
         ListFooterComponent={filter === 'channel' && publicChannels.length ? <View style={styles.discoverSection}>
           {publicChannels.map(c => <Pressable key={c.id} style={styles.row} onPress={async () => {
             try { await api.join(c.id); await refreshConversations().catch(() => {}); onOpenChat(c.id); }
-            catch (e) { Alert.alert(c.name, e instanceof Error ? e.message : 'Unable to subscribe to channel.'); }
+            catch (e) { kivoAlert(c.name, e instanceof Error ? e.message : 'Unable to subscribe to channel.'); }
           }}>
             <Avatar name={c.name} uri={c.avatarUrl} size={52} verified={c.isVerified === true} />
             <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>📢 {c.name}{c.isVerified === true ? ' ★' : ''}</Text></View><Text style={styles.preview}>Public channel · Tap to subscribe</Text></View>
@@ -187,7 +188,7 @@ function NewChat({ onOpen }: { onOpen: (id: string) => void }) {
     startingRef.current = true;
     setBusy(true);
     try { onOpen(await openDirectMessage(address)); }
-    catch (error) { Alert.alert('New message', error instanceof Error ? error.message : 'Could not start chat.'); }
+    catch (error) { kivoAlert('New message', error instanceof Error ? error.message : 'Could not start chat.'); }
     finally { startingRef.current = false; setBusy(false); }
   };
   // EVM (0x…) or Solana wallet. Solana addresses are case-sensitive and kept as typed.
@@ -211,7 +212,7 @@ export function EnableSocial() {
   const turnOn = async () => {
     setBusy(true);
     try { await enableSocial(); }
-    catch (error) { Alert.alert('Kivo chats', error instanceof Error ? error.message : 'Sign-in failed.'); }
+    catch (error) { kivoAlert('Kivo chats', error instanceof Error ? error.message : 'Sign-in failed.'); }
     finally { setBusy(false); }
   };
   return (

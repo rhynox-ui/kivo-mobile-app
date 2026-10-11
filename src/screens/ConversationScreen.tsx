@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
+import { AppState, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
+import { kivoAlert } from '../components/KivoAlert';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { API_LIMITS, messageCharLimit, messageLength, shortWallet } from '@kivo/shared/api/types';
 import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
@@ -18,8 +19,8 @@ function renderLinkedText(text: string): React.ReactNode[] {
   for(const match of text.matchAll(pattern)){const raw=match[0];const start=match.index??0;if(start>cursor)nodes.push(text.slice(cursor,start));let url:string;let style:TextStyle=styles.messageLink;
     if(raw.startsWith('#')){url='https://x.com/hashtag/'+encodeURIComponent(raw.slice(1));style=styles.messageHashtag;}
     else if(raw.startsWith('$')){url='https://dexscreener.com/search?q='+encodeURIComponent(raw.slice(1));style=styles.messageTicker;}
-    else{const clean=raw.replace(/[),.!?;:]+$/,'');url=clean.startsWith('www.')?'https://'+clean:clean;nodes.push(<Text key={`link-${key++}`} accessibilityRole="link" onPress={()=>Linking.openURL(url).catch(()=>Alert.alert('Link','Could not open this link.'))} style={style}>{clean}</Text>);const tail=raw.slice(clean.length);if(tail)nodes.push(tail);cursor=start+raw.length;continue;}
-    nodes.push(<Text key={`link-${key++}`} accessibilityRole="link" onPress={()=>Linking.openURL(url).catch(()=>Alert.alert('Link','Could not open this link.'))} style={style}>{raw}</Text>);cursor=start+raw.length;
+    else{const clean=raw.replace(/[),.!?;:]+$/,'');url=clean.startsWith('www.')?'https://'+clean:clean;nodes.push(<Text key={`link-${key++}`} accessibilityRole="link" onPress={()=>Linking.openURL(url).catch(()=>kivoAlert('Link','Could not open this link.'))} style={style}>{clean}</Text>);const tail=raw.slice(clean.length);if(tail)nodes.push(tail);cursor=start+raw.length;continue;}
+    nodes.push(<Text key={`link-${key++}`} accessibilityRole="link" onPress={()=>Linking.openURL(url).catch(()=>kivoAlert('Link','Could not open this link.'))} style={style}>{raw}</Text>);cursor=start+raw.length;
   } if(cursor<text.length)nodes.push(text.slice(cursor));return nodes.length?nodes:[text];
 }
 
@@ -170,7 +171,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
     const text = draft;
     if (!text.trim()) return;
     if (overLimit) {
-      Alert.alert('Message', verifiedSender ? 'This message is too long.' : `Messages are limited to ${charLimit} characters. Blue Star accounts can send up to ${messageCharLimit(true).toLocaleString()} characters.`);
+      kivoAlert('Message', verifiedSender ? 'This message is too long.' : `Messages are limited to ${charLimit} characters. Blue Star accounts can send up to ${messageCharLimit(true).toLocaleString()} characters.`);
       return;
     }
     const editingId = editingMessageId;
@@ -186,7 +187,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
         setDraft('');
         setReplyingTo(null);
       }
-    } catch (error) { Alert.alert(editingId ? 'Edit message' : 'Message', error instanceof Error ? error.message : 'Not sent.'); }
+    } catch (error) { kivoAlert(editingId ? 'Edit message' : 'Message', error instanceof Error ? error.message : 'Not sent.'); }
     finally { sendingRef.current = false; setSending(false); }
   };
   const attach = async () => {
@@ -194,11 +195,11 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
       const photo = await pickCompressedPhoto();
       // Keep the caption when the photo fails: photos can't be retried, only re-sent.
       if (photo && await sendImage(id, photo, draft)) setDraft('');
-    } catch (error) { Alert.alert('Photo', error instanceof Error ? error.message : 'Photo not sent.'); }
+    } catch (error) { kivoAlert('Photo', error instanceof Error ? error.message : 'Photo not sent.'); }
   };
   const onLongPress = (message: LocalMessage) => {
     if (message.status === 'failed') {
-      Alert.alert('Not sent', message.error ?? 'This message was not delivered.', [
+      kivoAlert('Not sent', message.error ?? 'This message was not delivered.', [
         { text: 'Discard', style: 'destructive', onPress: () => discardMessage(id, message.id) },
         ...(!message.media ? [{ text: 'Retry', onPress: () => { void retryMessage(id, message.id); } }] : []),
         { text: 'Cancel', style: 'cancel' as const },
@@ -211,31 +212,31 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
       ...(canPost ? [{ text: 'Reply', onPress: () => { setEditingMessageId(null); setReplyingTo(message); } }] : []),
       ...(message.senderId === me ? [{ text: 'Edit message', onPress: () => { setReplyingTo(null); setEditingMessageId(message.id); setDraft(message.text); } }] : []),
       { text: 'Forward message', onPress: () => setForwardingMessage(message) },
-      ...(message.senderId === me || canModerate ? [{ text: 'Delete message', style: 'destructive' as const, onPress: () => Alert.alert('Delete message', 'Delete this message for everyone?', [
+      ...(message.senderId === me || canModerate ? [{ text: 'Delete message', style: 'destructive' as const, onPress: () => kivoAlert('Delete message', 'Delete this message for everyone?', [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => deleteForEveryone(id, message.id).catch(error => Alert.alert('Delete', error instanceof Error ? error.message : 'Could not delete.')) },
+        { text: 'Delete', style: 'destructive', onPress: () => deleteForEveryone(id, message.id).catch(error => kivoAlert('Delete', error instanceof Error ? error.message : 'Could not delete.')) },
       ]) }] : []),
       ...(conversation?.kind === 'dm' && message.senderId !== me && conversation.peer?.userId === message.senderId ? [{
         text: 'Block / unblock user',
         onPress: () => { void api.blockedUsers().then(blocked => {
           const isBlocked = blocked.includes(message.senderId);
-          Alert.alert(isBlocked ? 'Unblock user?' : 'Block user?', isBlocked ? 'They will be able to message you again.' : 'They will no longer be able to send you direct messages. You can unblock them later.', [
+          kivoAlert(isBlocked ? 'Unblock user?' : 'Block user?', isBlocked ? 'They will be able to message you again.' : 'They will no longer be able to send you direct messages. You can unblock them later.', [
             { text: 'Cancel', style: 'cancel' },
-            { text: isBlocked ? 'Unblock' : 'Block', style: isBlocked ? 'default' as const : 'destructive' as const, onPress: () => (isBlocked ? api.unblockUser(message.senderId) : api.blockUser(message.senderId)).then(() => Alert.alert('Privacy', isBlocked ? 'User unblocked.' : 'User blocked.')).catch(error => Alert.alert('Privacy', error instanceof Error ? error.message : 'Action failed.')) },
+            { text: isBlocked ? 'Unblock' : 'Block', style: isBlocked ? 'default' as const : 'destructive' as const, onPress: () => (isBlocked ? api.unblockUser(message.senderId) : api.blockUser(message.senderId)).then(() => kivoAlert('Privacy', isBlocked ? 'User unblocked.' : 'User blocked.')).catch(error => kivoAlert('Privacy', error instanceof Error ? error.message : 'Action failed.')) },
           ]);
-        }).catch(error => Alert.alert('Privacy', error instanceof Error ? error.message : 'Could not load block status.')); },
+        }).catch(error => kivoAlert('Privacy', error instanceof Error ? error.message : 'Could not load block status.')); },
       }] : []),
       ...(canModerate && conversation?.kind === 'group' && message.senderId !== me ? [{
         text: 'Restrict / restore posting',
         onPress: () => { void api.community(id).then(detail => {
           const member = detail.members.find(item => item.userId === message.senderId);
-          if (!member || member.role !== 'member') { Alert.alert('Moderation', 'Only regular members can be restricted.'); return; }
+          if (!member || member.role !== 'member') { kivoAlert('Moderation', 'Only regular members can be restricted.'); return; }
           const restricted = Boolean(member.restricted);
-          Alert.alert(restricted ? 'Restore posting?' : 'Restrict posting?', restricted ? 'Allow this member to send messages again.' : 'This member will not be able to send messages in this group.', [
+          kivoAlert(restricted ? 'Restore posting?' : 'Restrict posting?', restricted ? 'Allow this member to send messages again.' : 'This member will not be able to send messages in this group.', [
             { text: 'Cancel', style: 'cancel' },
-            { text: restricted ? 'Restore' : 'Restrict', style: restricted ? 'default' as const : 'destructive' as const, onPress: () => api.setMemberRestricted(id, message.senderId, !restricted).then(() => Alert.alert('Moderation', restricted ? 'Posting restored.' : 'Member restricted.')).catch(error => Alert.alert('Moderation', error instanceof Error ? error.message : 'Action failed.')) },
+            { text: restricted ? 'Restore' : 'Restrict', style: restricted ? 'default' as const : 'destructive' as const, onPress: () => api.setMemberRestricted(id, message.senderId, !restricted).then(() => kivoAlert('Moderation', restricted ? 'Posting restored.' : 'Member restricted.')).catch(error => kivoAlert('Moderation', error instanceof Error ? error.message : 'Action failed.')) },
           ]);
-        }).catch(error => Alert.alert('Moderation', error instanceof Error ? error.message : 'Could not load member.')); },
+        }).catch(error => kivoAlert('Moderation', error instanceof Error ? error.message : 'Could not load member.')); },
       }] : []),
     ]);
   };
@@ -258,11 +259,11 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
           const peerId = conversation.peer!.userId;
           void api.blockedUsers().then(blocked => {
             const isBlocked = blocked.includes(peerId);
-            Alert.alert(isBlocked ? 'Unblock user?' : 'Block user?', isBlocked ? 'They will be able to message you again.' : 'They will no longer be able to send you direct messages.', [
+            kivoAlert(isBlocked ? 'Unblock user?' : 'Block user?', isBlocked ? 'They will be able to message you again.' : 'They will no longer be able to send you direct messages.', [
               { text: 'Cancel', style: 'cancel' },
-              { text: isBlocked ? 'Unblock' : 'Block', style: isBlocked ? 'default' as const : 'destructive' as const, onPress: () => (isBlocked ? api.unblockUser(peerId) : api.blockUser(peerId)).then(() => Alert.alert('Privacy', isBlocked ? 'User unblocked.' : 'User blocked.')).catch(error => Alert.alert('Privacy', error instanceof Error ? error.message : 'Action failed.')) },
+              { text: isBlocked ? 'Unblock' : 'Block', style: isBlocked ? 'default' as const : 'destructive' as const, onPress: () => (isBlocked ? api.unblockUser(peerId) : api.blockUser(peerId)).then(() => kivoAlert('Privacy', isBlocked ? 'User unblocked.' : 'User blocked.')).catch(error => kivoAlert('Privacy', error instanceof Error ? error.message : 'Action failed.')) },
             ]);
-          }).catch(error => Alert.alert('Privacy', error instanceof Error ? error.message : 'Could not load privacy settings.'));
+          }).catch(error => kivoAlert('Privacy', error instanceof Error ? error.message : 'Could not load privacy settings.'));
         }} hitSlop={10} accessibilityLabel="Privacy and blocking"><Text style={styles.info}>⊘</Text></Pressable>}
         {conversation && conversation.kind !== 'dm' && <Pressable onPress={() => onOpenInfo?.(id, conversation.kind as 'group' | 'channel')} hitSlop={10}><Text style={styles.info}>ⓘ</Text></Pressable>}
       </View>
@@ -362,7 +363,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
                 <Pressable key={c.id} style={styles.forwardDestination} onPress={() => {
                   const selected = forwardingMessage;
                   setForwardingMessage(null);
-                  if (selected) void forwardMessage(id, selected.id, c.id).then(() => Alert.alert('Forwarded', 'Message sent to ' + c.title + '.')).catch(error => Alert.alert('Forward', error instanceof Error ? error.message : 'Could not forward.'));
+                  if (selected) void forwardMessage(id, selected.id, c.id).then(() => kivoAlert('Forwarded', 'Message sent to ' + c.title + '.')).catch(error => kivoAlert('Forward', error instanceof Error ? error.message : 'Could not forward.'));
                 }}>
                   <Avatar name={c.title} uri={c.avatarUrl} size={38} verified={c.kind !== 'dm' && (c.isVerified === true || (c.kind === 'channel' && false))} />
                   <View style={styles.forwardDestinationCopy}>

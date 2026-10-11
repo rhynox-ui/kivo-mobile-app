@@ -1,5 +1,6 @@
 import React from 'react';
-import { Alert, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { kivoAlert } from './KivoAlert';
 import { profileLinkUrl, type ProfileLinks } from '@kivo/shared/api/types';
 import { kivoTheme } from '../theme/kivoTheme';
 
@@ -19,8 +20,8 @@ function linkText(kind: keyof ProfileLinks, value: string): string {
 /** Opens a stored link. Only https URLs built by profileLinkUrl are ever opened. */
 function openLink(kind: keyof ProfileLinks, value: string) {
   const url = profileLinkUrl(kind, value);
-  if (!/^https:\/\//i.test(url)) { Alert.alert(LABEL[kind], 'This link cannot be opened.'); return; }
-  Linking.openURL(url).catch(() => Alert.alert(LABEL[kind], 'Could not open this link.'));
+  if (!/^https:\/\//i.test(url)) { kivoAlert(LABEL[kind], 'This link cannot be opened.'); return; }
+  Linking.openURL(url).catch(() => kivoAlert(LABEL[kind], 'Could not open this link.'));
 }
 
 export function ProfileLinkChips({ links }: { links: ProfileLinks }) {
