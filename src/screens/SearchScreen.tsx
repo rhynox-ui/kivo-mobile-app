@@ -4,12 +4,17 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { CHAIN_LABEL, tradeChainLabel, type TradeChain, searchTokens, fmtCompactUsd } from '../trading/tokenSearch';
 import { fetchTrendingTokens, fetchTrendingTokensForChain } from '@kivo/trading/core/discoveryFeed';
 import { toKivoToken, type KivoToken } from '@kivo/trading/kivo/tokens';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { TOKEN_SORT_OPTIONS, sortTokens, type TokenSortKey } from '@kivo/trading/kivo/sort';
 
 type TokenSearchResult = KivoToken;
 
 
 const DEBOUNCE_MS = 350;
+const TRENDING_CACHE = 'kivo:trending:v1';
+const TRENDING_FRESH_MS = 60_000;
+let trendingMemory: {tokens: KivoToken[]; at: number} | null = null;
+const chainTrendingMemory = new Map<string, {tokens: KivoToken[]; at: number}>();
 
 export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: TokenSearchResult) => void }) {
   const [query, setQuery] = useState('');
@@ -25,17 +30,31 @@ export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: Token
   // Every chain Kivo trades on, popular ones first.
   const chainFilters: Array<'All' | TradeChain> = ['All', 'solana', 'base', 'ethereum', 'bnb', 'robinhood', 'arbitrum', 'avalanche', 'unichain', 'hyperevm', 'ink', 'abstract', 'plasma', 'stable', 'xlayer', 'arc'].filter(key => key === 'All' || key in CHAIN_LABEL) as Array<'All' | TradeChain>;
   const [chainTrending, setChainTrending] = useState<{ chain: TradeChain; tokens: TokenSearchResult[]; error: string } | null>(null);
-  const [trending, setTrending] = useState<TokenSearchResult[]>([]);
+  const [trending, setTrending] = useState<TokenSearchResult[]>(() => trendingMemory?.tokens ?? []);
   const [trendingError, setTrendingError] = useState('');
-  useEffect(() => { fetchTrendingTokens().then(result => { setTrending(result.tokens.map(toKivoToken)); setTrendingError(result.error ?? ''); }); }, []);
+  useEffect(() => {
+    // Show the last list straight away (memory, then the phone), refresh in the background.
+    if (!trendingMemory) void AsyncStorage.getItem(TRENDING_CACHE).then(raw => { if (raw && !trendingMemory) setTrending(current => current.length ? current : (JSON.parse(raw) as KivoToken[])); }).catch(() => {});
+    if (trendingMemory && Date.now() - trendingMemory.at < TRENDING_FRESH_MS) return;
+    fetchTrendingTokens().then(result => {
+      const tokens = result.tokens.map(toKivoToken);
+      if (tokens.length) { trendingMemory = {tokens, at: Date.now()}; AsyncStorage.setItem(TRENDING_CACHE, JSON.stringify(tokens)).catch(() => {}); }
+      setTrending(current => tokens.length ? tokens : current);
+      setTrendingError(tokens.length ? '' : result.error ?? '');
+    });
+  }, []);
   // A chain filter loads that chain's own trending list, so smaller chains
   // (Robinhood, Unichain, ...) are not crowded out of the mixed list.
   useEffect(() => {
     if (chainFilter === 'All' || chainFilter === 'near') { setChainTrending(null); return; }
     let active = true;
-    setChainTrending(null);
+    const cached = chainTrendingMemory.get(chainFilter);
+    setChainTrending(cached ? { chain: chainFilter, tokens: cached.tokens, error: '' } : null);
+    if (cached && Date.now() - cached.at < TRENDING_FRESH_MS) return;
     fetchTrendingTokensForChain(chainFilter).then(result => {
-      if (active) setChainTrending({ chain: chainFilter, tokens: result.tokens.map(toKivoToken), error: result.error ?? '' });
+      const tokens = result.tokens.map(toKivoToken);
+      if (tokens.length) chainTrendingMemory.set(chainFilter, {tokens, at: Date.now()});
+      if (active && (tokens.length || !cached)) setChainTrending({ chain: chainFilter, tokens, error: result.error ?? '' });
     });
     return () => { active = false; };
   }, [chainFilter]);
