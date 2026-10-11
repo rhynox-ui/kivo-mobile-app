@@ -39,6 +39,17 @@ function tokenFrom(chainKey: Holding['chainKey'], tokenAddress: string, symbol: 
   return { chainKey, tokenAddress, symbol, name, imageUrl, priceUsd, change24h: null, marketCapUsd: null, liquidityUsd: null };
 }
 
+/** All cash (USDC on every network, USDG on Robinhood) shown as one USDC row, like the Total cash card. */
+function unifyCash(holdings: Holding[]): Holding[] {
+  const cash = holdings.filter(h => h.kind === 'cash');
+  if (cash.length < 2) return holdings.map(h => (h.kind === 'cash' ? { ...h, symbol: 'USDC', chainKey: '' as never } : h));
+  const amount = cash.reduce((sum, h) => sum + h.amount, 0);
+  const valueUsd = cash.reduce((sum, h) => sum + (h.valueUsd ?? 0), 0);
+  const merged: Holding = { ...cash[0], key: 'cash:all', symbol: 'USDC', name: 'USDC', chainKey: '' as never, amount, valueUsd, priceUsd: 1 };
+  const first = holdings.indexOf(cash[0]);
+  return holdings.flatMap((h, i) => (h.kind !== 'cash' ? [h] : i === first ? [merged] : []));
+}
+
 function signedUsd(value: number): string {
   return `${value >= 0 ? '+' : '−'}${formatUsd(Math.abs(value))}`;
 }
@@ -253,7 +264,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const chats = chat.conversations.filter(c => c.kind === 'dm').length;
   const points = filterHistoryByRange(history, range);
   const change = computePortfolioChange(points);
-  const open = portfolio ? openHoldings(portfolio).filter(h => filter === 'all' || (filter === 'tokens' ? h.kind !== 'cash' : h.kind === 'cash')) : [];
+  const open = portfolio ? unifyCash(openHoldings(portfolio)).filter(h => filter === 'all' || (filter === 'tokens' ? h.kind !== 'cash' : h.kind === 'cash')) : [];
   const hiddenOpen = open.filter(h => !isUnverifiedHolding(h) && shouldHideSmallHolding(h));
   const unverifiedOpen = open.filter(isUnverifiedHolding);
   const verifiedOpen = open.filter(h => !isUnverifiedHolding(h));
