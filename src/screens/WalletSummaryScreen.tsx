@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -424,22 +423,11 @@ function WithdrawSheet({
     }
   };
 
+  // Final check in Kivo's own style (was a system Alert): the review card already shows the details.
+  const [confirming, setConfirming] = useState(false);
   const confirmSend = () => {
     if (!canReview || !chain) return;
-    Alert.alert(
-      'Confirm withdrawal',
-      chain === 'near'
-        ? `Send ${amount} USDC from NEAR to ${CHAIN_LABEL[destination]} at ${shortAddress(to.trim())}?\
-\
-This transfer cannot be reversed.`
-        : `Send ${amount} USDC on ${CHAIN_LABEL[chain]} to ${shortAddress(to.trim())}?\
-\
-This transfer cannot be reversed.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Confirm', style: 'destructive', onPress: () => { void executeSend(); } },
-      ],
-    );
+    setConfirming(true);
   };
 
   return (
@@ -555,10 +543,26 @@ This transfer cannot be reversed.`,
 
                 <Text style={styles.warn}>Sends are final. Double-check the network and address above. A wrong network or address can permanently lose funds.</Text>
 
-                <Pressable disabled={busy} onPress={confirmSend} style={[styles.primary, busy && styles.disabled]}>
-                  {busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep} /> : <Text style={styles.primaryText}>Confirm withdrawal</Text>}
-                </Pressable>
-                <Pressable onPress={() => setReview(false)} disabled={busy} style={styles.ghost}><Text style={styles.ghostText}>Edit</Text></Pressable>
+                {confirming && !busy ? (
+                  <View style={styles.confirmCard}>
+                    <Text style={styles.confirmTitle}>Send {amount} USDC?</Text>
+                    <Text style={styles.confirmBody}>
+                      {chain === 'near'
+                        ? `From NEAR to ${CHAIN_LABEL[destination]} at ${shortAddress(to.trim())}.`
+                        : `On ${chain ? CHAIN_LABEL[chain] : ''} to ${shortAddress(to.trim())}.`}
+                      {' '}This can't be reversed.
+                    </Text>
+                    <View style={styles.confirmButtons}>
+                      <Pressable onPress={() => setConfirming(false)} style={[styles.confirmButton, styles.confirmCancel]}><Text style={styles.confirmCancelText}>Cancel</Text></Pressable>
+                      <Pressable onPress={() => { setConfirming(false); void executeSend(); }} style={[styles.confirmButton, styles.confirmGo]}><Text style={styles.primaryText}>Send now</Text></Pressable>
+                    </View>
+                  </View>
+                ) : (
+                  <Pressable disabled={busy} onPress={confirmSend} style={[styles.primary, busy && styles.disabled]}>
+                    {busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep} /> : <Text style={styles.primaryText}>Confirm withdrawal</Text>}
+                  </Pressable>
+                )}
+                <Pressable onPress={() => { setConfirming(false); setReview(false); }} disabled={busy} style={styles.ghost}><Text style={styles.ghostText}>Edit</Text></Pressable>
               </>
             )}
           </Pressable>
@@ -651,6 +655,14 @@ const styles = StyleSheet.create({
   reviewAddress: { color: c.text, fontSize: 13, fontWeight: '600', marginTop: 7, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 12 },
   primary: { marginTop: 14, height: 52, borderRadius: 26, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center' },
   primaryText: { color: c.backgroundDeep, fontWeight: '900', fontSize: 15 },
+  confirmCard: { marginTop: 14, padding: 16, borderRadius: 20, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border },
+  confirmTitle: { color: c.cream, fontSize: 17, fontWeight: '900' },
+  confirmBody: { color: c.textMuted, fontSize: 13, lineHeight: 19, marginTop: 6 },
+  confirmButtons: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  confirmButton: { flex: 1, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  confirmCancel: { borderWidth: 1, borderColor: c.border },
+  confirmCancelText: { color: c.cream, fontWeight: '800', fontSize: 15 },
+  confirmGo: { backgroundColor: c.accent },
   ghost: { height: 44, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   ghostText: { color: c.cream, fontWeight: '800' },
   disabled: { opacity: 0.45 },
