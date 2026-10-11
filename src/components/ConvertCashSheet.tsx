@@ -45,7 +45,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
  useEffect(()=>{if(!visible)return;setAmount('');setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setError(null);setHashes(null);setPicker(null);setNearRecord(null);refresh();},[visible]);
  useEffect(()=>{if(!visible||amount||picker)return;if(rows===null)return;const f=pickDefaultFrom(rows,nearBalance);setFrom(f);setTo(pickDefaultTo(f,rows,nearBalance));},[visible,rows,nearBalance]);
  useEffect(()=>{if(!nearRecord||!shouldPollOneClickSwap(nearRecord))return;const t=setTimeout(()=>{refreshOneClickSwap(nearRecord,{fetchStatus:d=>fetchOneClickStatus(d),store:oneClickSwapStore}).then(next=>{setNearRecord(next);if(next.status==='SUCCESS'||next.status==='REFUNDED')onConverted();}).catch(()=>{});},5000);return()=>clearTimeout(t);},[nearRecord,onConverted]);
- const balance=balanceFor(rows,from,nearBalance); const inputStep=10**-decimalsFor(from); const n=Number(amount)||0; const same=from===to; const insufficient=(from==='near'||rows!==null)&&n>balance; const decimals=decimalsFor(from);
+ const balance=balanceFor(rows,from,nearBalance); const n=Number(amount)||0; const same=from===to; const insufficient=(from==='near'||rows!==null)&&n>balance; const decimals=decimalsFor(from);
  useEffect(()=>{if(!visible||!wallet||same||n<=0||insufficient){setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setLoading(false);return;} const requestId=++quoteRequestIdRef.current; const t=setTimeout(async()=>{setLoading(true);setError(null);try{
    const amountBaseUnits=parseUnits(amount,decimals).toString();
    if(from==='near'||to==='near'){
@@ -93,7 +93,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
  {picker?<><View style={s.header}><Pressable onPress={()=>setPicker(null)}><Text style={s.back}>‹ Back</Text></Pressable><Text style={s.title}>Convert {picker==='from'?'from':'to'}</Text><View style={{width:40}}/></View><ScrollView style={s.list}>
  {chains.filter(c=>c!==(picker==='from'?to:from)).map(c=><Pressable key={c} style={s.network} onPress={()=>{picker==='from'?setFrom(c):setTo(c);setAmount('');setPicker(null);}}><View style={s.left}><NetworkIcon chainKey={c} size={24} /><Text style={s.networkText}>USDC · {chainLabel(c)}</Text></View><Text style={s.networkBalance}>{formatUsd(balanceFor(rows,c,nearBalance))}</Text></Pressable>)}</ScrollView></>
  :<><View style={s.header}><Text style={s.title}>Convert</Text><View style={s.free}><Text style={s.freeText}>Kivo fee: Free</Text></View></View>
- <View style={s.asset}><View style={s.top}><Text style={s.muted}>FROM</Text><Text style={s.muted}>Available: {formatUsd(balance)}</Text></View><View style={s.main}><Pressable style={s.selector} onPress={()=>setPicker('from')}><NetworkIcon chainKey={from} size={26} /><Text style={s.symbol}>USDC</Text><Text style={s.chev}>⌄</Text></Pressable><TextInput value={amount} onChangeText={v=>setAmount(normalizeAmountInput(v))} placeholder='0' placeholderTextColor={kivoTheme.colors.textMuted} keyboardType='decimal-pad' style={s.amount}/></View><View style={s.bottom}><Text style={s.muted}>{chainLabel(from)}</Text><Pressable onPress={()=>setAmount(String(Math.floor(balance/inputStep)*inputStep))}><Text style={s.max}>Max</Text></Pressable></View></View>
+ <View style={s.asset}><View style={s.top}><Text style={s.muted}>FROM</Text><Text style={s.muted}>Available: {formatUsd(balance)}</Text></View><View style={s.main}><Pressable style={s.selector} onPress={()=>setPicker('from')}><NetworkIcon chainKey={from} size={26} /><Text style={s.symbol}>USDC</Text><Text style={s.chev}>⌄</Text></Pressable><TextInput value={amount} onChangeText={v=>setAmount(normalizeAmountInput(v))} placeholder='0' placeholderTextColor={kivoTheme.colors.textMuted} keyboardType='decimal-pad' style={s.amount}/></View><View style={s.bottom}><Text style={s.muted}>{chainLabel(from)}</Text><Pressable onPress={()=>setAmount(maxCashAmount(balance,decimals))}><Text style={s.max}>Max</Text></Pressable></View></View>
  <View style={s.swapWrap}><Pressable style={s.swap} onPress={()=>{const x=from;setFrom(to);setTo(x);setAmount('');}}><Text style={s.swapText}>⇅</Text></Pressable></View>
  <View style={s.asset}><View style={s.top}><Text style={s.muted}>TO</Text><Text style={s.muted}>Available: {formatUsd(balanceFor(rows,to,nearBalance))}</Text></View><View style={s.main}><Pressable style={s.selector} onPress={()=>setPicker('to')}><NetworkIcon chainKey={to} size={26} /><Text style={s.symbol}>USDC</Text><Text style={s.chev}>⌄</Text></Pressable>{loading?<ActivityIndicator color={kivoTheme.colors.textMuted}/>:<Text style={s.receive}>{quote?.receivedAmountFormatted??'0'}</Text>}</View><Text style={s.muted}>{chainLabel(to)}</Text></View>
  {error&&<Text style={s.error}>{error}</Text>}{hashes&&hashes.length>0&&error&&<View style={s.success}><Text style={s.successText}>Some transactions were already sent. Check them before trying again:</Text>{hashes.map(h=><Pressable key={h} hitSlop={6} onPress={()=>{Linking.openURL(transactionLink(h,from==='near'?null:MAINNET_CHAIN_IDS[from as ChainKey])).catch(()=>{});}}><Text style={[s.hash,s.hashLink]} numberOfLines={1}>{h}  ↗</Text></Pressable>)}</View>}{hashes&&!error&&<View style={s.success}><Text style={s.successText}>{convertOutcomeLabel(nearRecord,relayStatus)}</Text>{hashes.map(h=><Pressable key={h} hitSlop={6} onPress={()=>{Linking.openURL(transactionLink(h,from==='near'?null:MAINNET_CHAIN_IDS[from as ChainKey])).catch(()=>{});}}><Text style={[s.hash,s.hashLink]} numberOfLines={1}>{h}  ↗</Text></Pressable>)}</View>}
@@ -107,6 +107,19 @@ swapWrap:{alignItems:'center',marginVertical:-12,zIndex:2},swap:{width:34,height
 });
 
 /** What the finished/pending conversion really is — "successfully" only once delivery is confirmed. */
+/**
+ * Max as a short decimal that never exceeds the balance. Float maths on
+ * 18-decimal USDC (BNB Chain) produced '0.92926483349762790…', a hair above
+ * the balance, so Max showed 'Insufficient USDC balance'. Cash is shown to
+ * 6 places, so round down there.
+ */
+function maxCashAmount(balance:number,decimals:number):string{
+  if(!(balance>0))return '';
+  const places=Math.min(6,decimals);
+  const scale=10**places;
+  return (Math.floor(balance*scale)/scale).toFixed(places).replace(/\.?0+$/,'');
+}
+
 function convertOutcomeLabel(nearRecord:OneClickSwapRecord|null,relayStatus:'success'|'pending'|'refunded'|null):string{
   if(nearRecord){
     if(nearRecord.status==='SUCCESS')return 'Converted successfully';
