@@ -35,6 +35,11 @@ export function isFeeExemptWallet(address?: string | null): boolean {
 
 export const DEV_FEE_PCT = 0.005;
 export const DEV_FEE_MAX_USD = 50;
+/** Trades below this size pay SMALL_TRADE_MIN_FEE_USD instead of 0.5%... */
+export const SMALL_TRADE_BELOW_USD = 10;
+export const SMALL_TRADE_MIN_FEE_USD = 0.05;
+/** ...capped at 5% of the trade (the server's maximum). */
+export const SMALL_TRADE_MAX_FEE_BPS = 500;
 
 /**
  * The real bps value to send Relay (or any bps-shaped fee API) as this
@@ -49,6 +54,12 @@ export function appFeeBps(originAmountUsd?: number | null): string {
   const flatBps = Math.round(DEV_FEE_PCT * 10000);
   if (!(typeof originAmountUsd === 'number' && originAmountUsd > 0)) {
     return String(flatBps);
+  }
+  // Kivo pays each trade's gas, so a tiny trade at 0.5% loses money. Under
+  // $10 the fee is a flat $0.05 instead, but never more than 5% of the trade.
+  if (originAmountUsd < SMALL_TRADE_BELOW_USD) {
+    const minBps = Math.ceil((SMALL_TRADE_MIN_FEE_USD / originAmountUsd) * 10000);
+    return String(Math.max(flatBps, Math.min(minBps, SMALL_TRADE_MAX_FEE_BPS)));
   }
   const flatFeeUsd = originAmountUsd * DEV_FEE_PCT;
   if (flatFeeUsd <= DEV_FEE_MAX_USD) {
