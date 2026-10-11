@@ -9,7 +9,7 @@ import {markOwnAction, msSinceOwnAction} from './depositWatcher';
 // Base is Kivo's home network for cash, as Relay's Unified Balance guide
 // recommends: USDC that lands on another EVM network is moved to the user's
 // own USDC on Base, with the fees paid by Kivo (the server checks and caps
-// it). Solana USDC stays where it is: Solana buys from it are same-network.
+// it), Solana included.
 // Runs only while the wallet is unlocked (no fingerprint prompt out of the
 // blue), never right after the user's own move, one network at a time.
 // Silent by design: nothing is shown to the user; the balance just stays usable.
@@ -27,7 +27,7 @@ const lastAttempt = new Map<ChainKey, number>();
 function movable(row: CashBalanceRow): {chainKey: ChainKey; amount: number} | null {
   if (row.status !== 'ok') return null;
   const chainKey = row.chainKey;
-  if (chainKey === HOME_CHAIN || chainKey === 'solana') return null;
+  if (chainKey === HOME_CHAIN) return null;
   if (cashAssetSymbol(chainKey) !== 'USDC' || !TOKEN_ADDRESSES.USDC?.[chainKey]) return null;
   const amount = Math.floor(spendableCash(chainKey, row.balance.amount) * 1e6) / 1e6;
   if (amount < MIN_MOVE_USD) return null;
@@ -54,13 +54,16 @@ export async function autoMoveCashToBase(rows: CashBalanceRow[]): Promise<number
       originCurrency: currencyAddress(candidate.chainKey, 'USDC'),
       destinationCurrency: currencyAddress(HOME_CHAIN, 'USDC'),
       amountBaseUnits: parseUnits(candidate.amount.toFixed(6), decimals).toString(),
-      userAddress: wallet.address,
+      // Solana USDC (e.g. after selling a Solana token) is sent by the Solana
+      // wallet; Kivo's Solana fee payer covers its network fee.
+      userAddress: candidate.chainKey === 'solana' ? wallet.solanaAddress ?? '' : wallet.address,
       recipientAddress: wallet.address,
       originAmountUsd: candidate.amount,
       // Gasless EVM route: Kivo's server records the order so its /execute sponsors the origin gas.
-      originGasOverhead: '80000',
+      ...(candidate.chainKey === 'solana' ? {} : {originGasOverhead: '80000'}),
       fundingTransfer: true,
     };
+    if (!params.userAddress) return null;
     const quote = await getRelayQuote(params);
     const received = Number(quote?.details?.currencyOut?.amountUsd ?? quote?.details?.currencyOut?.amountFormatted);
     // Kivo is meant to pay the fees; if the quote would still cost the user
