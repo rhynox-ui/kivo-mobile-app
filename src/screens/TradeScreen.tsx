@@ -127,7 +127,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
     try {
       // Same network as the user's cash: straight to Uniswap, Relay pays the gas.
       const direct = gaslessTradingEnabled
-        ? await planDirectTrade({ side, token, amount: parsed, userAddress: address, cash, tokenBalance, tokenDecimals: side === 'buy' ? tokenDecimals : tokenBalance?.decimals ?? 18, slippageBps: settings.slippageBps ?? undefined }).catch(() => null)
+        ? await planDirectTrade({ side, token, amount: parsed, userAddress: address, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined, cash, tokenBalance, tokenDecimals: side === 'buy' ? tokenDecimals : tokenBalance?.decimals ?? 18, slippageBps: settings.slippageBps ?? undefined }).catch(() => null)
         : null;
       if (seq !== quoteSeq.current) return;
       if (direct) { setQuote({ legs: [], view: direct.view, direct }); setQuoteState('ready'); return; }
@@ -213,7 +213,9 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
         const done = { status: 'success' as 'success' | 'pending' | 'refunded', txHashes: [] as string[], chainIds: [] as number[], requestId: null as string | null };
         if (plan.direct) {
           setUpdate({stage: 'awaiting-signature', step: 1, totalSteps: 1, txHashes: [], requestId: null, message: 'Processing trade…'});
-          const sent = await executeDirectPlan(plan.direct, session);
+          // A move from Base for this trade must not be swept back to Base meanwhile.
+          await markOwnAction(address!).catch(() => {});
+          const sent = await executeDirectPlan(plan.direct, session, { token, tokenDecimals, slippageBps: settings.slippageBps ?? undefined, userAddress: address!, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined });
           return { ...done, txHashes: sent.txHashes, chainIds: sent.chainIds, requestId: sent.requestId };
         }
         for (let index = 0; index < plan.legs.length; index++) {

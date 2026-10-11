@@ -6,22 +6,34 @@
 
 import {formatUnits, getAddress, parseUnits, type Address} from 'viem';
 import {privateKeyToAccount} from 'viem/accounts';
-import {TOKEN_ADDRESSES} from '../core/chainData.ts';
+import {TOKEN_ADDRESSES, currencyAddress} from '../core/chainData.ts';
+import {getRelayQuote, type GetRelayQuoteParams} from '../core/relayQuote.ts';
+import {executeRelayQuote} from '../core/executeRelayQuote.ts';
 import {viemChainForChainId} from '../core/chainRegistry.ts';
 import {appFeeBps, isFeeExemptWallet, DEV_FEE_WALLET, DEV_FEE_WALLET_SOLANA} from '../core/fees.ts';
 import {executeJupiterSwap, quoteJupiter, type JupiterQuote} from '../core/jupiter.ts';
 import {buildDirectUniswapCalls, directUniswapSupports, quoteDirectUniswap, type DirectCall, type DirectQuote} from '../core/directUniswap.ts';
 import {sendEvmCallsViaRelayGasless} from '../core/relayGaslessEvm.ts';
 import type {DerivedAccounts} from '../wallet/keys';
-import {usdcDecimals, type CashBalanceRow, type TokenBalance} from './balances';
+import {readTokenBalance, usdcDecimals, type CashBalanceRow, type TokenBalance} from './balances';
 import type {KivoQuoteView} from './quote';
 import type {KivoToken, TradeSide} from './tokens';
 
 /** Default slippage for direct swaps when the user left it on Auto (3%, new tokens move fast). */
 const DEFAULT_SLIPPAGE_BPS = 300;
 const QUOTE_TTL_MS = 30_000;
+/** Most Kivo ever takes from one trade (matches the server's ceiling). */
+const MAX_FEE_BPS = 500n;
 
-export type DirectPlan = {
+function feeUnits(total: bigint, amountUsd: number, extraFeeUsd: number | undefined, decimals: number, exempt = false): bigint {
+  if (exempt) return 0n;
+  const base = (total * BigInt(appFeeBps(amountUsd))) / 10_000n;
+  const extra = extraFeeUsd && extraFeeUsd > 0 ? parseUnits(extraFeeUsd.toFixed(6), decimals) : 0n;
+  const cap = (total * MAX_FEE_BPS) / 10_000n;
+  return base + extra < cap ? base + extra : cap > base ? cap : base;
+}
+
+export type DirectPlan = ({
   kind: 'uniswap';
   side: TradeSide;
   quote: DirectQuote;
@@ -38,13 +50,58 @@ export type DirectPlan = {
   minAmountOut: bigint;
   fee: {usdc: string; amount: bigint; when: 'before' | 'after'};
   view: KivoQuoteView;
+}) & {
+  /** The USDC is on Base: move it to the token's network first (Relay, Kivo pays), then trade. */
+  bridge?: {params: GetRelayQuoteParams; expectedUnits: bigint; owner: string; usdc: string; extraFeeUsd: number; amount: number};
 };
 
 /** A direct Uniswap plan for this trade, or null when the trade can't go direct (then Relay is used). */
 export async function planDirectTrade(params: {
-  side: TradeSide; token: KivoToken; amount: number; userAddress: string;
+  side: TradeSide; token: KivoToken; amount: number; userAddress: string; solanaAddress?: string;
   cash?: CashBalanceRow[] | null; tokenBalance?: TokenBalance | null; tokenDecimals: number; slippageBps?: number;
+  /** Kivo's cost of moving this trade's USDC from Base, added to its fee (total fee stays <= 5%). */
+  extraFeeUsd?: number;
 }): Promise<DirectPlan | null> {
+  const same = await planSameNetwork(params);
+  if (same || params.side !== 'buy') return same;
+  return planFromBase(params);
+}
+
+/**
+ * USDC lives on Base. To buy a token on another network: quote moving just
+ * this trade's USDC there (Relay, Kivo pays, recovered in this trade's fee),
+ * then quote the swap on that network with what arrives.
+ */
+async function planFromBase(params: Parameters<typeof planDirectTrade>[0]): Promise<DirectPlan | null> {
+  const {token, amount, userAddress} = params;
+  if (token.chainKey === 'base' || token.chainKey === 'near') return null;
+  const target = token.chainKey;
+  if (target !== 'solana' && !directUniswapSupports(target)) return null;
+  const owner = target === 'solana' ? params.solanaAddress : userAddress;
+  const baseRow = params.cash?.find(r => r.chainKey === 'base');
+  const targetUsdc = TOKEN_ADDRESSES.USDC?.[target];
+  if (!owner || !targetUsdc || !baseRow || baseRow.status !== 'ok' || baseRow.balance.amount + 1e-9 < amount) return null;
+  const baseDec = usdcDecimals('base');
+  const bridgeParams: GetRelayQuoteParams = {
+    fromChainKey: 'base', toChainKey: target, originCurrency: currencyAddress('base', 'USDC'), destinationCurrency: targetUsdc,
+    amountBaseUnits: parseUnits(amount.toFixed(6), baseDec).toString(), userAddress, recipientAddress: owner,
+    originAmountUsd: amount, originGasOverhead: '80000', fundingTransfer: true,
+  };
+  const bridgeQuote = await getRelayQuote(bridgeParams).catch(() => null);
+  const arrivedRaw = bridgeQuote?.details?.currencyOut?.amount;
+  if (!bridgeQuote || typeof arrivedRaw !== 'string' || !/^\d+$/.test(arrivedRaw)) return null;
+  const targetDec = usdcDecimals(target);
+  const arrived = Number(formatUnits(BigInt(arrivedRaw), targetDec));
+  if (!(arrived > amount * 0.8)) return null; // the move itself would cost too much
+  const q = bridgeQuote as unknown as {fees?: {subsidized?: {amountUsd?: unknown}}; details?: {expandedPriceImpact?: {sponsored?: {usd?: unknown}}}};
+  const sponsored = Math.abs(Number(q.fees?.subsidized?.amountUsd ?? q.details?.expandedPriceImpact?.sponsored?.usd ?? 0)) || 0;
+  const onTarget = await planSameNetwork({...params, amount: arrived, extraFeeUsd: sponsored, cash: [{chainKey: target, status: 'ok', balance: {chainKey: target, tokenAddress: targetUsdc, symbol: 'USDC', raw: BigInt(arrivedRaw), decimals: targetDec, amount: arrived}}]});
+  if (!onTarget) return null;
+  return {...onTarget, view: {...onTarget.view, crossChain: true, pay: {...onTarget.view.pay, amount: String(amount), usd: amount, chainKey: 'base', address: currencyAddress('base', 'USDC')}},
+    bridge: {params: bridgeParams, expectedUnits: BigInt(arrivedRaw), owner, usdc: targetUsdc, extraFeeUsd: sponsored, amount}};
+}
+
+async function planSameNetwork(params: Parameters<typeof planDirectTrade>[0]): Promise<DirectPlan | null> {
   const {side, token, amount, userAddress} = params;
   if (token.chainKey === 'solana') return planJupiterTrade(params);
   if (token.chainKey === 'near' || !directUniswapSupports(token.chainKey)) return null;
@@ -60,7 +117,7 @@ export async function planDirectTrade(params: {
     const row = params.cash?.find(r => r.chainKey === chainKey);
     if (!row || row.status !== 'ok' || row.balance.amount + 1e-9 < amount) return null; // USDC isn't on this network
     const total = parseUnits(amount.toFixed(Math.min(usdcDec, 6)), usdcDec);
-    const fee = exempt ? 0n : (total * BigInt(appFeeBps(amount))) / 10_000n;
+    const fee = feeUnits(total, amount, params.extraFeeUsd, usdcDec, exempt);
     const quote = await quoteDirectUniswap({chainKey, tokenIn: usdc, tokenOut: token.tokenAddress, amountIn: total - fee});
     if (!quote) return null;
     const minAmountOut = (quote.amountOut * (10_000n - slippageBps)) / 10_000n;
@@ -85,8 +142,10 @@ export async function planDirectTrade(params: {
 }
 
 async function planJupiterTrade(params: {
-  side: TradeSide; token: KivoToken; amount: number; userAddress: string;
+  side: TradeSide; token: KivoToken; amount: number; userAddress: string; solanaAddress?: string;
   cash?: CashBalanceRow[] | null; tokenBalance?: TokenBalance | null; tokenDecimals: number; slippageBps?: number;
+  /** Kivo's cost of moving this trade's USDC from Base, added to its fee (total fee stays <= 5%). */
+  extraFeeUsd?: number;
 }): Promise<DirectPlan | null> {
   const {side, token, amount} = params;
   const usdcMint = TOKEN_ADDRESSES.USDC?.solana;
@@ -96,7 +155,7 @@ async function planJupiterTrade(params: {
     const row = params.cash?.find(r => r.chainKey === 'solana');
     if (!row || row.status !== 'ok' || row.balance.amount + 1e-9 < amount) return null; // USDC isn't on Solana
     const total = parseUnits(amount.toFixed(6), 6);
-    const fee = (total * BigInt(appFeeBps(amount))) / 10_000n;
+    const fee = feeUnits(total, amount, params.extraFeeUsd, 6);
     const quote = await quoteJupiter({inputMint: usdcMint, outputMint: token.tokenAddress, amount: total - fee, slippageBps: slippage});
     if (!quote) return null;
     const out = Number(formatUnits(BigInt(quote.outAmount), params.tokenDecimals));
@@ -138,7 +197,29 @@ function viewFor(x: {side: TradeSide; token: KivoToken; payAmount: number; payUs
 }
 
 /** Signs and sends the direct trade as one gasless batch. */
-export async function executeDirectPlan(plan: DirectPlan, session: DerivedAccounts): Promise<{txHashes: string[]; requestId: string | null; chainIds: number[]}> {
+export async function executeDirectPlan(plan: DirectPlan, session: DerivedAccounts, context?: {token: KivoToken; tokenDecimals: number; slippageBps?: number; userAddress: string; solanaAddress?: string}): Promise<{txHashes: string[]; requestId: string | null; chainIds: number[]}> {
+  if (plan.bridge) {
+    if (!context) throw new Error('This trade needs to be quoted again.');
+    const bridge = plan.bridge;
+    // 1. Move this trade's USDC from Base to the token's network.
+    const quote = await getRelayQuote(bridge.params);
+    const arriving = BigInt(String(quote?.details?.currencyOut?.amount ?? '0'));
+    if (arriving * 10n < bridge.expectedUnits * 9n) throw new Error('Moving cash for this trade got more expensive. Nothing was sent; try again.');
+    const moved = await executeRelayQuote(quote, session, () => {}, {useGaslessTrading: true, requote: () => getRelayQuote(bridge.params)});
+    if ((moved.status ?? 'success') !== 'success') throw new Error('Your cash is still on its way to this network. Nothing was bought yet; try again in a minute.');
+    // 2. Trade with what actually arrived.
+    const target = context.token.chainKey;
+    if (target === 'near') throw new Error('NEAR tokens are not traded this way.');
+    const balance = await readTokenBalance(target, bridge.usdc, bridge.owner, 'USDC').catch(() => null);
+    const units = balance ? (balance.raw < arriving ? balance.raw : arriving) : arriving;
+    const decimals = usdcDecimals(target);
+    const amount = Number(formatUnits(units, decimals));
+    const next = await planSameNetwork({side: 'buy', token: context.token, amount, userAddress: context.userAddress, solanaAddress: context.solanaAddress, tokenDecimals: context.tokenDecimals, slippageBps: context.slippageBps, extraFeeUsd: bridge.extraFeeUsd,
+      cash: [{chainKey: target, status: 'ok', balance: {chainKey: target, tokenAddress: bridge.usdc, symbol: 'USDC', raw: units, decimals, amount}}]});
+    if (!next) throw new Error('Your cash reached this network, but the token could not be bought right now. Your USDC is safe and will move back to Base.');
+    const traded = await executeDirectPlan(next, session);
+    return {txHashes: [...moved.txHashes, ...traded.txHashes], requestId: traded.requestId ?? moved.requestId ?? null, chainIds: [8453, ...traded.chainIds]};
+  }
   if (plan.kind === 'jupiter') {
     const buy = plan.side === 'buy';
     const {signature} = await executeJupiterSwap({
