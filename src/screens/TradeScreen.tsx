@@ -213,9 +213,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
         const done = { status: 'success' as 'success' | 'pending' | 'refunded', txHashes: [] as string[], chainIds: [] as number[], requestId: null as string | null };
         if (plan.direct) {
           setUpdate({stage: 'awaiting-signature', step: 1, totalSteps: 1, txHashes: [], requestId: null, message: 'Processing trade…'});
-          // A move from Base for this trade must not be swept back to Base meanwhile.
-          await markOwnAction(address!).catch(() => {});
-          const sent = await executeDirectPlan(plan.direct, session, { token, tokenDecimals, slippageBps: settings.slippageBps ?? undefined, userAddress: address!, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined });
+          const sent = await executeDirectPlan(plan.direct, session);
           return { ...done, txHashes: sent.txHashes, chainIds: sent.chainIds, requestId: sent.requestId };
         }
         for (let index = 0; index < plan.legs.length; index++) {

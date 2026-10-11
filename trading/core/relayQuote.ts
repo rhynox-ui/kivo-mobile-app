@@ -472,7 +472,12 @@ export function summarizeQuote(quote: RelayQuote, fallbackDecimals: number): Quo
 
   const payAmountUsd = num(details?.currencyIn?.amountUsd);
   const receiveAmountUsd = num(details?.currencyOut?.amountUsd);
-  const priceImpactPct = num(details?.swapImpact?.percent ?? details?.totalImpact?.percent);
+  // What the user really loses, after whatever Kivo's sponsorship covers:
+  // value received vs value paid (Relay's convention: negative = loss).
+  // Falls back to Relay's own impact figures when a USD value is missing.
+  const priceImpactPct = payAmountUsd != null && receiveAmountUsd != null && payAmountUsd > 0
+    ? (receiveAmountUsd / payAmountUsd - 1) * 100
+    : num(details?.swapImpact?.percent ?? details?.totalImpact?.percent);
 
   return {totalFeeUsd, etaSeconds, receivedAmountFormatted, payAmountUsd, receiveAmountUsd, priceImpactPct};
 }
