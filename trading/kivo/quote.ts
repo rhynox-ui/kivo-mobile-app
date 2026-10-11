@@ -61,9 +61,10 @@ export function verifiedAsset(chainKey: ChainKey, symbol: string): QuoteAsset {
   return {chainKey, address: currencyAddress(chainKey, symbol), symbol, decimals: assetDecimalsForChain(chainKey, symbol) ?? 18};
 }
 
-/** Where sell proceeds land: USDC on the token's chain, or native coin where no verified USDC exists. */
+/** Where sell proceeds land: the chain's cash (USDC, or USDG on Robinhood), or native coin where no verified cash exists. */
 export function sellProceedsAsset(chainKey: ChainKey): QuoteAsset {
   if (TOKEN_ADDRESSES.USDC?.[chainKey]) return usdcAsset(chainKey);
+  if (TOKEN_ADDRESSES.USDG?.[chainKey]) return verifiedAsset(chainKey, 'USDG');
   return nativeAsset(chainKey);
 }
 
