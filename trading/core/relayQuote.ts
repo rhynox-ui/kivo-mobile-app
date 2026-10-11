@@ -313,7 +313,9 @@ export async function getRelayQuote(params: GetRelayQuoteParams): Promise<RelayQ
     // genuine no-liquidity/AMOUNT_TOO_LOW rejection from a transient
     // 5xx apart instead of guessing.
     const text = await res.text().catch(() => '');
-    throw new Error(`Relay quote failed (${res.status}): ${text || res.statusText}`);
+    let reason = text.trim();
+    try { const parsed = JSON.parse(reason) as {message?: string; error?: string}; reason = parsed.message || parsed.error || reason; } catch {}
+    throw new Error(`Relay quote failed (${res.status}): ${reason || res.statusText || 'Relay gave no reason. Try again in a minute.'}`);
   }
   let quote = (await res.json()) as RelayQuote;
 
