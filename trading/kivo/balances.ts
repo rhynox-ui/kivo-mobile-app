@@ -168,23 +168,58 @@ export async function readSolanaNativeBalance(owner: string, {forceFresh = false
   return result;
 }
 
+const SOLANA_READ_RPCS = [
+  'https://solana-rpc.publicnode.com',
+  'https://api.mainnet.solana.com',
+  'https://rpc.solanatracker.io/public',
+  'https://kivotrade.site/api/solana/rpc',
+];
+const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAs2r9USrr2jR3oGSZoDaZSa';
+const missingAccount = (error: unknown) => /could not find account|Invalid param: could not find/i.test(error instanceof Error ? error.message : String(error));
+
+/**
+ * SPL token balance (classic SPL Token or Token-2022). Reads the wallet's
+ * token accounts directly (the same light call the USDC reader uses), over
+ * several RPCs in turn. A missing account is a real 0; RPCs that all fail are
+ * an error, never a fake 0.
+ */
 export async function readSolanaTokenBalance(mintAddress: string, owner: string, symbolHint?: string): Promise<TokenBalance> {
-  const [{Connection, PublicKey}] = await Promise.all([import('@solana/web3.js')]);
-  const connection = new Connection('https://solana-rpc.publicnode.com', 'confirmed');
+  const [{Connection, PublicKey}, splToken] = await Promise.all([import('@solana/web3.js'), import('@solana/spl-token')]);
   const ownerKey = new PublicKey(owner);
   const mint = new PublicKey(mintAddress);
-  const accounts = await connection.getParsedTokenAccountsByOwner(ownerKey, {mint});
-  let raw = 0n;
-  let decimals = 6;
-  for (const account of accounts.value) {
-    const info = account.account.data.parsed?.info;
-    const tokenAmount = info?.tokenAmount;
-    if (!tokenAmount) continue;
-    raw += BigInt(tokenAmount.amount ?? '0');
-    decimals = Number(tokenAmount.decimals ?? decimals);
+  const atas = await Promise.all([
+    splToken.getAssociatedTokenAddress(mint, ownerKey, true),
+    splToken.getAssociatedTokenAddress(mint, ownerKey, true, new PublicKey(TOKEN_2022_PROGRAM)),
+  ]);
+  const done = (raw: bigint, decimals: number): TokenBalance => {
+    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36) throw new Error('This Solana token reports invalid decimals.');
+    return {chainKey: 'solana', tokenAddress: mintAddress, symbol: symbolHint ?? '?', raw, decimals, amount: Number(formatUnits(raw, decimals))};
+  };
+  let lastError: unknown = null;
+  for (const url of SOLANA_READ_RPCS) {
+    const connection = new Connection(url, 'confirmed');
+    try {
+      // Normal case: the token sits in the wallet's associated account.
+      const found = (await withTimeout(Promise.all(atas.map(ata => connection.getTokenAccountBalance(ata).catch(error => { if (missingAccount(error)) return null; throw error; })))))
+        .filter((r): r is NonNullable<typeof r> => r !== null);
+      if (found.length) return done(found.reduce((sum, r) => sum + BigInt(r.value.amount ?? '0'), 0n), Number(found[0].value.decimals));
+      // No associated account: check for any other account of this mint.
+      const accounts = await withTimeout(connection.getParsedTokenAccountsByOwner(ownerKey, {mint}));
+      let raw = 0n;
+      let decimals: number | null = null;
+      for (const account of accounts.value) {
+        const tokenAmount = account.account.data.parsed?.info?.tokenAmount;
+        if (!tokenAmount) continue;
+        raw += BigInt(tokenAmount.amount ?? '0');
+        decimals = Number(tokenAmount.decimals);
+      }
+      if (decimals === null) decimals = (await withTimeout(connection.getTokenSupply(mint))).value.decimals;
+      return done(raw, decimals);
+    } catch (error) {
+      lastError = error;
+    }
   }
-  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36) throw new Error('This Solana token reports invalid decimals.');
-  return {chainKey: 'solana', tokenAddress: mintAddress, symbol: symbolHint ?? '?', raw, decimals, amount: Number(formatUnits(raw, decimals))};
+  throw lastError instanceof Error ? lastError : new Error('Solana balance is unavailable right now.');
 }
 export async function readSolanaUsdcBalance(owner: string): Promise<TokenBalance> {
   const mintAddress = TOKEN_ADDRESSES.USDC?.solana;

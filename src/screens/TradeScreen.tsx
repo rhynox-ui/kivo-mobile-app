@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { kivoTheme } from '../theme/kivoTheme';
-import { CHAIN_LABEL, TOKEN_ADDRESSES, type ChainKey } from '@kivo/trading/core/chainData';
+import { CHAIN_LABEL, type ChainKey } from '@kivo/trading/core/chainData';
 import { fetchCashBalances, totalCashUsd, readTokenBalance, type CashBalanceRow, type TokenBalance } from '@kivo/trading/kivo/balances';
 import { planUnifiedBuy, totalSpendableCash, type UnifiedPlan } from '@kivo/trading/kivo/unified';
 import { executeDirectPlan, planDirectTrade } from '@kivo/trading/kivo/direct';
@@ -11,8 +11,8 @@ import { executeRelayQuote, getPartialTxHashes } from '@kivo/trading/core/execut
 import bs58 from 'bs58';
 import { recordTrade } from '@kivo/trading/kivo/history';
 import { markOwnAction } from '../wallet/depositWatcher';
-import { describeQuoteError, isQuoteExpired, parseAmountInput, requestKivoQuote } from '@kivo/trading/kivo/quote';
-import { chainLabel, formatAmount, formatUsd, nativeSymbol, shortAddress, tradeSupportFor, type KivoToken, type TradeSide } from '@kivo/trading/kivo/tokens';
+import { describeQuoteError, isQuoteExpired, parseAmountInput, requestKivoQuote, sellProceedsAsset } from '@kivo/trading/kivo/quote';
+import { chainLabel, formatAmount, formatUsd, shortAddress, tradeSupportFor, type KivoToken, type TradeSide } from '@kivo/trading/kivo/tokens';
 import { getWalletSession, subscribeToWallet, walletKind, withDeviceAccounts, type WalletSession } from '../state/walletStore';
 import { addNotification } from '../state/notificationStore';
 import { updateSettings, useSettings } from '../state/settingsStore';
@@ -278,7 +278,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const cashTotal = cash ? totalCashUsd(cash).total : null;
   const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && !extremePriceImpact && walletKind(wallet) === 'evm-local';
   const tradeChain: ChainKey | null = token?.chainKey ?? (selectedToken?.chainKey !== 'near' ? selectedToken?.chainKey ?? null : null);
-  const receiveSymbol = side === 'buy' ? token?.symbol ?? '' : token && TOKEN_ADDRESSES.USDC?.[token.chainKey] ? 'USDC' : token ? nativeSymbol(token.chainKey) : '';
+  const receiveSymbol = side === 'buy' ? token?.symbol ?? '' : token ? sellProceedsAsset(token.chainKey).symbol : '';
   const hint = extremePriceImpact ? 'Trade blocked — route price impact is above 50%.'
     : !wallet ? 'Create or import a Kivo wallet on this phone to trade.'
     : amountProblem ?? (parsed == null ? `Enter an amount to ${side} ${token?.symbol ?? ''}`
