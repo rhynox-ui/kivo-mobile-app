@@ -59,6 +59,8 @@ export async function autoMoveCashToBase(rows: CashBalanceRow[]): Promise<number
       userAddress: wallet.address,
       recipientAddress: wallet.address,
       originAmountUsd: candidate.amount,
+      // Gasless EVM route: Kivo's server records the order so its /execute sponsors the origin gas.
+      originGasOverhead: '80000',
       fundingTransfer: true,
     };
     const quote = await getRelayQuote(params);
