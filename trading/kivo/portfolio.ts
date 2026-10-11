@@ -36,6 +36,8 @@ export type Holding = {
   /** Market cap now, and what it was at the average buy price (same supply). */
   marketCapUsd?: number | null;
   entryMarketCapUsd?: number | null;
+  /** Token supply implied by the market's own cap and price; ties MC to the price used for PnL. */
+  supply?: number | null;
   pnlUsd?: number | null;
   pnlPct?: number | null;
   /** Set when only the wallet-asset indexer reported this holding. */
@@ -60,6 +62,7 @@ export type ClosedPosition = {key: string; chainKey: TradeChain; address: string
 
 const NATIVE_ADDRESS = '0x0000000000000000000000000000000000000000';
 const DUST_USD = 0.005;
+const USD_PAY_SYMBOLS = new Set(['USDC', 'USDG', 'USDT', 'USDT0']);
 
 // Portfolio is assembled from multiple RPC/indexer/price sources. Cache the
 // complete result briefly so switching Profile tabs or re-rendering the
@@ -136,7 +139,7 @@ async function fetchPortfolioUncached(owner: string, history: TradeRecord[], add
         token.chainKey === 'solana' ? readSolanaTokenBalance(token.address, addresses?.solanaAddress ?? owner, token.symbol) : readTokenBalance(token.chainKey as ChainKey, token.address, owner, token.symbol),
         resolveDexScreenerPair({chainKey: token.chainKey, tokenAddress: token.address}),
       ]);
-      return {token, balance, priceUsd: pair?.priceUsd ?? null, marketCapUsd: pair?.marketCapUsd ?? null, imageUrl: pair?.imageUrl ?? null};
+      return {token, balance, priceUsd: pair?.priceUsd ?? null, supply: pair?.marketCapUsd != null && pair.priceUsd != null && pair.priceUsd > 0 ? pair.marketCapUsd / pair.priceUsd : null, imageUrl: pair?.imageUrl ?? null};
     })),
     // The indexer is one source among several: when it fails or hangs, the
     // rest of the portfolio still loads and the index is reported missing.
@@ -156,7 +159,7 @@ async function fetchPortfolioUncached(owner: string, history: TradeRecord[], add
       existing.source = undefined;
     }
     if (!existing.imageUrl && row.imageUrl) existing.imageUrl = row.imageUrl;
-    if (existing.marketCapUsd == null && row.marketCapUsd != null) existing.marketCapUsd = row.marketCapUsd;
+    if (existing.supply == null && row.supply != null) existing.supply = row.supply;
   };
   natives.forEach((outcome, index) => {
     const chainKey = nativeChains[index];
@@ -213,8 +216,8 @@ async function fetchPortfolioUncached(owner: string, history: TradeRecord[], add
       if (!byKey.has(key)) miss(key);
       return;
     }
-    const {token, balance, priceUsd, marketCapUsd, imageUrl} = outcome.value;
-    addToken({key, kind: 'token', chainKey: token.chainKey, address: token.address, symbol: token.symbol, name: token.name, amount: balance.amount, priceUsd, valueUsd: priceUsd == null ? null : balance.amount * priceUsd, imageUrl: token.imageUrl ?? imageUrl, marketCapUsd});
+    const {token, balance, priceUsd, supply, imageUrl} = outcome.value;
+    addToken({key, kind: 'token', chainKey: token.chainKey, address: token.address, symbol: token.symbol, name: token.name, amount: balance.amount, priceUsd, valueUsd: priceUsd == null ? null : balance.amount * priceUsd, imageUrl: token.imageUrl ?? imageUrl, supply});
   });
 
   const totalUsd = holdings.reduce((sum, h) => sum + (h.valueUsd ?? 0), 0);
@@ -226,13 +229,18 @@ async function fetchPortfolioUncached(owner: string, history: TradeRecord[], add
       if (trade.status !== 'success' || trade.token.chainKey !== holding.chainKey || trade.token.address.toLowerCase() !== holding.address.toLowerCase()) continue;
       const received = Number(trade.receive.amount ?? 0);
       const paid = Number(trade.pay.amount ?? 0);
-      if (trade.side === 'buy' && received > 0 && paid > 0) { boughtAmount += received; boughtCost += paid; }
+      // Cost is counted in dollars, so only buys paid in dollar coins (USDC/USDG/USDT) set the entry.
+      if (trade.side === 'buy' && received > 0 && paid > 0 && USD_PAY_SYMBOLS.has(String(trade.pay.symbol).toUpperCase())) { boughtAmount += received; boughtCost += paid; }
     }
     if (boughtAmount > 0 && boughtCost > 0) {
       const entry = boughtCost / boughtAmount;
       holding.entryPriceUsd = entry;
       // Supply does not change between buy and now, so market cap scales with price.
-      if (holding.marketCapUsd != null && holding.priceUsd != null && holding.priceUsd > 0) holding.entryMarketCapUsd = holding.marketCapUsd * (entry / holding.priceUsd);
+      // One supply, one price: Now MC ÷ Entry MC is exactly 1 + PnL %, and the $ PnL is value − cost.
+      if (holding.supply != null && holding.supply > 0) {
+        holding.entryMarketCapUsd = holding.supply * entry;
+        if (holding.priceUsd != null) holding.marketCapUsd = holding.supply * holding.priceUsd;
+      }
       if (holding.valueUsd != null) {
         const cost = holding.amount * entry;
         holding.pnlUsd = holding.valueUsd - cost;
