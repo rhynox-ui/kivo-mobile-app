@@ -87,6 +87,7 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
           onOpenTrade={() => setTab('Trade')}
           onOpenChats={() => setTab('Chats')}
           onOpenVerification={(subjectId, subjectName) => push({ name: 'verification', subjectType: 'profile', subjectId, subjectName })}
+          onOpenToken={openToken}
         />}
       </View>
       <View style={styles.nav}>
