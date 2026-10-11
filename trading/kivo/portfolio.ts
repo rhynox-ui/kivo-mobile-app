@@ -12,7 +12,7 @@
 // each missing source has a recent confirmed reading (chartTotal).
 
 import type {KeyValueStorage} from '../../shared/storage';
-import {CHAIN_LABEL, NATIVE_SYMBOL, NEAR_USDC, NEAR_USDC_DECIMALS, tradeChainLabel, type ChainKey, type TradeChain} from '../core/chainData';
+import {CHAIN_LABEL, NATIVE_SYMBOL, NEAR_USDC, TOKEN_ADDRESSES, NEAR_USDC_DECIMALS, tradeChainLabel, type ChainKey, type TradeChain} from '../core/chainData';
 import {resolveDexScreenerPair} from '../core/dexScreener';
 import {fetchWalletPrices} from '../core/walletPrices';
 import {cashAssetSymbol, fetchCashBalances, readNativeBalance, readSolanaNativeBalance, readSolanaTokenBalance, readTokenBalance} from './balances';
@@ -90,14 +90,37 @@ export function holdingKey(chainKey: string, address: string): string {
   return chainKey === 'solana' ? `solana:${address}` : `${chainKey}:${address.toLowerCase()}`;
 }
 
-/** Tokens traded in Kivo, newest first, one per chain+address. */
+/** Cash coins (USDC everywhere, USDG on Robinhood): already counted as cash, never a token position. */
+function isCashToken(chainKey: string, address: string): boolean {
+  return ['USDC', 'USDG'].some(symbol => {
+    const cash = TOKEN_ADDRESSES[symbol]?.[chainKey as ChainKey];
+    return Boolean(cash) && (chainKey === 'solana' ? cash === address : cash!.toLowerCase() === address.toLowerCase());
+  });
+}
+
+/** Tokens traded in Kivo, newest first, one per chain+address. Cash moves (Convert) are not tokens. */
 function tradedTokens(history: TradeRecord[]) {
   const seen = new Map<string, TradeRecord['token'] & {lastTradeAt: number}>();
   for (const trade of history) {
+    if (isCashToken(trade.token.chainKey, trade.token.address)) continue;
     const key = holdingKey(trade.token.chainKey, trade.token.address);
     if (!seen.has(key)) seen.set(key, {...trade.token, lastTradeAt: trade.createdAt});
   }
   return [...seen.values()];
+}
+
+const solanaLogoCache = new Map<string, Promise<string | null>>();
+/** Solana token logo from Jupiter's token list (DexScreener often has none for new launches). */
+function solanaTokenLogo(mint: string): Promise<string | null> {
+  let hit = solanaLogoCache.get(mint);
+  if (!hit) {
+    hit = fetch(`https://lite-api.jup.ag/tokens/v2/search?query=${encodeURIComponent(mint)}`)
+      .then(r => (r.ok ? r.json() : []))
+      .then((rows: Array<{id?: string; icon?: string}>) => rows.find(row => row.id === mint)?.icon || null)
+      .catch(() => null);
+    solanaLogoCache.set(mint, hit);
+  }
+  return hit;
 }
 
 export async function fetchPortfolio(owner: string, history: TradeRecord[], addresses?: {solanaAddress?: string; nearAddress?: string}, {forceFresh = false}: {forceFresh?: boolean} = {}): Promise<Portfolio> {
@@ -139,7 +162,8 @@ async function fetchPortfolioUncached(owner: string, history: TradeRecord[], add
         token.chainKey === 'solana' ? readSolanaTokenBalance(token.address, addresses?.solanaAddress ?? owner, token.symbol) : readTokenBalance(token.chainKey as ChainKey, token.address, owner, token.symbol),
         resolveDexScreenerPair({chainKey: token.chainKey, tokenAddress: token.address}),
       ]);
-      return {token, balance, priceUsd: pair?.priceUsd ?? null, supply: pair?.marketCapUsd != null && pair.priceUsd != null && pair.priceUsd > 0 ? pair.marketCapUsd / pair.priceUsd : null, imageUrl: pair?.imageUrl ?? null};
+      const logo = token.imageUrl ?? pair?.imageUrl ?? (token.chainKey === 'solana' ? await solanaTokenLogo(token.address) : null);
+      return {token, balance, priceUsd: pair?.priceUsd ?? null, supply: pair?.marketCapUsd != null && pair.priceUsd != null && pair.priceUsd > 0 ? pair.marketCapUsd / pair.priceUsd : null, imageUrl: logo};
     })),
     // The indexer is one source among several: when it fails or hangs, the
     // rest of the portfolio still loads and the index is reported missing.

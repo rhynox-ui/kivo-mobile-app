@@ -129,28 +129,34 @@ async function resolveDexScreenerPairUncached(chainId: string, tokenAddress: str
     if (!response.ok) return null;
     const body = (await response.json()) as { pairs?: DexScreenerPair[] };
     const pairs = Array.isArray(body?.pairs) ? body.pairs : [];
+    // Prefer pairs where this token is the base token: DexScreener's price,
+    // market cap and image always describe the base token, never the quote.
+    const wanted = tokenAddress.toLowerCase();
     let best: DexScreenerPair | null = null;
-    let bestLiquidity = -1;
+    let bestRank = -1;
     for (const pair of pairs) {
       if (pair?.chainId !== chainId) continue;
       if (typeof pair?.pairAddress !== 'string' || !pair.pairAddress) continue;
       const liquidity = Number(pair?.liquidity?.usd);
-      const ranked = Number.isFinite(liquidity) ? liquidity : 0;
-      if (ranked > bestLiquidity) {
-        bestLiquidity = ranked;
+      const isBase = String(pair.baseToken?.address ?? '').toLowerCase() === wanted;
+      const ranked = (Number.isFinite(liquidity) ? liquidity : 0) + (isBase ? 1e15 : 0);
+      if (ranked > bestRank) {
+        bestRank = ranked;
         best = pair;
       }
     }
     if (!best || !best.pairAddress) return null;
-    const priceUsd = Number(best.priceUsd);
-    const marketCapUsd = Number(best.marketCap ?? best.fdv);
+    // Only quoted on the other side of a pair: keep the pair for the chart, but its numbers are not this token's.
+    const isBase = String(best.baseToken?.address ?? '').toLowerCase() === wanted;
+    const priceUsd = isBase ? Number(best.priceUsd) : NaN;
+    const marketCapUsd = isBase ? Number(best.marketCap ?? best.fdv) : NaN;
     return {
       chainId,
       pairAddress: best.pairAddress,
       socialLinks: extractSocialLinks(best),
       priceUsd: Number.isFinite(priceUsd) ? priceUsd : null,
       marketCapUsd: Number.isFinite(marketCapUsd) ? marketCapUsd : null,
-      imageUrl: typeof best.info?.imageUrl === 'string' && best.info.imageUrl ? best.info.imageUrl : null,
+      imageUrl: isBase && typeof best.info?.imageUrl === 'string' && best.info.imageUrl ? best.info.imageUrl : null,
     };
   } catch {
     return null;
