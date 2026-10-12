@@ -96,7 +96,31 @@ export async function executeJupiterSwap(params: {
   const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
   const lookupTables = (await Promise.all((swap.addressLookupTableAddresses ?? []).map(address => connection.getAddressLookupTable(new PublicKey(address)).then(r => r.value))))
     .filter((t): t is NonNullable<typeof t> => Boolean(t));
+  // The spend guard must simulate the expected output token account even
+  // when the wallet has never held that token (empty accounts are otherwise
+  // omitted from its tracked-account list). Derive the ATA using the token
+  // program that owns the mint, since Token-2022 ATAs differ from classic SPL.
+  const spendIntent: SolanaSpendIntent = {...params.spendIntent};
+  if (spendIntent.expectedOutputMint && spendIntent.expectedOutputMinimum && spendIntent.expectedOutputMinimum > 0n) {
+    const outputMint = new PublicKey(spendIntent.expectedOutputMint);
+    const mintAccount = await connection.getAccountInfo(outputMint, 'confirmed');
+    if (!mintAccount) throw new Error('The expected output token mint could not be verified safely. Refusing to sign this trade.');
+    const tokenProgram = mintAccount.owner.equals(splToken.TOKEN_PROGRAM_ID)
+      ? splToken.TOKEN_PROGRAM_ID
+      : mintAccount.owner.equals(splToken.TOKEN_2022_PROGRAM_ID)
+        ? splToken.TOKEN_2022_PROGRAM_ID
+        : null;
+    if (!tokenProgram) throw new Error('The expected output token uses an unsupported token program. Refusing to sign this trade.');
+    const outputAta = await splToken.getAssociatedTokenAddress(
+      outputMint, user, false, tokenProgram, splToken.ASSOCIATED_TOKEN_PROGRAM_ID,
+    );
+    spendIntent.expectedOutputAccounts = [...new Set([
+      ...(spendIntent.expectedOutputAccounts ?? []),
+      outputAta.toBase58(),
+    ])];
+  }
+
   const signer: SolanaTransactionSigner = {publicKey: user, sign: async tx => { tx.sign([keypair]); return tx; }};
-  const {signature} = await signAndSendSponsoredSolanaStep(instructions, lookupTables, signer, connection, params.spendIntent);
+  const {signature} = await signAndSendSponsoredSolanaStep(instructions, lookupTables, signer, connection, spendIntent);
   return {signature};
 }
