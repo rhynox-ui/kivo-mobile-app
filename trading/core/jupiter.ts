@@ -5,7 +5,7 @@
 // Jupiter's keyless API is tried first; Kivo's /api/jupiter proxy (which can
 // hold a Jupiter API key) is the fallback.
 
-import {SOLANA_RPC_URL, signAndSendSponsoredSolanaStep, type SolanaTransactionSigner} from './executeRelayQuote.ts';
+import {SOLANA_RPC_URL, getSolanaFeePayerPublicKey, signAndSendSponsoredSolanaStep, type SolanaTransactionSigner} from './executeRelayQuote.ts';
 import type {SolanaSpendIntent} from './solanaSpendGuard.ts';
 
 const JUPITER_DIRECT = 'https://lite-api.jup.ag/swap/v1';
@@ -135,15 +135,40 @@ export async function executeJupiterSwap(params: {
     data: Buffer.from(ix.data, 'base64'),
   });
 
+  const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
   const feeIxs: InstanceType<typeof TransactionInstruction>[] = [];
   if (params.fee.units > 0n) {
     const mint = parsePublicKey(params.fee.usdcMint, 'Kivo USDC fee mint');
     const wallet = parsePublicKey(params.fee.wallet, 'Kivo Solana fee wallet');
     const from = await splToken.getAssociatedTokenAddress(mint, user);
     const to = await splToken.getAssociatedTokenAddress(mint, wallet);
-    // Payer = user here; Kivo's fee payer takes over account funding when the transaction is built.
-    feeIxs.push(splToken.createAssociatedTokenAccountIdempotentInstruction(user, to, wallet, mint));
-    feeIxs.push(splToken.createTransferInstruction(from, to, user, params.fee.units));
+    const feePayer = parsePublicKey(await getSolanaFeePayerPublicKey(), 'Kivo Solana fee payer');
+    const sponsorOwnsFeeAta = wallet.equals(feePayer);
+    if (sponsorOwnsFeeAta) {
+      // The sponsor cannot create its own ATA inside a user-sponsored
+      // transaction: the ATA instruction would name it as both payer and
+      // owner, which the backend deliberately rejects. If the ATA already
+      // exists, a plain user-authorized USDC transfer is safe.
+      const feeAtaInfo = await connection.getAccountInfo(to, 'confirmed');
+      if (feeAtaInfo) {
+        feeIxs.push(splToken.createTransferInstruction(from, to, user, params.fee.units));
+      } else if (params.fee.when === 'after') {
+        // Sell fees are optional to successful settlement. Never let a
+        // missing treasury ATA block a sell; the user's output remains
+        // protected by the original minimum, and no fee transfer is added.
+        console.warn('[jupiter] Skipping optional sell fee because Kivo fee-payer USDC ATA is not initialized.');
+      } else {
+        // Do not silently change buy economics: the buy quote already
+        // excludes the fee amount, so fail clearly until the treasury ATA
+        // has been initialized outside the user's transaction.
+        throw new Error('Kivo fee wallet USDC account is not initialized. Buy safely stopped; no transaction was sent.');
+      }
+    } else {
+      // A distinct fee recipient may have its ATA created with Kivo's
+      // sponsorship, since the sponsor is only the payer, not the owner.
+      feeIxs.push(splToken.createAssociatedTokenAccountIdempotentInstruction(user, to, wallet, mint));
+      feeIxs.push(splToken.createTransferInstruction(from, to, user, params.fee.units));
+    }
   }
 
   const instructions = [
@@ -156,7 +181,6 @@ export async function executeJupiterSwap(params: {
     ...(params.fee.when === 'after' ? feeIxs : []),
   ];
 
-  const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
   const lookupTables = (await Promise.all((swap.addressLookupTableAddresses ?? []).map(address => connection.getAddressLookupTable(parsePublicKey(address, 'Jupiter address lookup table')).then(r => r.value))))
     .filter((t): t is NonNullable<typeof t> => Boolean(t));
   // The spend guard must simulate the expected output token account even
