@@ -43,6 +43,10 @@ import {fetchWalletPrices} from './walletPrices.ts';
 import type {DerivedAccounts} from '../wallet/keys';
 import {rewriteAccountCreationFundingInstructions} from './solanaAccountCreation.ts';
 
+// Shared by the remaining Relay instruction validation paths.
+const ASSOCIATED_TOKEN_PROGRAM_ID = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
+const SYSTEM_ACCOUNT_CREATING_DISCRIMINANTS = new Set([0, 3]);
+
 const RELAY_STATUS_URL = 'https://api.relay.link/intents/status/v3';
 export const SOLANA_RPC_URL = 'https://rpc.solanatracker.io/public';
 // Read-only token-account RPC only. Execution, simulation, signing, sending,
