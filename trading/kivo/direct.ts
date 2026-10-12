@@ -10,6 +10,7 @@ import {TOKEN_ADDRESSES} from '../core/chainData.ts';
 import {viemChainForChainId} from '../core/chainRegistry.ts';
 import {appFeeBps, isFeeExemptWallet, DEV_FEE_WALLET, DEV_FEE_WALLET_SOLANA} from '../core/fees.ts';
 import {executeJupiterSwap, quoteJupiter, type JupiterQuote} from '../core/jupiter.ts';
+import {SolanaSpendGuardError} from '../core/solanaSpendGuard.ts';
 import {buildDirectUniswapCalls, directUniswapSupports, quoteDirectUniswap, type DirectCall, type DirectQuote} from '../core/directUniswap.ts';
 import {sendEvmCallsViaRelayGasless} from '../core/relayGaslessEvm.ts';
 import type {DerivedAccounts} from '../wallet/keys';
@@ -155,10 +156,14 @@ function viewFor(x: {side: TradeSide; token: KivoToken; payAmount: number; payUs
   };
 }
 
-/** True only for Jupiter's documented 6001 slippage error, not another program's reused code. */
+/** True only when Jupiter itself emits 6001; DEXes may reuse the same numeric code. */
 function isJupiterSlippageSimulationError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return error.message.includes('Program JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4 failed: custom program error: 0x1771');
+  if (!(error instanceof SolanaSpendGuardError) || !error.simulationFailed) return false;
+  const failures = error.logs
+    .map(line => line.match(/^Program ([1-9A-HJ-NP-Za-km-z]+) failed: custom program error: 0x1771$/))
+    .filter((match): match is RegExpMatchArray => match !== null);
+  return failures[0]?.[1] === 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4'
+    && error.logs.some(line => /SlippageToleranceExceeded/.test(line));
 }
 
 /** Signs and sends the direct trade as one gasless batch. */
