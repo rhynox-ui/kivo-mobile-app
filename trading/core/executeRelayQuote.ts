@@ -593,12 +593,12 @@ export async function signAndSendSponsoredSolanaStep(
     const reason = typeof responseBody.error === 'string' ? responseBody.error : responseText.slice(0, 240);
     throw new Error(`Fee sponsorship endpoint returned HTTP ${res.status}${reason ? `: ${reason}` : ''}.`);
   }
-  if (!responseBody.data?.transaction) {
+  const sponsoredTransactionBase64 = responseBody.data?.transaction;
+  if (typeof sponsoredTransactionBase64 !== 'string' || sponsoredTransactionBase64.length === 0) {
     throw new Error('Fee sponsorship endpoint returned no sponsored transaction.');
   }
-  const data = responseBody.data;
 
-  const signedTransaction = VersionedTransaction.deserialize(Buffer.from(data.transaction, 'base64'));
+  const signedTransaction = VersionedTransaction.deserialize(Buffer.from(sponsoredTransactionBase64, 'base64'));
   const signature = bs58.encode(signedTransaction.signatures[0]);
   await connection.sendRawTransaction(signedTransaction.serialize());
   return {signature: await confirmSolanaSignature(connection, signature), warnings};
