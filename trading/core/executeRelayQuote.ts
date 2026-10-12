@@ -80,12 +80,46 @@ let cachedSolanaFeePayerPublicKey: string | null = null;
 export async function getSolanaFeePayerPublicKey(): Promise<string> {
   if (cachedSolanaFeePayerPublicKey) return cachedSolanaFeePayerPublicKey;
   if (!SOLANA_FEE_PAYER_URL) throw new Error('Kivo Solana fee sponsorship is not configured.');
-  const res = await fetch(SOLANA_FEE_PAYER_URL);
-  if (!res.ok) throw new Error('Fee sponsorship is not available right now.');
-  const {data} = (await res.json()) as {data?: {publicKey?: string}};
-  if (!data?.publicKey) throw new Error('Fee sponsorship is not available right now.');
-  cachedSolanaFeePayerPublicKey = data.publicKey;
-  return cachedSolanaFeePayerPublicKey;
+
+  // Cloudflare may briefly serve a stale error after sponsor-secret changes.
+  // Bypass intermediary caching and retry once before blocking the trade.
+  let lastFailure: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${SOLANA_FEE_PAYER_URL}?_kivoSponsorCheck=${Date.now()}-${attempt}`, {
+        headers: {
+          Accept: 'application/json',
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+        },
+      });
+      const responseText = await res.text();
+      if (!res.ok) {
+        lastFailure = new Error(`HTTP ${res.status}`);
+        continue;
+      }
+
+      let payload: {data?: {publicKey?: string}};
+      try {
+        payload = JSON.parse(responseText) as {data?: {publicKey?: string}};
+      } catch {
+        lastFailure = new Error('invalid JSON response');
+        continue;
+      }
+      if (typeof payload.data?.publicKey !== 'string' || !payload.data.publicKey) {
+        lastFailure = new Error('response did not include a public key');
+        continue;
+      }
+
+      cachedSolanaFeePayerPublicKey = payload.data.publicKey;
+      return cachedSolanaFeePayerPublicKey;
+    } catch (error) {
+      lastFailure = error;
+    }
+  }
+
+  const detail = lastFailure instanceof Error ? ` (${lastFailure.message})` : '';
+  throw new Error(`Fee sponsorship is not available right now${detail}.`);
 }
 
 // A quote's gas/rate numbers are only fresh for a short window — this is
