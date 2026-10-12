@@ -13,13 +13,23 @@ const JUPITER_PROXY = 'https://kivotrade.site/api/jupiter';
 
 export type JupiterQuote = {inAmount: string; outAmount: string; otherAmountThreshold: string; priceImpactPct?: string; [key: string]: unknown};
 
-async function jupiter(path: string, init?: RequestInit): Promise<unknown> {
+async function jupiter(path: string, init?: RequestInit, validateBody?: (body: unknown) => void): Promise<unknown> {
   let lastError: unknown = null;
   for (const base of [JUPITER_DIRECT, JUPITER_PROXY]) {
     try {
       const res = await fetch(`${base}${path}`, init);
       const body = await res.json().catch(() => null) as {error?: string; errorCode?: string} | null;
-      if (res.ok && body && !body.error) return body;
+      if (res.ok && body && !body.error) {
+        try {
+          validateBody?.(body);
+          return body;
+        } catch (error) {
+          // A successful HTTP response can still contain malformed instruction
+          // addresses. Try the alternate Jupiter endpoint before refusing to sign.
+          lastError = error;
+          continue;
+        }
+      }
       lastError = new Error(body?.error || `Jupiter returned ${res.status}.`);
       if (res.status === 400) break; // a real "no route" / bad request: the proxy would say the same
     } catch (error) {
@@ -58,6 +68,22 @@ export async function executeJupiterSwap(params: {
   const [{Connection, Keypair, PublicKey, TransactionInstruction}, bs58Module, splToken] = await Promise.all([import('@solana/web3.js'), import('bs58'), import('@solana/spl-token')]);
   const keypair = Keypair.fromSecretKey(bs58Module.default.decode(params.secretKeyBase58));
   const user = keypair.publicKey;
+  const validateAddress = (value: unknown, label: string) => {
+    if (typeof value !== 'string' || !value.trim()) throw new Error(`Jupiter returned a missing Solana address for ${label}.`);
+    try {
+      new PublicKey(value);
+    } catch {
+      throw new Error(`Jupiter returned an invalid Solana address for ${label}.`);
+    }
+  };
+  const validateInstruction = (value: unknown, label: string) => {
+    if (!value || typeof value !== 'object') throw new Error(`Jupiter returned a missing ${label} instruction.`);
+    const instruction = value as Partial<JupiterInstruction>;
+    validateAddress(instruction.programId, `${label} program`);
+    if (!Array.isArray(instruction.accounts)) throw new Error(`Jupiter returned malformed account keys for ${label}.`);
+    instruction.accounts.forEach((account, index) => validateAddress(account?.pubkey, `${label} account ${index + 1}`));
+    if (typeof instruction.data !== 'string') throw new Error(`Jupiter returned malformed instruction data for ${label}.`);
+  };
   const swap = await jupiter('/swap-instructions', {
     method: 'POST',
     headers: {'content-type': 'application/json'},
@@ -65,6 +91,23 @@ export async function executeJupiterSwap(params: {
       quoteResponse: params.quote, userPublicKey: user.toBase58(), wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true,
       prioritizationFeeLamports: {priorityLevelWithMaxLamports: {maxLamports: 200_000, priorityLevel: 'medium'}},
     }),
+  }, body => {
+    if (!body || typeof body !== 'object') throw new Error('Jupiter returned a malformed swap-instructions response.');
+    const instructions = body as Partial<SwapInstructions>;
+    validateInstruction(instructions.swapInstruction, 'swap');
+    for (const [label, list] of [
+      ['compute-budget', instructions.computeBudgetInstructions],
+      ['setup', instructions.setupInstructions],
+      ['other', instructions.otherInstructions],
+    ] as const) {
+      if (list != null && !Array.isArray(list)) throw new Error(`Jupiter returned malformed ${label} instructions.`);
+      (list ?? []).forEach((instruction, index) => validateInstruction(instruction, `${label} ${index + 1}`));
+    }
+    if (instructions.cleanupInstruction != null) validateInstruction(instructions.cleanupInstruction, 'cleanup');
+    if (instructions.addressLookupTableAddresses != null) {
+      if (!Array.isArray(instructions.addressLookupTableAddresses)) throw new Error('Jupiter returned malformed address lookup tables.');
+      instructions.addressLookupTableAddresses.forEach((address, index) => validateAddress(address, `address lookup table ${index + 1}`));
+    }
   }) as SwapInstructions;
   const toIx = (ix: JupiterInstruction) => new TransactionInstruction({
     programId: new PublicKey(ix.programId),
