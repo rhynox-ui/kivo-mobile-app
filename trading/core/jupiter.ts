@@ -211,20 +211,23 @@ export async function executeJupiterSwap(params: {
     ])];
   }
 
-  // A sell's quoted minimum is gross Jupiter output. If Kivo's optional
-  // USDC fee is actually included after the swap, validate the net amount
-  // the user keeps and explicitly allow only that exact fee deduction.
-  // Do not adjust anything when the fee was skipped or the output is not USDC.
-  if (
-    feeUnitsIncluded > 0n &&
-    spendIntent.expectedOutputMint &&
-    spendIntent.expectedOutputMinimum != null &&
-    parsePublicKey(spendIntent.expectedOutputMint, 'expected output token mint').equals(parsePublicKey(params.fee.usdcMint, 'Kivo USDC fee mint'))
-  ) {
-    if (feeUnitsIncluded >= spendIntent.expectedOutputMinimum) {
-      throw new Error("Kivo's USDC fee is greater than or equal to the quoted minimum sell output. Refusing to sign this sell.");
+  // The spend guard sees the net balance change after all instructions.
+  // Any Kivo fee actually included is an additional, explicitly bounded USDC
+  // deduction. For sells, Jupiter's quoted minimum is gross output, so only
+  // when the fee transfer runs AFTER the swap do we subtract it from the
+  // minimum the user must retain.
+  if (feeUnitsIncluded > 0n) {
+    if (
+      params.fee.when === 'after' &&
+      spendIntent.expectedOutputMint &&
+      spendIntent.expectedOutputMinimum != null &&
+      parsePublicKey(spendIntent.expectedOutputMint, 'expected output token mint').equals(parsePublicKey(params.fee.usdcMint, 'Kivo USDC fee mint'))
+    ) {
+      if (feeUnitsIncluded >= spendIntent.expectedOutputMinimum) {
+        throw new Error("Kivo's USDC fee is greater than or equal to the quoted minimum sell output. Refusing to sign this sell.");
+      }
+      spendIntent.expectedOutputMinimum -= feeUnitsIncluded;
     }
-    spendIntent.expectedOutputMinimum -= feeUnitsIncluded;
     spendIntent.extra = [...(spendIntent.extra ?? []), {mint: params.fee.usdcMint, units: feeUnitsIncluded}];
   }
 
