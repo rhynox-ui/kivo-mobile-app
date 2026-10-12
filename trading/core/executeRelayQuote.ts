@@ -513,25 +513,31 @@ export async function signAndSendSponsoredSolanaStep(
         if (userUsdcUnits >= recoveryUnits) {
           const sponsorUsdcAta = await splToken.getAssociatedTokenAddress(usdcMint, feePayerPubkey);
           const sponsorAtaInfo = await connection.getAccountInfo(sponsorUsdcAta);
-          const candidateInstructions = [...rewrittenInstructions];
-          if (!sponsorAtaInfo) {
-            // The sponsor funds its OWN receiving account with its OWN
-            // signature — no user funds touched by this instruction.
-            candidateInstructions.push(splToken.createAssociatedTokenAccountInstruction(feePayerPubkey, sponsorUsdcAta, feePayerPubkey, usdcMint));
-          }
-          candidateInstructions.push(splToken.createTransferInstruction(userUsdcAta, sponsorUsdcAta, signer.publicKey, recoveryUnits));
 
-          const candidateMessage = new TransactionMessage({payerKey: feePayerPubkey, instructions: candidateInstructions, recentBlockhash: blockhash}).compileToV0Message(lookupTables);
-          const candidateTransaction = new VersionedTransaction(candidateMessage);
-          const simulation = await simulationConnection.simulateTransaction(candidateTransaction, {sigVerify: false, replaceRecentBlockhash: true});
+          // Do not create the sponsor's own USDC ATA inside a user trade.
+          // That ATA instruction names the sponsor as both payer (account 0)
+          // and owner (account 2), which the server correctly rejects: the
+          // sponsor may fund a user's new ATA, but must not appear in any
+          // other ATA account position. Recovery is optional, so skip it
+          // until the sponsor's receiving ATA already exists.
+          if (sponsorAtaInfo) {
+            const candidateInstructions = [
+              ...rewrittenInstructions,
+              splToken.createTransferInstruction(userUsdcAta, sponsorUsdcAta, signer.publicKey, recoveryUnits),
+            ];
 
-          if (!simulation.value.err && typeof simulation.value.unitsConsumed === 'number') {
-            const safeUnits = Math.ceil(simulation.value.unitsConsumed * COMPUTE_BUDGET_SAFETY_MULTIPLE);
-            const computeUnitLimitInstruction = ComputeBudgetProgram.setComputeUnitLimit({units: safeUnits});
-            finalInstructions = withComputeUnitLimit(candidateInstructions, safeUnits, computeUnitLimitInstruction);
-            recoveryUnitsIncluded = BigInt(recoveryUnits);
-          } else if (simulation.value.err) {
-            console.warn('[sponsorshipRecovery] Augmented transaction did not simulate clean — sending the plain sponsored transaction instead:', JSON.stringify(simulation.value.err));
+            const candidateMessage = new TransactionMessage({payerKey: feePayerPubkey, instructions: candidateInstructions, recentBlockhash: blockhash}).compileToV0Message(lookupTables);
+            const candidateTransaction = new VersionedTransaction(candidateMessage);
+            const simulation = await simulationConnection.simulateTransaction(candidateTransaction, {sigVerify: false, replaceRecentBlockhash: true});
+
+            if (!simulation.value.err && typeof simulation.value.unitsConsumed === 'number') {
+              const safeUnits = Math.ceil(simulation.value.unitsConsumed * COMPUTE_UNIT_SAFETY_MULTIPLE);
+              const computeUnitLimitInstruction = ComputeBudgetProgram.setComputeUnitLimit({units: safeUnits});
+              finalInstructions = withComputeUnitLimit(candidateInstructions, safeUnits, computeUnitLimitInstruction);
+              recoveryUnitsIncluded = BigInt(recoveryUnits);
+            } else if (simulation.value.err) {
+              console.warn('[sponsorshipRecovery] Augmented transaction did not simulate clean — sending the plain sponsored transaction instead:', JSON.stringify(simulation.value.err));
+            }
           }
         }
       }
