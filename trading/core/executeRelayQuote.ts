@@ -35,7 +35,7 @@ import {Buffer} from 'buffer';
 import {viemChainForChainId} from './chainRegistry.ts';
 import {assertQuoteSafeToSign, type TransactionIntent} from './txIntentFirewall.ts';
 import {assertSolanaTransactionMatchesIntent} from './solanaTxIntent.ts';
-import {SOLANA_NATIVE_SPEND, assertSolanaSpendWithinIntentWeb3, isInsufficientSolSimulation, type SolanaSpendIntent} from './solanaSpendGuard.ts';
+import {SOLANA_NATIVE_SPEND, assertSolanaSpendWithinIntentWeb3, isInsufficientSolSimulation, SolanaSpendGuardError, type SolanaSpendIntent} from './solanaSpendGuard.ts';
 import {intentForQuote, type RelayQuote, type RelayTransactionStepItem} from './relayQuote.ts';
 import {TOKEN_ADDRESSES, ASSET_ONCHAIN_DECIMALS, ARC_USDC, MAINNET_CHAIN_IDS} from './chainData.ts';
 import {RelayGaslessPendingError, preflightRelayGaslessEvm, sendEvmCallsViaRelayGasless} from './relayGaslessEvm.ts';
@@ -1075,6 +1075,21 @@ export async function executeRelayQuote(
       }
     }
   } catch (err) {
+    // A Solana output-minimum failure is detected by simulation before the
+    // first signature is made. The pool/route may have moved between quote
+    // and simulation, so request one fresh quote and retry once while no
+    // transaction has been broadcast. Never requote after a partial route
+    // has landed, and never loop: the retry deliberately receives no
+    // requote callback. Keep the spend guard intact on both attempts.
+    if (
+      txHashes.length === 0 &&
+      options?.requote &&
+      err instanceof SolanaSpendGuardError &&
+      /did not deliver the expected output token/i.test(err.message)
+    ) {
+      const refreshedQuote = await options.requote();
+      return executeRelayQuote(refreshedQuote, session, onStep);
+    }
     attachPartialTxHashes(err, txHashes);
     throw err;
   }
