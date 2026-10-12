@@ -145,9 +145,19 @@ export async function assertSolanaSpendWithinIntent(
     accounts: {encoding: 'base64', addresses: [ownerAddress, ...tracked.map(t => t.address), ...expectedOutputAccounts.filter(a => !tracked.some(t => eq(t.address, a)))]},
   });
   if (sim.value.err) {
-    throw new SolanaSpendGuardError(`This transaction couldn't be verified before signing — it fails in simulation (${JSON.stringify(sim.value.err)}). Nothing was sent.`, {
+    const logs = sim.value.logs ?? [];
+    // Keep the pre-sign safety stop, but expose the program that failed.
+    // The numeric InstructionError/custom code alone is ambiguous across
+    // Solana programs (e.g. Jupiter and individual DEXes reuse code 6001).
+    const diagnosticLines = logs
+      .filter(line => /Program .* (?:invoke|success|failed)|custom program error|Error(?: Code| Number)?:|AnchorError|insufficient/i.test(line))
+      .slice(-8);
+    const diagnostic = diagnosticLines.length
+      ? ` Simulation details: ${diagnosticLines.join(' | ').slice(-1000)}`
+      : '';
+    throw new SolanaSpendGuardError(`This transaction couldn't be verified before signing — it fails in simulation (${JSON.stringify(sim.value.err)}).${diagnostic} Nothing was sent.`, {
       simulationFailed: true,
-      logs: sim.value.logs ?? [],
+      logs,
     });
   }
   const post = sim.value.accounts;
