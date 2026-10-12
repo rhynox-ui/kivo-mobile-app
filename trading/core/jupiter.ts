@@ -62,27 +62,47 @@ type SwapInstructions = {
  * Solana fee wallet's USDC account (created by the fee payer if missing).
  */
 export async function executeJupiterSwap(params: {
-  quote: JupiterQuote; secretKeyBase58: string; spendIntent: SolanaSpendIntent;
+  quote: JupiterQuote; secretKeyBase58: string; expectedSolanaAddress: string; spendIntent: SolanaSpendIntent;
   fee: {usdcMint: string; units: bigint; when: 'before' | 'after'; wallet: string};
 }): Promise<{signature: string}> {
   const [{Connection, Keypair, PublicKey, TransactionInstruction}, bs58Module, splToken] = await Promise.all([import('@solana/web3.js'), import('bs58'), import('@solana/spl-token')]);
-  const keypair = Keypair.fromSecretKey(bs58Module.default.decode(params.secretKeyBase58));
+  let keypair: InstanceType<typeof Keypair>;
+  try {
+    keypair = Keypair.fromSecretKey(bs58Module.default.decode(params.secretKeyBase58));
+  } catch {
+    throw new Error('The active Solana signing key is invalid. Refusing to build a swap.');
+  }
   const user = keypair.publicKey;
-  const validateAddress = (value: unknown, label: string) => {
-    if (typeof value !== 'string' || !value.trim()) throw new Error(`Jupiter returned a missing Solana address for ${label}.`);
+  const parsePublicKey = (value: unknown, label: string) => {
+    if (typeof value !== 'string' || !value.trim()) throw new Error(`Invalid Solana address for ${label}: value is missing.`);
     try {
-      new PublicKey(value);
+      return new PublicKey(value);
     } catch {
-      throw new Error(`Jupiter returned an invalid Solana address for ${label}.`);
+      throw new Error(`Invalid Solana address for ${label}. Check the token mint, fee configuration, or Jupiter response.`);
     }
   };
+  if (typeof params.expectedSolanaAddress !== 'string' || !params.expectedSolanaAddress.trim()) {
+    throw new Error('The active session has no Solana public address. Refusing to sign a swap.');
+  }
+  const expectedUser = parsePublicKey(params.expectedSolanaAddress, 'active session wallet');
+  if (!user.equals(expectedUser)) {
+    throw new Error('The Solana signing key does not match the active session wallet. Refusing to sign.');
+  }
+  const validateAddress = (value: unknown, label: string) => { parsePublicKey(value, label); };
   const validateInstruction = (value: unknown, label: string) => {
     if (!value || typeof value !== 'object') throw new Error(`Jupiter returned a missing ${label} instruction.`);
     const instruction = value as Partial<JupiterInstruction>;
     validateAddress(instruction.programId, `${label} program`);
     if (!Array.isArray(instruction.accounts)) throw new Error(`Jupiter returned malformed account keys for ${label}.`);
-    instruction.accounts.forEach((account, index) => validateAddress(account?.pubkey, `${label} account ${index + 1}`));
-    if (typeof instruction.data !== 'string') throw new Error(`Jupiter returned malformed instruction data for ${label}.`);
+    instruction.accounts.forEach((account, index) => {
+      validateAddress(account?.pubkey, `${label} account ${index + 1}`);
+      if (typeof account?.isSigner !== 'boolean' || typeof account?.isWritable !== 'boolean') {
+        throw new Error(`Jupiter returned malformed signer/writable flags for ${label} account ${index + 1}.`);
+      }
+    });
+    if (typeof instruction.data !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(instruction.data)) {
+      throw new Error(`Jupiter returned malformed base64 instruction data for ${label}.`);
+    }
   };
   const swap = await jupiter('/swap-instructions', {
     method: 'POST',
@@ -110,15 +130,15 @@ export async function executeJupiterSwap(params: {
     }
   }) as SwapInstructions;
   const toIx = (ix: JupiterInstruction) => new TransactionInstruction({
-    programId: new PublicKey(ix.programId),
-    keys: ix.accounts.map(a => ({pubkey: new PublicKey(a.pubkey), isSigner: a.isSigner, isWritable: a.isWritable})),
+    programId: parsePublicKey(ix.programId, 'Jupiter instruction program'),
+    keys: ix.accounts.map(a => ({pubkey: parsePublicKey(a.pubkey, 'Jupiter instruction account'), isSigner: a.isSigner, isWritable: a.isWritable})),
     data: Buffer.from(ix.data, 'base64'),
   });
 
   const feeIxs: InstanceType<typeof TransactionInstruction>[] = [];
   if (params.fee.units > 0n) {
-    const mint = new PublicKey(params.fee.usdcMint);
-    const wallet = new PublicKey(params.fee.wallet);
+    const mint = parsePublicKey(params.fee.usdcMint, 'Kivo USDC fee mint');
+    const wallet = parsePublicKey(params.fee.wallet, 'Kivo Solana fee wallet');
     const from = await splToken.getAssociatedTokenAddress(mint, user);
     const to = await splToken.getAssociatedTokenAddress(mint, wallet);
     // Payer = user here; Kivo's fee payer takes over account funding when the transaction is built.
@@ -137,7 +157,7 @@ export async function executeJupiterSwap(params: {
   ];
 
   const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
-  const lookupTables = (await Promise.all((swap.addressLookupTableAddresses ?? []).map(address => connection.getAddressLookupTable(new PublicKey(address)).then(r => r.value))))
+  const lookupTables = (await Promise.all((swap.addressLookupTableAddresses ?? []).map(address => connection.getAddressLookupTable(parsePublicKey(address, 'Jupiter address lookup table')).then(r => r.value))))
     .filter((t): t is NonNullable<typeof t> => Boolean(t));
   // The spend guard must simulate the expected output token account even
   // when the wallet has never held that token (empty accounts are otherwise
@@ -145,7 +165,7 @@ export async function executeJupiterSwap(params: {
   // program that owns the mint, since Token-2022 ATAs differ from classic SPL.
   const spendIntent: SolanaSpendIntent = {...params.spendIntent};
   if (spendIntent.expectedOutputMint && spendIntent.expectedOutputMinimum && spendIntent.expectedOutputMinimum > 0n) {
-    const outputMint = new PublicKey(spendIntent.expectedOutputMint);
+    const outputMint = parsePublicKey(spendIntent.expectedOutputMint, 'expected output token mint');
     const mintAccount = await connection.getAccountInfo(outputMint, 'confirmed');
     if (!mintAccount) throw new Error('The expected output token mint could not be verified safely. Refusing to sign this trade.');
     const tokenProgram = mintAccount.owner.equals(splToken.TOKEN_PROGRAM_ID)
