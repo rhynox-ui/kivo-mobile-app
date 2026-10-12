@@ -137,6 +137,8 @@ export async function executeJupiterSwap(params: {
 
   const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
   const feeIxs: InstanceType<typeof TransactionInstruction>[] = [];
+  // Actual post-swap USDC fee included in the transaction (zero when skipped).
+  let feeUnitsIncluded = 0n;
   if (params.fee.units > 0n) {
     const mint = parsePublicKey(params.fee.usdcMint, 'Kivo USDC fee mint');
     const wallet = parsePublicKey(params.fee.wallet, 'Kivo Solana fee wallet');
@@ -152,6 +154,7 @@ export async function executeJupiterSwap(params: {
       const feeAtaInfo = await connection.getAccountInfo(to, 'confirmed');
       if (feeAtaInfo) {
         feeIxs.push(splToken.createTransferInstruction(from, to, user, params.fee.units));
+        feeUnitsIncluded = params.fee.units;
       } else if (params.fee.when === 'after') {
         // Sell fees are optional to successful settlement. Never let a
         // missing treasury ATA block a sell; the user's output remains
@@ -168,6 +171,7 @@ export async function executeJupiterSwap(params: {
       // sponsorship, since the sponsor is only the payer, not the owner.
       feeIxs.push(splToken.createAssociatedTokenAccountIdempotentInstruction(user, to, wallet, mint));
       feeIxs.push(splToken.createTransferInstruction(from, to, user, params.fee.units));
+      feeUnitsIncluded = params.fee.units;
     }
   }
 
@@ -205,6 +209,23 @@ export async function executeJupiterSwap(params: {
       ...(spendIntent.expectedOutputAccounts ?? []),
       outputAta.toBase58(),
     ])];
+  }
+
+  // A sell's quoted minimum is gross Jupiter output. If Kivo's optional
+  // USDC fee is actually included after the swap, validate the net amount
+  // the user keeps and explicitly allow only that exact fee deduction.
+  // Do not adjust anything when the fee was skipped or the output is not USDC.
+  if (
+    feeUnitsIncluded > 0n &&
+    spendIntent.expectedOutputMint &&
+    spendIntent.expectedOutputMinimum != null &&
+    parsePublicKey(spendIntent.expectedOutputMint, 'expected output token mint').equals(parsePublicKey(params.fee.usdcMint, 'Kivo USDC fee mint'))
+  ) {
+    if (feeUnitsIncluded >= spendIntent.expectedOutputMinimum) {
+      throw new Error("Kivo's USDC fee is greater than or equal to the quoted minimum sell output. Refusing to sign this sell.");
+    }
+    spendIntent.expectedOutputMinimum -= feeUnitsIncluded;
+    spendIntent.extra = [...(spendIntent.extra ?? []), {mint: params.fee.usdcMint, units: feeUnitsIncluded}];
   }
 
   const signer: SolanaTransactionSigner = {publicKey: user, sign: async tx => { tx.sign([keypair]); return tx; }};
