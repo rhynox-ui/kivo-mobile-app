@@ -531,7 +531,7 @@ export async function signAndSendSponsoredSolanaStep(
             const simulation = await simulationConnection.simulateTransaction(candidateTransaction, {sigVerify: false, replaceRecentBlockhash: true});
 
             if (!simulation.value.err && typeof simulation.value.unitsConsumed === 'number') {
-              const safeUnits = Math.ceil(simulation.value.unitsConsumed * COMPUTE_UNIT_SAFETY_MULTIPLE);
+              const safeUnits = Math.ceil(simulation.value.unitsConsumed * COMPUTE_BUDGET_SAFETY_MULTIPLE);
               const computeUnitLimitInstruction = ComputeBudgetProgram.setComputeUnitLimit({units: safeUnits});
               finalInstructions = withComputeUnitLimit(candidateInstructions, safeUnits, computeUnitLimitInstruction);
               recoveryUnitsIncluded = BigInt(recoveryUnits);
