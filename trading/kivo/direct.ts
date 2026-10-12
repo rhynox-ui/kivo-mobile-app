@@ -164,8 +164,8 @@ export async function executeDirectPlan(plan: DirectPlan, session: DerivedAccoun
       fee: {usdcMint: plan.fee.usdc, units: plan.fee.amount, when: plan.fee.when, wallet: DEV_FEE_WALLET_SOLANA},
       // The wallet may only spend the trade's input (plus Kivo's fee) and must receive at least the minimum.
       spendIntent: buy
-        ? {spend: plan.inputMint.toLowerCase(), maxSpend: plan.amountIn + plan.fee.amount, expectedOutputMint: plan.outputMint.toLowerCase(), expectedOutputMinimum: plan.minAmountOut}
-        : {spend: plan.inputMint.toLowerCase(), maxSpend: plan.amountIn, expectedOutputMint: plan.outputMint.toLowerCase(), expectedOutputMinimum: plan.minAmountOut - plan.fee.amount},
+        ? {spend: plan.inputMint.toLowerCase(), maxSpend: plan.amountIn + plan.fee.amount, expectedOutputMint: plan.outputMint, expectedOutputMinimum: plan.minAmountOut}
+        : {spend: plan.inputMint.toLowerCase(), maxSpend: plan.amountIn, expectedOutputMint: plan.outputMint, expectedOutputMinimum: plan.minAmountOut - plan.fee.amount},
     });
     return {txHashes: [signature], requestId: null, chainIds: [792703809]};
   }
