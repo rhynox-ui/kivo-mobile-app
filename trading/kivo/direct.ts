@@ -107,6 +107,13 @@ async function planJupiterTrade(params: {
   /** Kivo's cost of moving this trade's USDC from Base, added to its fee (total fee stays <= 5%). */
   extraFeeUsd?: number;
 }): Promise<DirectPlan | null> {
+  // Match Mango Pro's Solana SELL execution path: use the Relay quote +
+  // executeRelayQuote pipeline for sells, including its quote intent firewall,
+  // output-minimum verification, sponsored signing, and settlement handling.
+  // Keep the already-working direct Jupiter path for BUYs; a null plan makes
+  // TradeScreen fall back to the standard Relay flow without changing the UI.
+  if (params.side === 'sell') return null;
+
   const {side, token, amount} = params;
   const usdcMint = TOKEN_ADDRESSES.USDC?.solana;
   if (!usdcMint || token.tokenAddress === usdcMint) return null;
