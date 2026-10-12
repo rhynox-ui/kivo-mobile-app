@@ -16,7 +16,7 @@ import type {ChainKey} from './chainData';
 
 // Kivo's own fee wallets (set by the Kivo owner).
 export const DEV_FEE_WALLET = '0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5';
-export const DEV_FEE_WALLET_SOLANA = '2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki';
+export const DEV_FEE_WALLET_SOLANA = '2ApuoLHKmNhX13w6wnSfnP64sbBAgCABiqfHeFYAamki';
 /** Kivo's fee account on NEAR — the same one the site's NEAR swaps pay (mango-bridge.jsx). */
 export const DEV_FEE_WALLET_NEAR = 'widekingdom6862.near';
 
