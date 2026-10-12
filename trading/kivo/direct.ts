@@ -190,7 +190,7 @@ export async function executeDirectPlan(plan: DirectPlan, session: DerivedAccoun
         amount: plan.amountIn,
         slippageBps,
       });
-      if (!fresh || !/^\\d+$/.test(fresh.outAmount) || BigInt(fresh.outAmount) < originalMinimum) {
+      if (!fresh || !/^\d+$/.test(fresh.outAmount) || BigInt(fresh.outAmount) < originalMinimum) {
         throw new Error("Jupiter's price moved below the minimum you approved. Nothing was sent. Refresh the quote and review the new minimum.");
       }
 
@@ -204,7 +204,7 @@ export async function executeDirectPlan(plan: DirectPlan, session: DerivedAccoun
         amount: plan.amountIn,
         slippageBps: Math.min(slippageBps, maxAllowedSlippageBps),
       });
-      if (!tightened || !/^\\d+$/.test(tightened.otherAmountThreshold) || BigInt(tightened.otherAmountThreshold) < originalMinimum) {
+      if (!tightened || !/^\d+$/.test(tightened.otherAmountThreshold) || BigInt(tightened.otherAmountThreshold) < originalMinimum) {
         throw new Error("Jupiter's refreshed quote cannot guarantee the minimum you approved. Nothing was sent. Refresh the quote and review the new minimum.");
       }
 
