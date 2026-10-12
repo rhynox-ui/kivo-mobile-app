@@ -18,5 +18,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - name: Verify Jupiter sell fee accounting
+        run: node --experimental-strip-types scripts/verify-jupiter-sell-net-output.mjs
       - name: Bundle Android JavaScript
         run: npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output /tmp/index.android.bundle --assets-dest /tmp/assets
