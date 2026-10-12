@@ -195,7 +195,10 @@ export async function executeDirectPlan(plan: DirectPlan, session: DerivedAccoun
         amount: plan.amountIn,
         slippageBps,
       });
-      if (!fresh || !/^\d+$/.test(fresh.outAmount) || BigInt(fresh.outAmount) < originalMinimum) {
+      if (!fresh || !/^\d+$/.test(fresh.outAmount)) {
+        throw new Error("Jupiter could not provide a valid fresh quote. Nothing was sent. Refresh the quote and review it before retrying.");
+      }
+      if (BigInt(fresh.outAmount) < originalMinimum) {
         throw new Error("Jupiter's price moved below the minimum you approved. Nothing was sent. Refresh the quote and review the new minimum.");
       }
 
