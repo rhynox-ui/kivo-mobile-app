@@ -155,19 +155,62 @@ function viewFor(x: {side: TradeSide; token: KivoToken; payAmount: number; payUs
   };
 }
 
+/** True only for Jupiter's documented 6001 slippage error, not another program's reused code. */
+function isJupiterSlippageSimulationError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes('Program JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4 failed: custom program error: 0x1771');
+}
+
 /** Signs and sends the direct trade as one gasless batch. */
 export async function executeDirectPlan(plan: DirectPlan, session: DerivedAccounts): Promise<{txHashes: string[]; requestId: string | null; chainIds: number[]}> {
   if (plan.kind === 'jupiter') {
     const buy = plan.side === 'buy';
-    const {signature} = await executeJupiterSwap({
-      quote: plan.quote, secretKeyBase58: session.solana.privateKey, expectedSolanaAddress: session.solana.address,
+    const spendIntent = buy
+      ? {spend: plan.inputMint.toLowerCase(), maxSpend: plan.amountIn + plan.fee.amount, expectedOutputMint: plan.outputMint, expectedOutputMinimum: plan.minAmountOut}
+      : {spend: plan.inputMint.toLowerCase(), maxSpend: plan.amountIn, expectedOutputMint: plan.outputMint, expectedOutputMinimum: plan.minAmountOut - plan.fee.amount};
+    const execute = (quote: JupiterQuote) => executeJupiterSwap({
+      quote, secretKeyBase58: session.solana.privateKey, expectedSolanaAddress: session.solana.address,
       fee: {usdcMint: plan.fee.usdc, units: plan.fee.amount, when: plan.fee.when, wallet: DEV_FEE_WALLET_SOLANA},
       // The wallet may only spend the trade's input (plus Kivo's fee) and must receive at least the minimum.
-      spendIntent: buy
-        ? {spend: plan.inputMint.toLowerCase(), maxSpend: plan.amountIn + plan.fee.amount, expectedOutputMint: plan.outputMint, expectedOutputMinimum: plan.minAmountOut}
-        : {spend: plan.inputMint.toLowerCase(), maxSpend: plan.amountIn, expectedOutputMint: plan.outputMint, expectedOutputMinimum: plan.minAmountOut - plan.fee.amount},
+      spendIntent,
     });
-    return {txHashes: [signature], requestId: null, chainIds: [792703809]};
+
+    try {
+      const {signature} = await execute(plan.quote);
+      return {txHashes: [signature], requestId: null, chainIds: [792703809]};
+    } catch (error) {
+      // A 6001 from Jupiter means the quoted minimum was missed. Re-quote once,
+      // but never silently lower the minimum the user already approved.
+      if (plan.side !== 'sell' || !isJupiterSlippageSimulationError(error)) throw error;
+      const originalMinimum = plan.minAmountOut;
+      const slippageBps = Math.max(0, Math.round(plan.view.slippagePct * 100));
+      const fresh = await quoteJupiter({
+        inputMint: plan.inputMint,
+        outputMint: plan.outputMint,
+        amount: plan.amountIn,
+        slippageBps,
+      });
+      if (!fresh || !/^\\d+$/.test(fresh.outAmount) || BigInt(fresh.outAmount) < originalMinimum) {
+        throw new Error("Jupiter's price moved below the minimum you approved. Nothing was sent. Refresh the quote and review the new minimum.");
+      }
+
+      // Tighten slippage on the refreshed quote so its on-chain threshold
+      // cannot fall below the minimum shown in the original confirmation.
+      const freshOut = BigInt(fresh.outAmount);
+      const maxAllowedSlippageBps = Number(((freshOut - originalMinimum) * 10_000n) / freshOut);
+      const tightened = await quoteJupiter({
+        inputMint: plan.inputMint,
+        outputMint: plan.outputMint,
+        amount: plan.amountIn,
+        slippageBps: Math.min(slippageBps, maxAllowedSlippageBps),
+      });
+      if (!tightened || !/^\\d+$/.test(tightened.otherAmountThreshold) || BigInt(tightened.otherAmountThreshold) < originalMinimum) {
+        throw new Error("Jupiter's refreshed quote cannot guarantee the minimum you approved. Nothing was sent. Refresh the quote and review the new minimum.");
+      }
+
+      const {signature} = await execute(tightened);
+      return {txHashes: [signature], requestId: null, chainIds: [792703809]};
+    }
   }
   const chain = viemChainForChainId(plan.quote.chainId);
   if (!chain) throw new Error('This network is not available for direct trades.');
