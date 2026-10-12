@@ -41,6 +41,7 @@ import {TOKEN_ADDRESSES, ASSET_ONCHAIN_DECIMALS, ARC_USDC, MAINNET_CHAIN_IDS} fr
 import {RelayGaslessPendingError, preflightRelayGaslessEvm, sendEvmCallsViaRelayGasless} from './relayGaslessEvm.ts';
 import {fetchWalletPrices} from './walletPrices.ts';
 import type {DerivedAccounts} from '../wallet/keys';
+import {rewriteAccountCreationFundingInstructions} from './solanaAccountCreation.ts';
 
 const RELAY_STATUS_URL = 'https://api.relay.link/intents/status/v3';
 export const SOLANA_RPC_URL = 'https://rpc.solanatracker.io/public';
@@ -71,17 +72,6 @@ const SOLANA_FEE_PAYER_URL: string | null = 'https://kivotrade.site/api/solana/f
 const SOLANA_SPONSOR_FEE_URL: string | null = 'https://kivotrade.site/api/solana/sponsor-fee';
 
 const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
-const ASSOCIATED_TOKEN_PROGRAM_ID = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
-// System Program instruction discriminants (the little-endian u32 at
-// the start of instruction data) for the two variants that create AND
-// fund a new account in one step — verified against the real
-// SystemInstruction enum's declared order, not assumed: CreateAccount
-// is the 1st variant (0), CreateAccountWithSeed the 4th (3). Both put
-// the funding account at account index 0, same as the Associated Token
-// Account Program's Create/CreateIdempotent — confirmed against each
-// spec directly rather than assumed to match by analogy.
-const SYSTEM_ACCOUNT_CREATING_DISCRIMINANTS = new Set([0, 3]);
-
 let cachedSolanaFeePayerPublicKey: string | null = null;
 export async function getSolanaFeePayerPublicKey(): Promise<string> {
   if (cachedSolanaFeePayerPublicKey) return cachedSolanaFeePayerPublicKey;
@@ -255,34 +245,7 @@ async function confirmSolanaSignature(connection: InstanceType<typeof import('@s
  * actual swap/transfer instructions carrying the user's own real
  * trade — passes through completely untouched.
  */
-export function rewriteAccountCreationFundingInstructions(
-  instructions: InstanceType<typeof import('@solana/web3.js').TransactionInstruction>[],
-  feePayerPubkey: InstanceType<typeof import('@solana/web3.js').PublicKey>,
-  TransactionInstructionCtor: typeof import('@solana/web3.js').TransactionInstruction,
-): InstanceType<typeof import('@solana/web3.js').TransactionInstruction>[] {
-  return instructions.map(ix => {
-    const programId = ix.programId.toBase58();
-    // SPL Associated Token Program encodes Create as EMPTY instruction data,
-    // CreateIdempotent as exactly [1], and RecoverNested as [2]. Only the
-    // first two have a payer at account index 0. Never rewrite non-create,
-    // malformed, or structurally unexpected instructions.
-    const isAtaCreate =
-      ix.data.length === 0 ||
-      (ix.data.length === 1 && ix.data[0] === 1);
-    const hasExpectedAtaPayer =
-      ix.keys.length >= 6 &&
-      ix.keys[0].isSigner &&
-      ix.keys[0].isWritable;
-    const isAssociatedTokenAccountCreate =
-      programId === ASSOCIATED_TOKEN_PROGRAM_ID &&
-      isAtaCreate &&
-      hasExpectedAtaPayer;
-    const isSystemAccountCreate = programId === SYSTEM_PROGRAM_ID && ix.data.length >= 4 && SYSTEM_ACCOUNT_CREATING_DISCRIMINANTS.has(ix.data.readUInt32LE(0));
-    if (!isAssociatedTokenAccountCreate && !isSystemAccountCreate) return ix;
-    const keys = ix.keys.map((k, i) => (i === 0 ? {...k, pubkey: feePayerPubkey} : k));
-    return new TransactionInstructionCtor({keys, programId: ix.programId, data: ix.data});
-  });
-}
+export {rewriteAccountCreationFundingInstructions} from './solanaAccountCreation.ts';
 
 // ---------------------------------------------------------------------
 // Sponsorship cost recovery — closing the loop the fee-payer wallet's
