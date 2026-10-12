@@ -489,7 +489,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
               </View>
               <QuoteRow label="Route fees" value={formatUsd(view.totalFeeUsd)} />
               <QuoteRow label="Network gas" value="Paid by Kivo" />
-              <QuoteRow label="Signing wallet" value={shortAddress(address)} />
+              <QuoteRow label="Signing wallet" value={token?.chainKey === 'solana' ? (wallet?.solanaAddress ? shortAddress(wallet.solanaAddress) : 'Solana wallet unavailable') : shortAddress(address)} />
             </>}
             {preflight && !preflight.ok
               ? <Text style={styles.error}>{preflight.error}</Text>
