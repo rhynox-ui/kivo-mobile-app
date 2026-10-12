@@ -73,6 +73,8 @@ const SOLANA_SIMULATION_RPC_URL = 'https://api.mainnet.solana.com';
 // as exploitable for a same-chain Solana swap; Privy's own documented
 // pattern is this same safer order).
 const SOLANA_FEE_PAYER_URL: string | null = 'https://kivotrade.site/api/solana/fee-payer';
+// Public address of Kivo's configured sponsor wallet; safe fallback if the lookup endpoint is temporarily unavailable.
+const SOLANA_FEE_PAYER_FALLBACK_PUBLIC_KEY = '2ApuoLHKmNhX13w6wnSfnP64sbBAgCABiqfHeFYAAamki';
 const SOLANA_SPONSOR_FEE_URL: string | null = 'https://kivotrade.site/api/solana/sponsor-fee';
 
 const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
@@ -118,8 +120,12 @@ export async function getSolanaFeePayerPublicKey(): Promise<string> {
     }
   }
 
-  const detail = lastFailure instanceof Error ? ` (${lastFailure.message})` : '';
-  throw new Error(`Fee sponsorship is not available right now${detail}.`);
+  // The public key is not secret. Falling back lets the sponsor endpoint
+  // make the authoritative decision; it still verifies the configured
+  // private key and refuses to sign if it does not match this wallet.
+  console.warn('[solanaSponsor] Fee-payer lookup failed; using the configured public-key fallback.', lastFailure);
+  cachedSolanaFeePayerPublicKey = SOLANA_FEE_PAYER_FALLBACK_PUBLIC_KEY;
+  return cachedSolanaFeePayerPublicKey;
 }
 
 // A quote's gas/rate numbers are only fresh for a short window — this is
@@ -573,15 +579,24 @@ export async function signAndSendSponsoredSolanaStep(
   if (!SOLANA_SPONSOR_FEE_URL) throw new Error('Kivo Solana fee sponsorship is not configured.');
   const res = await fetch(SOLANA_SPONSOR_FEE_URL, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    headers: {'Content-Type': 'application/json', Accept: 'application/json'},
     body: JSON.stringify({transaction: Buffer.from(transaction.serialize()).toString('base64')}),
   });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as {error?: string};
-    throw new Error(body.error || 'Fee sponsorship is not available right now.');
+  const responseText = await res.text();
+  let responseBody: {error?: string; data?: {transaction?: string}};
+  try {
+    responseBody = JSON.parse(responseText) as {error?: string; data?: {transaction?: string}};
+  } catch {
+    responseBody = {};
   }
-  const {data} = (await res.json()) as {data?: {transaction?: string}};
-  if (!data?.transaction) throw new Error('Fee sponsorship is not available right now.');
+  if (!res.ok) {
+    const reason = typeof responseBody.error === 'string' ? responseBody.error : responseText.slice(0, 240);
+    throw new Error(`Fee sponsorship endpoint returned HTTP ${res.status}${reason ? `: ${reason}` : ''}.`);
+  }
+  if (!responseBody.data?.transaction) {
+    throw new Error('Fee sponsorship endpoint returned no sponsored transaction.');
+  }
+  const data = responseBody.data;
 
   const signedTransaction = VersionedTransaction.deserialize(Buffer.from(data.transaction, 'base64'));
   const signature = bs58.encode(signedTransaction.signatures[0]);
