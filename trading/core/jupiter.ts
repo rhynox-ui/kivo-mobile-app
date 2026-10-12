@@ -221,6 +221,7 @@ export async function executeJupiterSwap(params: {
       params.fee.when === 'after' &&
       spendIntent.expectedOutputMint &&
       spendIntent.expectedOutputMinimum != null &&
+      spendIntent.expectedOutputMinimum > 0n &&
       parsePublicKey(spendIntent.expectedOutputMint, 'expected output token mint').equals(parsePublicKey(params.fee.usdcMint, 'Kivo USDC fee mint'))
     ) {
       if (feeUnitsIncluded >= spendIntent.expectedOutputMinimum) {
