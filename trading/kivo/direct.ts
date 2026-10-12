@@ -188,7 +188,7 @@ export async function executeDirectPlan(plan: DirectPlan, session: DerivedAccoun
       // but never silently lower the minimum the user already approved.
       if (plan.side !== 'sell' || !isJupiterSlippageSimulationError(error)) throw error;
       const originalMinimum = plan.minAmountOut;
-      const slippageBps = Math.max(0, Math.round(plan.view.slippagePct * 100));
+      const slippageBps = Math.max(0, Math.round((plan.view.slippagePct ?? DEFAULT_SLIPPAGE_BPS / 100) * 100));
       const fresh = await quoteJupiter({
         inputMint: plan.inputMint,
         outputMint: plan.outputMint,
