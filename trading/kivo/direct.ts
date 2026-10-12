@@ -107,6 +107,13 @@ async function planJupiterTrade(params: {
   /** Kivo's cost of moving this trade's USDC from Base, added to its fee (total fee stays <= 5%). */
   extraFeeUsd?: number;
 }): Promise<DirectPlan | null> {
+  // Match Mango Pro's Solana SELL execution path: use the Relay quote +
+  // executeRelayQuote pipeline for sells, including its quote intent firewall,
+  // output-minimum verification, sponsored signing, and settlement handling.
+  // Keep the already-working direct Jupiter path for BUYs; a null plan makes
+  // TradeScreen fall back to the standard Relay flow without changing the UI.
+  if (params.side === 'sell') return null;
+
   const {side, token, amount} = params;
   const usdcMint = TOKEN_ADDRESSES.USDC?.solana;
   if (!usdcMint || token.tokenAddress === usdcMint) return null;
@@ -172,7 +179,7 @@ export async function executeDirectPlan(plan: DirectPlan, session: DerivedAccoun
     const buy = plan.side === 'buy';
     const spendIntent = buy
       ? {spend: plan.inputMint.toLowerCase(), maxSpend: plan.amountIn + plan.fee.amount, expectedOutputMint: plan.outputMint, expectedOutputMinimum: plan.minAmountOut}
-      : {spend: plan.inputMint.toLowerCase(), maxSpend: plan.amountIn, expectedOutputMint: plan.outputMint, expectedOutputMinimum: plan.minAmountOut - plan.fee.amount};
+      : {spend: plan.inputMint.toLowerCase(), maxSpend: plan.amountIn, expectedOutputMint: plan.outputMint, expectedOutputMinimum: plan.minAmountOut};
     const execute = (quote: JupiterQuote) => executeJupiterSwap({
       quote, secretKeyBase58: session.solana.privateKey, expectedSolanaAddress: session.solana.address,
       fee: {usdcMint: plan.fee.usdc, units: plan.fee.amount, when: plan.fee.when, wallet: DEV_FEE_WALLET_SOLANA},

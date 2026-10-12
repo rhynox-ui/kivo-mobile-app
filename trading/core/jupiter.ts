@@ -6,7 +6,7 @@
 // hold a Jupiter API key) is the fallback.
 
 import {SOLANA_RPC_URL, getSolanaFeePayerPublicKey, signAndSendSponsoredSolanaStep, type SolanaTransactionSigner} from './executeRelayQuote.ts';
-import type {SolanaSpendIntent} from './solanaSpendGuard.ts';
+import {applyJupiterFeeToSpendIntent, type SolanaSpendIntent} from './solanaSpendGuard.ts';
 
 const JUPITER_DIRECT = 'https://lite-api.jup.ag/swap/v1';
 const JUPITER_PROXY = 'https://kivotrade.site/api/jupiter';
@@ -137,6 +137,8 @@ export async function executeJupiterSwap(params: {
 
   const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
   const feeIxs: InstanceType<typeof TransactionInstruction>[] = [];
+  // Actual post-swap USDC fee included in the transaction (zero when skipped).
+  let feeUnitsIncluded = 0n;
   if (params.fee.units > 0n) {
     const mint = parsePublicKey(params.fee.usdcMint, 'Kivo USDC fee mint');
     const wallet = parsePublicKey(params.fee.wallet, 'Kivo Solana fee wallet');
@@ -152,6 +154,7 @@ export async function executeJupiterSwap(params: {
       const feeAtaInfo = await connection.getAccountInfo(to, 'confirmed');
       if (feeAtaInfo) {
         feeIxs.push(splToken.createTransferInstruction(from, to, user, params.fee.units));
+        feeUnitsIncluded = params.fee.units;
       } else if (params.fee.when === 'after') {
         // Sell fees are optional to successful settlement. Never let a
         // missing treasury ATA block a sell; the user's output remains
@@ -168,6 +171,7 @@ export async function executeJupiterSwap(params: {
       // sponsorship, since the sponsor is only the payer, not the owner.
       feeIxs.push(splToken.createAssociatedTokenAccountIdempotentInstruction(user, to, wallet, mint));
       feeIxs.push(splToken.createTransferInstruction(from, to, user, params.fee.units));
+      feeUnitsIncluded = params.fee.units;
     }
   }
 
@@ -207,7 +211,18 @@ export async function executeJupiterSwap(params: {
     ])];
   }
 
+  const outputIsFeeMint = spendIntent.expectedOutputMint
+    ? parsePublicKey(spendIntent.expectedOutputMint, 'expected output token mint').equals(parsePublicKey(params.fee.usdcMint, 'Kivo USDC fee mint'))
+    : false;
+  const finalSpendIntent = applyJupiterFeeToSpendIntent(
+    spendIntent,
+    params.fee.usdcMint,
+    feeUnitsIncluded,
+    params.fee.when === 'after',
+    outputIsFeeMint,
+  );
+
   const signer: SolanaTransactionSigner = {publicKey: user, sign: async tx => { tx.sign([keypair]); return tx; }};
-  const {signature} = await signAndSendSponsoredSolanaStep(instructions, lookupTables, signer, connection, spendIntent);
+  const {signature} = await signAndSendSponsoredSolanaStep(instructions, lookupTables, signer, connection, finalSpendIntent);
   return {signature};
 }

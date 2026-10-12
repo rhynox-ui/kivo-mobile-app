@@ -58,6 +58,41 @@ export type SolanaSpendIntent = {
   expectedOutputAccounts?: string[];
 };
 
+/**
+ * Accounts for Kivo's own Jupiter USDC fee in the pre-sign spend guard.
+ * Jupiter's minimum output is gross swap output; a fee transferred after
+ * a USDC-output SELL reduces what remains in the user's wallet. Only the
+ * exact fee actually included in the transaction is allowed as extra spend.
+ */
+export function applyJupiterFeeToSpendIntent(
+  intent: SolanaSpendIntent,
+  feeMint: string,
+  feeUnits: bigint,
+  feeIsAfterSwap: boolean,
+  outputIsFeeMint: boolean,
+): SolanaSpendIntent {
+  const adjusted: SolanaSpendIntent = {
+    ...intent,
+    extra: intent.extra ? [...intent.extra] : undefined,
+  };
+  if (feeUnits <= 0n) return adjusted;
+
+  if (
+    feeIsAfterSwap &&
+    outputIsFeeMint &&
+    adjusted.expectedOutputMinimum != null &&
+    adjusted.expectedOutputMinimum > 0n
+  ) {
+    if (feeUnits >= adjusted.expectedOutputMinimum) {
+      throw new Error("Kivo's USDC fee is greater than or equal to the quoted minimum sell output. Refusing to sign this sell.");
+    }
+    adjusted.expectedOutputMinimum -= feeUnits;
+  }
+
+  adjusted.extra = [...(adjusted.extra ?? []), {mint: feeMint, units: feeUnits}];
+  return adjusted;
+}
+
 type Key = {toBase58(): string};
 type ParsedTokenAccount = {pubkey: Key; account: {data: {parsed?: {info?: {mint?: string; tokenAmount?: {amount?: string}; delegate?: string}}}}};
 type SimulatedAccount = {lamports: number; data: [string, string] | string[]} | null;
