@@ -6,7 +6,7 @@
 // hold a Jupiter API key) is the fallback.
 
 import {SOLANA_RPC_URL, getSolanaFeePayerPublicKey, signAndSendSponsoredSolanaStep, type SolanaTransactionSigner} from './executeRelayQuote.ts';
-import type {SolanaSpendIntent} from './solanaSpendGuard.ts';
+import {applyJupiterFeeToSpendIntent, type SolanaSpendIntent} from './solanaSpendGuard.ts';
 
 const JUPITER_DIRECT = 'https://lite-api.jup.ag/swap/v1';
 const JUPITER_PROXY = 'https://kivotrade.site/api/jupiter';
@@ -211,28 +211,18 @@ export async function executeJupiterSwap(params: {
     ])];
   }
 
-  // The spend guard sees the net balance change after all instructions.
-  // Any Kivo fee actually included is an additional, explicitly bounded USDC
-  // deduction. For sells, Jupiter's quoted minimum is gross output, so only
-  // when the fee transfer runs AFTER the swap do we subtract it from the
-  // minimum the user must retain.
-  if (feeUnitsIncluded > 0n) {
-    if (
-      params.fee.when === 'after' &&
-      spendIntent.expectedOutputMint &&
-      spendIntent.expectedOutputMinimum != null &&
-      spendIntent.expectedOutputMinimum > 0n &&
-      parsePublicKey(spendIntent.expectedOutputMint, 'expected output token mint').equals(parsePublicKey(params.fee.usdcMint, 'Kivo USDC fee mint'))
-    ) {
-      if (feeUnitsIncluded >= spendIntent.expectedOutputMinimum) {
-        throw new Error("Kivo's USDC fee is greater than or equal to the quoted minimum sell output. Refusing to sign this sell.");
-      }
-      spendIntent.expectedOutputMinimum -= feeUnitsIncluded;
-    }
-    spendIntent.extra = [...(spendIntent.extra ?? []), {mint: params.fee.usdcMint, units: feeUnitsIncluded}];
-  }
+  const outputIsFeeMint = spendIntent.expectedOutputMint
+    ? parsePublicKey(spendIntent.expectedOutputMint, 'expected output token mint').equals(parsePublicKey(params.fee.usdcMint, 'Kivo USDC fee mint'))
+    : false;
+  const finalSpendIntent = applyJupiterFeeToSpendIntent(
+    spendIntent,
+    params.fee.usdcMint,
+    feeUnitsIncluded,
+    params.fee.when === 'after',
+    outputIsFeeMint,
+  );
 
   const signer: SolanaTransactionSigner = {publicKey: user, sign: async tx => { tx.sign([keypair]); return tx; }};
-  const {signature} = await signAndSendSponsoredSolanaStep(instructions, lookupTables, signer, connection, spendIntent);
+  const {signature} = await signAndSendSponsoredSolanaStep(instructions, lookupTables, signer, connection, finalSpendIntent);
   return {signature};
 }
