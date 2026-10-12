@@ -83,7 +83,7 @@ const ASSOCIATED_TOKEN_PROGRAM_ID = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8kn
 const SYSTEM_ACCOUNT_CREATING_DISCRIMINANTS = new Set([0, 3]);
 
 let cachedSolanaFeePayerPublicKey: string | null = null;
-async function getSolanaFeePayerPublicKey(): Promise<string> {
+export async function getSolanaFeePayerPublicKey(): Promise<string> {
   if (cachedSolanaFeePayerPublicKey) return cachedSolanaFeePayerPublicKey;
   if (!SOLANA_FEE_PAYER_URL) throw new Error('Kivo Solana fee sponsorship is not configured.');
   const res = await fetch(SOLANA_FEE_PAYER_URL);
