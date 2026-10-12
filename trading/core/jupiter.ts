@@ -141,9 +141,18 @@ export async function executeJupiterSwap(params: {
     const wallet = parsePublicKey(params.fee.wallet, 'Kivo Solana fee wallet');
     const from = await splToken.getAssociatedTokenAddress(mint, user);
     const to = await splToken.getAssociatedTokenAddress(mint, wallet);
-    // Payer = user here; Kivo's fee payer takes over account funding when the transaction is built.
-    feeIxs.push(splToken.createAssociatedTokenAccountIdempotentInstruction(user, to, wallet, mint));
-    feeIxs.push(splToken.createTransferInstruction(from, to, user, params.fee.units));
+    const feeAccount = await connection.getAccountInfo(to, 'confirmed');
+
+    // Never create Kivo's own receiving ATA inside a user's sponsored swap.
+    // Sponsorship rewrites the ATA payer to Kivo's fee payer; because the
+    // receiving ATA owner is also Kivo, that would put the sponsor in both
+    // account 0 (payer) and account 2 (owner), which the backend correctly
+    // rejects. The platform fee is optional: if the receiving ATA has not
+    // been provisioned yet, omit fee collection for this trade rather than
+    // blocking the user's sell. Kivo still sponsors network gas as usual.
+    if (feeAccount) {
+      feeIxs.push(splToken.createTransferInstruction(from, to, user, params.fee.units));
+    }
   }
 
   const instructions = [
