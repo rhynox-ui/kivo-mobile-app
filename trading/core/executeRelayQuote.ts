@@ -74,7 +74,7 @@ const SOLANA_SIMULATION_RPC_URL = 'https://api.mainnet.solana.com';
 // pattern is this same safer order).
 const SOLANA_FEE_PAYER_URL: string | null = 'https://kivotrade.site/api/solana/fee-payer';
 // Public address of Kivo's configured sponsor wallet; safe fallback if the lookup endpoint is temporarily unavailable.
-const SOLANA_FEE_PAYER_FALLBACK_PUBLIC_KEY = '2ApuoLHKmNhX13w6wnSfnP64sbBAgCABiqfHeFYAAamki';
+const SOLANA_FEE_PAYER_FALLBACK_PUBLIC_KEY = '2ApuoLHKmNhX13w6wnSfnP64sbBAgCABiqfHeFYAamki';
 const SOLANA_SPONSOR_FEE_URL: string | null = 'https://kivotrade.site/api/solana/sponsor-fee';
 
 const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
