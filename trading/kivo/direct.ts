@@ -160,7 +160,7 @@ export async function executeDirectPlan(plan: DirectPlan, session: DerivedAccoun
   if (plan.kind === 'jupiter') {
     const buy = plan.side === 'buy';
     const {signature} = await executeJupiterSwap({
-      quote: plan.quote, secretKeyBase58: session.solana.privateKey,
+      quote: plan.quote, secretKeyBase58: session.solana.privateKey, expectedSolanaAddress: session.solana.address,
       fee: {usdcMint: plan.fee.usdc, units: plan.fee.amount, when: plan.fee.when, wallet: DEV_FEE_WALLET_SOLANA},
       // The wallet may only spend the trade's input (plus Kivo's fee) and must receive at least the minimum.
       spendIntent: buy
