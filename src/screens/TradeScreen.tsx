@@ -165,10 +165,16 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
 
   const preflight = useMemo(() => {
     if (!plan || !address) return null;
-    try { return { ok: true as const, warnings: plan.legs.flatMap(leg => preflightKivoQuote(leg.quote, address, Date.now(), {allowSolana: true}).warnings) }; }
+    // Relay quotes bind to the chain-specific owner. Solana SELL requests use
+    // the Solana public key, not the wallet's unrelated EVM (0x...) address.
+    // Compare the quote against the matching account while keeping the
+    // execution-time signer and transaction-intent checks unchanged.
+    const quoteSignerAddress = token?.chainKey === 'solana' ? wallet?.solanaAddress : address;
+    if (!quoteSignerAddress) return { ok: false as const, error: 'This wallet has no Solana address. Refresh the quote.' };
+    try { return { ok: true as const, warnings: plan.legs.flatMap(leg => preflightKivoQuote(leg.quote, quoteSignerAddress, Date.now(), {allowSolana: true}).warnings) }; }
     catch (error) { return { ok: false as const, error: error instanceof Error ? error.message : 'Safety check failed.' }; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan, address, reviewOpen]);
+  }, [plan, address, wallet?.solanaAddress, token?.chainKey, reviewOpen]);
 
   const choosePreset = (pct: number) => {
     if (available == null) return;
