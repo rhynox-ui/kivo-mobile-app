@@ -186,7 +186,7 @@ function TokenRow({ result, onPress }: { result: TokenSearchResult; onPress: () 
       <View style={styles.copy}>
         <Text style={styles.symbol} numberOfLines={1}>{result.symbol}</Text>
         <Text style={styles.meta} numberOfLines={1}>
-          {result.name} · {tradeChainLabel(result.chainKey)}
+          {tradeChainLabel(result.chainKey)}
           {marketCap ? ` · ${marketCap} MC` : ''}
         </Text>
       </View>
