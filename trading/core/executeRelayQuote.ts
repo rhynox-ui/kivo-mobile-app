@@ -262,16 +262,21 @@ export function rewriteAccountCreationFundingInstructions(
 ): InstanceType<typeof import('@solana/web3.js').TransactionInstruction>[] {
   return instructions.map(ix => {
     const programId = ix.programId.toBase58();
-    // Associated Token Program discriminants: Create = 0, CreateIdempotent = 1,
-    // RecoverNested = 2. Only the first two create/fund an ATA and have a
-    // payer at account index 0. Rewriting every instruction from this program
-    // can inject Kivo's sponsor into RecoverNested (or future non-create
-    // instructions), which the server correctly rejects as unauthorized.
-    const ataDiscriminator = ix.data.length > 0 ? ix.data[0] : -1;
+    // SPL Associated Token Program encodes Create as EMPTY instruction data,
+    // CreateIdempotent as exactly [1], and RecoverNested as [2]. Only the
+    // first two have a payer at account index 0. Never rewrite non-create,
+    // malformed, or structurally unexpected instructions.
+    const isAtaCreate =
+      ix.data.length === 0 ||
+      (ix.data.length === 1 && ix.data[0] === 1);
+    const hasExpectedAtaPayer =
+      ix.keys.length >= 6 &&
+      ix.keys[0].isSigner &&
+      ix.keys[0].isWritable;
     const isAssociatedTokenAccountCreate =
       programId === ASSOCIATED_TOKEN_PROGRAM_ID &&
-      (ataDiscriminator === 0 || ataDiscriminator === 1) &&
-      ix.keys.length > 0;
+      isAtaCreate &&
+      hasExpectedAtaPayer;
     const isSystemAccountCreate = programId === SYSTEM_PROGRAM_ID && ix.data.length >= 4 && SYSTEM_ACCOUNT_CREATING_DISCRIMINANTS.has(ix.data.readUInt32LE(0));
     if (!isAssociatedTokenAccountCreate && !isSystemAccountCreate) return ix;
     const keys = ix.keys.map((k, i) => (i === 0 ? {...k, pubkey: feePayerPubkey} : k));
