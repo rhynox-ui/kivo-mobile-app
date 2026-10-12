@@ -480,6 +480,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       <KivoModal visible={reviewOpen} transparent animationType="slide" onRequestClose={closeReview}>
         <View style={styles.sheetBackdrop}>
           <View style={styles.sheet}>
+            <ScrollView style={styles.reviewScroll} contentContainerStyle={styles.reviewScrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <Text style={styles.sheetTitle}>Confirm {side}</Text>
             {view && <>
               <View style={styles.summary}>
@@ -505,7 +506,16 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
                 {update && !result && <Text style={styles.small}>{update.message}</Text>}
               </View>
             )}
-            {result && <Text style={result.tone === 'error' ? styles.error : styles.okText}>{result.message}</Text>}
+            {result && (
+              <View style={[styles.resultCard, result.tone === 'error' && styles.resultCardError, result.tone === 'success' && styles.resultCardSuccess]}>
+                <Text style={[styles.resultTitle, result.tone === 'error' && styles.resultTitleError, result.tone === 'success' && styles.resultTitleSuccess]}>
+                  {(side === 'sell' ? 'Sell' : 'Buy') + (result.tone === 'error' ? ' failed' : result.tone === 'pending' ? ' submitted' : ' complete')}
+                </Text>
+                <ScrollView style={styles.resultMessageScroll} nestedScrollEnabled>
+                  <Text style={result.tone === 'error' ? styles.error : styles.okText}>{result.message}</Text>
+                </ScrollView>
+              </View>
+            )}
             {result?.hashes.map((hash, index) => {
               const url = transactionLink(hash, result.chainIds[index] ?? result.chainIds[0], token ? MAINNET_CHAIN_IDS[token.chainKey] : null);
               return <Pressable key={hash} hitSlop={8} onPress={() => { Linking.openURL(url).catch(() => {}); }}><Text style={styles.link}>Transaction {index + 1}: {shortAddress(hash, 10, 6)}  ↗ View on explorer</Text></Pressable>;
@@ -523,6 +533,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
                 {!running && <Pressable onPress={closeReview} style={styles.ghostButton}><Text style={styles.secondaryText}>Cancel</Text></Pressable>}
               </>
             )}
+            </ScrollView>
           </View>
         </View>
       </KivoModal>
@@ -659,6 +670,15 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.45 },
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(1,15,13,0.7)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: c.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 34, borderWidth: 1, borderColor: c.border, maxHeight: '92%' },
+  reviewScroll: { flexShrink: 1 },
+  reviewScrollContent: { paddingBottom: 2 },
+  resultCard: { marginTop: 12, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
+  resultCardError: { borderColor: c.danger },
+  resultCardSuccess: { borderColor: c.success },
+  resultTitle: { color: c.text, fontSize: 13, fontWeight: '900', marginBottom: 4 },
+  resultTitleError: { color: c.danger },
+  resultTitleSuccess: { color: c.success },
+  resultMessageScroll: { maxHeight: 100 },
   settingsSheet: { paddingBottom: 26 },
   settingsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   activeBadge: { backgroundColor: c.surfaceRaised, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
