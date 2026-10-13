@@ -48,7 +48,13 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecu
         return;
       case 'language': updateSettings({language:settings.language==='System'?'English':'System'}); return;
       case 'security': onOpenSecurity?.(); return;
-      case 'legal': Linking.openURL('https://kivo-web.pages.dev/privacy.html').catch(()=>kivoAlert('Legal and Privacy','Unable to open Kivo privacy information right now.')); return;
+      case 'legal':
+        kivoAlert('Legal and Privacy','Choose which Kivo document to open.',[
+          {text:'Privacy Policy',onPress:()=>{void Linking.openURL('https://kivotrade.site/privacy.html').catch(()=>kivoAlert('Privacy Policy','Unable to open the privacy policy right now.'));}},
+          {text:'Terms of Service',onPress:()=>{void Linking.openURL('https://kivotrade.site/terms.html').catch(()=>kivoAlert('Terms of Service','Unable to open the terms right now.'));}},
+          {text:'Account Deletion Help',onPress:()=>{void Linking.openURL('mailto:support@kivotrade.site?subject=Kivo%20account%20deletion%20request').catch(()=>kivoAlert('Account Deletion Help','Email support@kivotrade.site to request account deletion outside the app.'));}},
+          {text:'Cancel',style:'cancel'},
+        ]); return;
       case 'taxes': {
         const rows = getTradeHistory();
         if (!rows.length) { kivoAlert('Taxes','No signed trades are recorded on this device yet.'); return; }
@@ -57,7 +63,7 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecu
         return;
       }
       case 'help': Linking.openURL('mailto:support@kivotrade.site?subject=Kivo%20Support').catch(()=>kivoAlert('Help and Support','Unable to open your email app right now.')); return;
-      case 'docs': Linking.openURL('https://kivo-web.pages.dev/docs/').catch(()=>kivoAlert('Documentation','Unable to open documentation right now.')); return;
+      case 'docs': Linking.openURL('https://kivotrade.site/docs/').catch(()=>kivoAlert('Documentation','Unable to open documentation right now.')); return;
       case 'x': Linking.openURL('https://x.com/Kivotrade').catch(()=>kivoAlert('Kivo on X','Unable to open X right now.')); return;
       case 'telegram': Linking.openURL('https://t.me/Kivotrade').catch(()=>kivoAlert('Kivo Telegram','Unable to open Telegram right now.')); return;
       case 'logout':
