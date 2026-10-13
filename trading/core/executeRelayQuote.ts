@@ -577,12 +577,32 @@ export async function signAndSendSponsoredSolanaStep(
   const transaction = await signer.sign(unsignedTransaction);
 
   if (!SOLANA_SPONSOR_FEE_URL) throw new Error('Kivo Solana fee sponsorship is not configured.');
-  const res = await fetch(SOLANA_SPONSOR_FEE_URL, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json', Accept: 'application/json'},
-    body: JSON.stringify({transaction: Buffer.from(transaction.serialize()).toString('base64')}),
-  });
-  const responseText = await res.text();
+  // The sponsor endpoint only adds the fee-payer signature; it never broadcasts.
+  // Retrying the exact same user-signed message on transient 5xx/network failures
+  // cannot submit a duplicate swap. Never fall back to user-paid SOL.
+  const serializedUserSignedTransaction = Buffer.from(transaction.serialize()).toString('base64');
+  let res: Response | null = null;
+  let responseText = '';
+  let lastSponsorError = '';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      res = await fetch(SOLANA_SPONSOR_FEE_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+        body: JSON.stringify({transaction: serializedUserSignedTransaction}),
+      });
+      responseText = await res.text();
+      if (res.ok || res.status < 500 || attempt === 2) break;
+      lastSponsorError = `HTTP ${res.status}`;
+    } catch (error) {
+      lastSponsorError = error instanceof Error ? error.message : 'network error';
+      if (attempt === 2) break;
+    }
+    await new Promise<void>(resolve => setTimeout(resolve, attempt === 0 ? 250 : 700));
+  }
+  if (!res) {
+    throw new Error(`Kivo's Solana fee sponsor is temporarily unreachable (${lastSponsorError || 'network error'}). No transaction was broadcast. Please try again shortly.`);
+  }
   let responseBody: {error?: string; data?: {transaction?: string}};
   try {
     responseBody = JSON.parse(responseText) as {error?: string; data?: {transaction?: string}};
@@ -590,8 +610,12 @@ export async function signAndSendSponsoredSolanaStep(
     responseBody = {};
   }
   if (!res.ok) {
-    const reason = typeof responseBody.error === 'string' ? responseBody.error : responseText.slice(0, 240);
-    throw new Error(`Fee sponsorship endpoint returned HTTP ${res.status}${reason ? `: ${reason}` : ''}.`);
+    if (res.status >= 500) {
+      throw new Error(`Kivo's Solana fee sponsor is temporarily unavailable (HTTP ${res.status}). No transaction was broadcast. Please try again shortly.`);
+    }
+    const serverReason = typeof responseBody.error === 'string' ? responseBody.error : '';
+    const reason = serverReason || responseText.replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 180);
+    throw new Error(`Kivo fee sponsorship was refused (HTTP ${res.status})${reason ? `: ${reason}` : ''}. No transaction was broadcast.`);
   }
   const sponsoredTransactionBase64 = responseBody.data?.transaction;
   if (typeof sponsoredTransactionBase64 !== 'string' || sponsoredTransactionBase64.length === 0) {
