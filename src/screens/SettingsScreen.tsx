@@ -45,7 +45,7 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecu
         return;
       case 'language': updateSettings({language:settings.language==='System'?'English':'System'}); return;
       case 'security': onOpenSecurity?.(); return;
-      case 'legal': Linking.openURL('https://kivo-web.pages.dev/docs/').catch(()=>kivoAlert('Legal and Privacy','Unable to open Kivo documentation right now.')); return;
+      case 'legal': Linking.openURL('https://kivo-web.pages.dev/privacy.html').catch(()=>kivoAlert('Legal and Privacy','Unable to open Kivo privacy information right now.')); return;
       case 'taxes': {
         const rows = getTradeHistory();
         if (!rows.length) { kivoAlert('Taxes','No signed trades are recorded on this device yet.'); return; }
