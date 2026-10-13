@@ -5,6 +5,7 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { getTradeHistory } from '@kivo/trading/kivo/history';
 import { AppearanceHapticsScreen } from './AppearanceHapticsScreen';
+import { api } from '../state/session';
 
 type SettingsItem = {
   label: string;
@@ -17,6 +18,8 @@ type SettingsItem = {
 export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecurity, onLogout }: { onBack:()=>void; onOpenWallet?:()=>void; onOpenProfile?:()=>void; onOpenSecurity?:()=>void; onLogout?:()=>void }) {
   const settings = useSettings();
   const [showAppearance, setShowAppearance] = React.useState(false);
+  const [deletion, setDeletion] = React.useState<{status: 'pending' | 'processing'; executeAt: number} | null>(null);
+  React.useEffect(() => { let active = true; api.accountDeletionStatus().then(result => { if (active && result.pending && result.status && result.executeAt) setDeletion({status: result.status, executeAt: result.executeAt}); }).catch(() => {}); return () => { active = false; }; }, []);
   const items: SettingsItem[] = [
     { label:'Profile and Account',icon:'♙',action:'profile' },
     { label:'Appearance and Haptics',icon:'◐',value:settings.haptics?'On':'Off',action:'haptics' },
@@ -31,7 +34,7 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecu
     { label:'X',icon:'𝕏',action:'x' },
     { label:'Telegram',icon:'➤',action:'telegram' },
     { label:'Log Out',icon:'↪',destructive:true,action:'logout' },
-    { label:'Delete Account',icon:'!',destructive:true,action:'delete' },
+    { label:deletion?.status==='pending'?'Cancel Account Deletion':deletion?.status==='processing'?'Deletion In Progress':'Delete Account',icon:'!',destructive:true,action:'delete' },
   ];
 
   const handlePress=(item:SettingsItem)=>{
@@ -63,9 +66,21 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecu
           {text:'Log Out',style:'destructive',onPress:()=>onLogout?.()},
         ]); return;
       case 'delete':
-        kivoAlert('Delete account','This permanently removes the local Kivo session after confirmation. Production account deletion must also be authorized by the backend.',[
-          {text:'Cancel',style:'cancel'},
-          {text:'Delete',style:'destructive',onPress:()=>onLogout?.()},
+        if (deletion?.status === 'processing') {
+          kivoAlert('Deletion in progress','Kivo has started permanently deleting this account. It can no longer be cancelled from the app. Contact support@kivotrade.site if you believe this is a mistake.');
+          return;
+        }
+        if (deletion?.status === 'pending') {
+          const date = new Date(deletion.executeAt).toLocaleString();
+          kivoAlert('Cancel account deletion',`Your account is scheduled for permanent deletion at ${date}. Cancel the request and keep your account?`,[
+            {text:'Keep deletion scheduled',style:'cancel'},
+            {text:'Cancel Deletion',onPress:()=>{void api.cancelAccountDeletion().then(()=>{setDeletion(null);kivoAlert('Deletion cancelled','Your Kivo account will remain active.');}).catch(error=>kivoAlert('Could not cancel deletion',error instanceof Error?error.message:'Please try again.'));}},
+          ]);
+          return;
+        }
+        kivoAlert('Delete account?','Your account will be permanently deleted 24 hours after you confirm. Kivo will delete your profile, social connections, Kivo-hosted messages and media, and communities you own. This cannot be undone after deletion starts.\n\nWallet warning: deleting Kivo does NOT move, refund, or recover funds or tokens. On-chain transactions cannot be reversed. Save your recovery phrase securely and move any assets you want to keep before confirming. Some payment records may be retained where legally required.\n\nYou can cancel this request in Settings during the 24-hour grace period. After 24 hours, deletion runs automatically; you do not need to return to confirm it.',[
+          {text:'Keep Account',style:'cancel'},
+          {text:'Schedule Deletion',style:'destructive',onPress:()=>{void api.requestAccountDeletion().then(result=>{setDeletion({status:'pending',executeAt:result.executeAt});kivoAlert('Deletion scheduled',`Your account is scheduled for deletion after the 24-hour grace period, at ${new Date(result.executeAt).toLocaleString()}. You can cancel it from Settings before processing begins.`);}).catch(error=>kivoAlert('Could not schedule deletion',error instanceof Error?error.message:'Please try again.'));}},
         ]); return;
     }
   };

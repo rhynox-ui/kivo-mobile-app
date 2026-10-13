@@ -227,6 +227,9 @@ export class KivoApi {
   purchaseVerification(input: {subjectType: 'profile' | 'channel'; subjectId: string; plan: 'monthly' | 'annual'; chain: 'ethereum' | 'base' | 'arbitrum' | 'solana'; txHash: string}) {
     return this.request<{id: string; plan: string; chain: string; token: 'USDC'; amount: string; txHash: string; payer: string; recipient: string; paidAt: number; expiresAt: number; explorerUrl: string; blockNumber: number; status: string}>('POST', '/api/verification/purchase', input);
   }
+  accountDeletionStatus() { return this.request<{pending: boolean; status: 'pending' | 'processing' | null; requestedAt: number | null; executeAt: number | null}>('GET', '/api/account-deletion'); }
+  requestAccountDeletion() { return this.request<{pending: true; status: 'pending'; requestedAt: number; executeAt: number}>('POST', '/api/account-deletion', {}); }
+  cancelAccountDeletion() { return this.request<{pending: false; cancelled: true}>('DELETE', '/api/account-deletion'); }
   moderationStatus() { return this.request<{cooldownUntil: number; reason: string}>('GET', '/api/moderation/status'); }
   conversations() { return this.request<ApiConversation[]>('GET', '/api/conversations'); }
   openDm(address: string) { return this.request<{id: string}>('POST', '/api/conversations/dm', {address}); }
