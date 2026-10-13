@@ -681,8 +681,11 @@ export async function signAndSendRelaySolanaStep(item: RelayTransactionStepItem,
     try {
       return await signAndSendSponsoredSolanaStep(instructions, lookupTables, localSigner, connection, spendIntent);
     } catch (sponsorErr) {
-      const sponsorMessage = sponsorErr instanceof Error ? sponsorErr.message : String(sponsorErr);
-      throw new Error(`This wallet doesn't have enough SOL for this route's network fees, and fee sponsorship didn't cover it: ${sponsorMessage}`);
+      // The preflight already established why sponsorship was attempted.
+      // Preserve the sponsor's actual failure (HTTP 502, sponsor balance,
+      // policy rejection, or simulation failure) instead of mislabeling
+      // every sponsorship error as the user's SOL balance problem.
+      throw sponsorErr instanceof Error ? sponsorErr : new Error(String(sponsorErr));
     }
   }
 
@@ -703,18 +706,9 @@ export async function signAndSendRelaySolanaStep(item: RelayTransactionStepItem,
       try {
         return await signAndSendSponsoredSolanaStep(instructions, lookupTables, localSigner, connection, spendIntent);
       } catch (sponsorErr) {
-        const haveSol = Number(lamportsMatch[1]) / 1e9;
-        const needSol = Number(lamportsMatch[2]) / 1e9;
-        // Surface the real sponsorship failure instead of always
-        // blaming the user's balance — sponsorship can fail for reasons
-        // that have nothing to do with SOL (missing config, rate limit,
-        // a rejected/failed simulation), and hiding that behind "add
-        // more SOL" makes every one of those look identical and
-        // impossible to debug.
-        const sponsorMessage = sponsorErr instanceof Error ? sponsorErr.message : String(sponsorErr);
-        throw new Error(
-          `This wallet has ~${haveSol.toFixed(4)} SOL, short of the ~${needSol.toFixed(4)} SOL this route needs, and fee sponsorship didn't cover it: ${sponsorMessage}`,
-        );
+        // Preserve the sponsor's real error. A 5xx or a rejected
+        // simulation is not evidence that the user's SOL balance is wrong.
+        throw sponsorErr instanceof Error ? sponsorErr : new Error(String(sponsorErr));
       }
     }
     try {
@@ -823,10 +817,9 @@ async function signAndSendRelaySolanaStepViaParticle(item: RelayTransactionStepI
       try {
         return await signAndSendSponsoredSolanaStep(instructions, lookupTables, particleSigner, connection, spendIntent);
       } catch (sponsorErr) {
-        const sponsorMessage = sponsorErr instanceof Error ? sponsorErr.message : String(sponsorErr);
-        throw new Error(
-          `This wallet has ~${(actualBalance / 1e9).toFixed(4)} SOL, short of the ~${(requiredLamports / 1e9).toFixed(4)} SOL this route needs, and fee sponsorship didn't cover it: ${sponsorMessage}`,
-        );
+        // Preserve the sponsor's real error instead of blaming the
+        // user's SOL balance for an endpoint or simulation failure.
+        throw sponsorErr instanceof Error ? sponsorErr : new Error(String(sponsorErr));
       }
     }
   } catch (err) {
