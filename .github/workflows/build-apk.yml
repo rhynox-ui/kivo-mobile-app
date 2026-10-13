@@ -10,7 +10,7 @@ on:
       version_name:
         description: 'Version name shown to users (e.g. 1.0.0)'
         required: true
-        default: '1.0.0'
+        default: '1.0.1'
         type: string
       play_track:
         description: 'Play Console track to publish to (only used if PLAY_SERVICE_ACCOUNT_JSON is set)'
@@ -93,16 +93,12 @@ jobs:
           test -n "$ANDROID_KEY_PASSWORD"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/kivo-release.keystore
           test -s android/app/kivo-release.keystore
-
-          # Validate credentials separately before the long Gradle build.
           echo "Checking keystore password..."
           keytool -list -keystore android/app/kivo-release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" >/dev/null
           echo "Keystore password: OK"
-
           echo "Checking alias..."
           keytool -list -keystore android/app/kivo-release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
           echo "Alias: OK"
-
           echo "Checking private-key password..."
           keytool -certreq -keystore android/app/kivo-release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" -keypass "$ANDROID_KEY_PASSWORD" -file "$RUNNER_TEMP/kivo-signing-check.csr" >/dev/null
           test -s "$RUNNER_TEMP/kivo-signing-check.csr"
@@ -186,7 +182,7 @@ jobs:
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: com.kivo.chat
+          packageName: com.kivotrade.app
           releaseFiles: android/app/build/outputs/bundle/release/*.aab
           tracks: ${{ inputs.play_track }}
 
