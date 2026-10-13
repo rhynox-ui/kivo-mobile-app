@@ -106,6 +106,16 @@ jobs:
           echo "Private-key password: OK"
           echo "Android upload keystore verified: alias=$ANDROID_KEY_ALIAS"
 
+      - name: Choose unused Android version code
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION_CODE="$GITHUB_RUN_NUMBER"
+          # Play Console has already seen versionCode 93; never emit a lower value.
+          if [ "$VERSION_CODE" -lt 94 ]; then VERSION_CODE=94; fi
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "Using Android versionCode $VERSION_CODE"
+
       - name: Build signed release AAB (Google Play)
         working-directory: android
         env:
@@ -113,7 +123,7 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: ./gradlew bundleRelease --no-daemon -PVERSION_CODE=${{ github.run_number }} -PVERSION_NAME="${{ inputs.version_name }}"
+        run: ./gradlew bundleRelease --no-daemon -PVERSION_CODE=${{ steps.version.outputs.version_code }} -PVERSION_NAME="${{ inputs.version_name }}"
 
       - name: Build signed release APK (direct install)
         working-directory: android
@@ -122,7 +132,7 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: ./gradlew assembleRelease --no-daemon -PVERSION_CODE=${{ github.run_number }} -PVERSION_NAME="${{ inputs.version_name }}"
+        run: ./gradlew assembleRelease --no-daemon -PVERSION_CODE=${{ steps.version.outputs.version_code }} -PVERSION_NAME="${{ inputs.version_name }}"
 
       - name: Check APK (Google Play 16 KB pages, size, checksum)
         id: apk_check
