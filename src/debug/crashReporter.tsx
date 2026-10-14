@@ -7,7 +7,8 @@
 // Native (Java/Kotlin) crashes are below JavaScript and are not caught here.
 
 import React from 'react';
-import { Pressable, ScrollView, Share, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Share, Text, View } from 'react-native';
+import { redactDiagnosticText } from './redactDiagnostics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const STORAGE_KEY = 'kivo_last_crash';
@@ -25,7 +26,7 @@ export function installCrashReporter(): void {
   if (!errorUtils) return;
   const previous = errorUtils.getGlobalHandler?.();
   errorUtils.setGlobalHandler((error, isFatal) => {
-    const record: StoredCrash = { message: error?.message ?? String(error), stack: error?.stack ?? '', isFatal: Boolean(isFatal), at: Date.now() };
+    const record: StoredCrash = { message: redactDiagnosticText(error?.message ?? String(error)), stack: redactDiagnosticText(error?.stack ?? ''), isFatal: Boolean(isFatal), at: Date.now() };
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(record)).catch(() => {});
     if (isFatal) {
       runtimeCrash = record;
@@ -39,7 +40,9 @@ export function installCrashReporter(): void {
 export async function readLastCrash(): Promise<StoredCrash | null> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as StoredCrash) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredCrash;
+    return { ...parsed, message: redactDiagnosticText(parsed.message ?? ''), stack: redactDiagnosticText(parsed.stack ?? '') };
   } catch {
     return null;
   }
@@ -57,16 +60,19 @@ function subscribeToRuntimeCrash(listener: (crash: StoredCrash) => void): () => 
 }
 
 export function CrashScreen({ error, onDismiss }: { error: { message?: string; stack?: string }; onDismiss?: () => void }) {
-  const text = `${error.message ?? 'Unknown error'}\n\n${error.stack ?? ''}`.trim();
+  const text = redactDiagnosticText(`${error.message ?? 'Unknown error'}\n\n${error.stack ?? ''}`).trim();
   return (
     <View style={{ flex: 1, backgroundColor: '#032521', padding: 20, paddingTop: 60 }}>
       <Text style={{ color: '#f4f0c7', fontSize: 22, fontWeight: '800', marginBottom: 8 }}>Kivo hit a problem</Text>
-      <Text style={{ color: '#9fb9b3', fontSize: 14, marginBottom: 16 }}>Nothing was signed or sent. Share these details with the Kivo team so it can be fixed.</Text>
+      <Text style={{ color: '#9fb9b3', fontSize: 14, marginBottom: 16 }}>Nothing was signed or sent. Review the redacted report before sharing. Sensitive values are filtered where recognizable.</Text>
       <ScrollView style={{ flex: 1, backgroundColor: '#021a17', borderRadius: 12, padding: 12 }}>
         <Text selectable style={{ color: '#f4f0c7', fontFamily: 'monospace', fontSize: 12 }}>{text}</Text>
       </ScrollView>
       <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
-        <Pressable onPress={() => { Share.share({ message: `Kivo crash report:\n${text}` }).catch(() => {}); }} style={{ flex: 1, backgroundColor: '#f4f0c7', borderRadius: 999, padding: 14, alignItems: 'center' }}>
+        <Pressable onPress={() => Alert.alert('Review crash report', 'The report is redacted where recognizable, but please review it before sharing.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Share', onPress: () => { void Share.share({ message: `Kivo crash report:\n${redactDiagnosticText(text)}` }).catch(() => {}); } },
+          ])} style={{ flex: 1, backgroundColor: '#f4f0c7', borderRadius: 999, padding: 14, alignItems: 'center' }}>
           <Text style={{ color: '#032521', fontWeight: '800' }}>Share details</Text>
         </Pressable>
         {onDismiss ? (
