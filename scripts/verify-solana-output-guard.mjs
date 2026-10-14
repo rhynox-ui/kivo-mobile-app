@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { solanaOutputVerificationFor } from '../trading/core/executeRelayQuote.ts';
+import { solanaOutputVerificationFor } from '../trading/core/solanaOutputGuard.ts';
 
 const owner = '11111111111111111111111111111111';
 const solanaIntent = {destinationChainId: 792703809};
