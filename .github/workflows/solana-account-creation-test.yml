@@ -21,3 +21,14 @@ jobs:
         run: node --experimental-strip-types scripts/test-solana-account-creation.mjs
       - name: Typecheck
         run: npm run typecheck
+      - run: npm run verify
+      - run: npm run verify:wallet
+      - run: npm run verify:wallet-cipher
+      - run: npm run verify:sign-guard
+      - run: npm run verify:relay-intent
+      - run: npm run verify:solana-output
+      - run: npm run verify:diagnostic-redaction
+      - run: npm run verify:one-click
+      - run: npm run verify:one-click-deposits
+      - run: npm run verify:near-account
+      - run: npm run verify:near-signing
