@@ -39,7 +39,9 @@ export function KivoButton({
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={primary ? kivoTheme.colors.backgroundDeep : kivoTheme.colors.cream} />
+        <ActivityIndicator
+          color={primary ? kivoTheme.colors.backgroundDeep : kivoTheme.colors.cream}
+        />
       ) : (
         <Text style={[styles.label, primary ? styles.primaryLabel : styles.secondaryLabel]}>
           {label}

@@ -1,1 +1,18 @@
-import React from'react';import{StyleSheet,Text,View}from'react-native';import{kivoTheme}from'../theme/kivoTheme';export function KivoStat({label,value}:{label:string;value:string}){return <View style={s.root}><Text style={s.value}>{value}</Text><Text style={s.label}>{label}</Text></View>}const s=StyleSheet.create({root:{flex:1,padding:14,borderRadius:15,backgroundColor:kivoTheme.colors.surface},value:{color:kivoTheme.colors.text,fontSize:18,fontWeight:'800'},label:{color:kivoTheme.colors.textMuted,fontSize:10,marginTop:4}});
+import React from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { kivoTheme } from '../theme/kivoTheme';
+
+export function KivoStat({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.root}>
+      <Text style={styles.value}>{value}</Text>
+      <Text style={styles.label}>{label}</Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, padding: 14, borderRadius: 15, backgroundColor: kivoTheme.colors.surface },
+  value: { color: kivoTheme.colors.text, fontSize: 18, fontWeight: '800' },
+  label: { color: kivoTheme.colors.textMuted, fontSize: 10, marginTop: 4 },
+});
