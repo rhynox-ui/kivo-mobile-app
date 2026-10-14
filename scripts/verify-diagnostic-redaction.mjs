@@ -15,7 +15,7 @@ const input = [
   'mint=' + solanaAddress,
   'recovery phrase: ' + recovery,
   recovery,
-].join('\\n');
+].join('\n');
 const redacted = redactDiagnosticText(input);
 assert.ok(redacted.includes('TypeError: normal application failure'));
 assert.ok(!redacted.includes(secretHex));
