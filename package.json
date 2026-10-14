@@ -16,7 +16,8 @@
     "verify:wallet-cipher": "node --experimental-strip-types scripts/verify-wallet-cipher.mjs",
     "verify:sign-guard": "node --experimental-strip-types scripts/verify-sign-guard.mjs",
     "verify:relay-intent": "node --experimental-strip-types scripts/verify-relay-intent.mjs",
-    "verify:solana-output": "node --experimental-strip-types scripts/verify-solana-output-guard.mjs"
+    "verify:solana-output": "node --experimental-strip-types scripts/verify-solana-output-guard.mjs",
+    "verify:diagnostic-redaction": "node --experimental-strip-types scripts/verify-diagnostic-redaction.mjs"
   },
   "dependencies": {
     "@near-js/crypto": "2.5.1",
