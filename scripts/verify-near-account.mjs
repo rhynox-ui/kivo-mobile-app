@@ -7,7 +7,8 @@
 
 import assert from 'node:assert/strict';
 import bs58 from 'bs58';
-import {deriveAccountAtIndex, deriveAccounts, NEAR_DERIVATION_PATH, nearDerivationPathForIndex} from '../trading/wallet/keys.ts';
+import {deriveNearAccount, NEAR_DERIVATION_PATH, nearDerivationPathForIndex} from '../trading/wallet/keys.ts';
+import {deriveSolanaKeypair} from '../src/wallet/solanaKeys.ts';
 import {fetchNearUsdcBalance, withNearCash, spendableTotalUsd} from '../trading/core/usdcBalances.ts';
 import {NEAR_ENABLED, NEAR_USDC} from '../trading/core/chainData.ts';
 
@@ -17,7 +18,7 @@ const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon 
 const REF_PUBLIC = 'ed25519:6j4b6zUaty6fD1awqcGCCU9JYGCWYUgdJhQrzfZhqE25';
 const REF_SECRET = 'ed25519:F1kPR175szkGxEL52A9H6Z5ocS2BtaipprK2Hiob9DjGzHTkScrBb1yt44baXPZ3LxyHcsTPdBjHmn6zx147txH';
 
-const acct = deriveAccounts(PHRASE);
+const acct = {near: deriveNearAccount(PHRASE), solana: {address: deriveSolanaKeypair(PHRASE).publicKey.toBase58()}};
 assert.equal(NEAR_DERIVATION_PATH, "m/44'/397'/0'");
 assert.equal(nearDerivationPathForIndex(0), NEAR_DERIVATION_PATH);
 assert.equal(acct.near.privateKey, REF_SECRET);
@@ -27,8 +28,8 @@ console.log('ok', ++checks, "- the NEAR account matches near-seed-phrase (m/44'/
 assert.match(acct.near.address, /^[0-9a-f]{64}$/);
 console.log('ok', ++checks, '- the account id is the implicit (64-hex) form');
 
-const second = deriveAccountAtIndex(PHRASE, 1);
-assert.notEqual(second.near.address, acct.near.address);
+const second = deriveNearAccount(PHRASE, 1);
+assert.notEqual(second.address, acct.near.address);
 assert.notEqual(acct.near.address, acct.solana.address);
 console.log('ok', ++checks, '- a second account index gets its own NEAR account, separate from Solana');
 
