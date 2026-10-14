@@ -12,6 +12,7 @@ concurrency:
 jobs:
   android-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     permissions:
       contents: read
     steps:
@@ -38,7 +39,7 @@ jobs:
         run: npm run typecheck
       - name: Build debug APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --console=plain --stacktrace --info
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
