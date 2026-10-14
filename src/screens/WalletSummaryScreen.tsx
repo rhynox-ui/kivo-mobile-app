@@ -16,6 +16,7 @@ import {
 import { kivoTheme } from '../theme/kivoTheme';
 import { parseUnits } from 'viem';
 import { NEAR_USDC, NEAR_USDC_DECIMALS } from '@kivo/trading/core/chainData';
+import { withNearCash } from '@kivo/trading/core/nearCashTotal';
 import { fetchNearTokenBalance } from '@kivo/trading/core/nearTrade';
 import { nearCashMoveChains, nearCashMoveRequest, nearUsdcDepositCall } from '@kivo/trading/core/nearCashMoves';
 import { fetchOneClickTokens, requestOneClickQuote, submitOneClickDepositTx } from '@kivo/trading/core/oneClick';
@@ -108,7 +109,8 @@ export function WalletSummaryScreen({
   }, [wallet?.address]);
 
   const total = rows ? totalCashUsd(rows) : null;
-  const displayTotal = total ? total.total + nearBalance : null;
+  const totalWithNear = withNearCash(total, nearBalance);
+  const displayTotal = totalWithNear?.total ?? null;
   const funded = rows?.filter(r => r.status === 'ok' && r.balance.amount > 0) ?? [];
   const failedRows = rows?.filter(r => r.status === 'error') ?? [];
   const mask = (value: string) => (settings.hideBalances ? '••••' : value);
@@ -129,9 +131,9 @@ export function WalletSummaryScreen({
         <>
           <Text style={styles.balance}>{displayTotal == null ? '…' : mask(formatUsd(displayTotal))}</Text>
           <Text style={styles.sub}>
-            {total == null
+            {totalWithNear == null
               ? 'Reading USDC on supported networks…'
-              : total.complete
+              : totalWithNear.complete
                 ? 'Total cash · USDC across supported networks'
                 : 'Some networks did not respond — total may be incomplete'}
           </Text>
