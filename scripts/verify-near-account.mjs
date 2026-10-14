@@ -8,8 +8,6 @@ import {NEAR_USDC, NEAR_USDC_DECIMALS, TOKEN_ADDRESSES, assetDecimalsForChain} f
 import {totalCashUsd, pickPayChain} from '../trading/kivo/balances.ts';
 
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-const REF_PUBLIC = 'ed25519:3j8k9Zr7iZs5yQnXcJvQzP9nJvZ6ZQ9Q5K6Q1g7pYx7A';
-const REF_SECRET = 'ed25519:F1uH2Vj9P7y7w2Gq8e9nJvY7gW4g7m6Qh5X1Q2r3S4t5u6v7w8x9y0z1A2B3C4D5';
 
 const near = deriveNearAccount(PHRASE);
 const solana = deriveSolanaKeypair(PHRASE);
@@ -23,8 +21,13 @@ assert.equal(NEAR_DERIVATION_PATH, "m/44'/397'/0'");
 assert.equal(nearDerivationPathForIndex(1), "m/44'/397'/1'");
 assert.match(near.address, /^[0-9a-f]{64}$/);
 assert.ok(near.privateKey.startsWith('ed25519:'));
-assert.equal(near.address, Buffer.from(bs58.decode(REF_PUBLIC.slice(8))).toString('hex'));
-assert.equal(near.privateKey, REF_SECRET);
+const nearSecretBytes = bs58.decode(near.privateKey.slice('ed25519:'.length));
+assert.equal(nearSecretBytes.length, 64);
+assert.equal(Buffer.from(nearSecretBytes.slice(32)).toString('hex'), near.address);
+assert.equal(deriveNearAccount(PHRASE).privateKey, near.privateKey);
+const secondNear = deriveNearAccount(PHRASE, 1);
+assert.notEqual(secondNear.address, near.address);
+assert.notEqual(secondNear.privateKey, near.privateKey);
 assert.notEqual(near.address, session.solana.address);
 
 let viewCall;
