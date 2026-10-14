@@ -198,7 +198,7 @@ export function WalletSummaryScreen({
                   <Text style={styles.rowValue}>{row.status === 'ok' ? mask(formatAmount(row.balance.amount, 2)) : 'Unavailable'}</Text>
                 </View>
               ))}
-              {failedRows.length > 0 && <Text style={styles.note}>Not included (could not be read): {failedRows.map(r => CHAIN_LABEL[r.chainKey]).join(', ')}.</Text>}
+              {failedRows.length > 0 && <Text style={styles.note}>Not included (could not be read): {failedNetworkNames.join(', ')}.</Text>}
               </>
             )}
           </View>
