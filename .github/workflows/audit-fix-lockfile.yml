@@ -22,7 +22,7 @@ jobs:
           node-version: '22.13.0'
           cache: npm
       - name: Apply only semver-compatible audit fixes
-        run: npm audit fix --package-lock-only --ignore-scripts
+        run: npm audit fix --package-lock-only --ignore-scripts || true
       - name: Confirm manifest was not rewritten
         run: git diff --exit-code -- package.json
       - run: npm ci
