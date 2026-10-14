@@ -186,7 +186,7 @@ const DEFAULT_STORAGE_DEPOSIT = 1_250_000_000_000_000_000_000n;
 
 export class NearTradeError extends Error {}
 
-type View = <T = any>(contractId: string, method: string, args?: unknown) => Promise<T>;
+type View = <T = unknown>(contractId: string, method: string, args?: unknown) => Promise<T>;
 type Rpc = typeof nearRpc;
 type Send = typeof sendSponsoredNearCalls;
 
