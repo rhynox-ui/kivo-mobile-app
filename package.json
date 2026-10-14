@@ -12,7 +12,9 @@
     "verify:one-click": "node --experimental-strip-types scripts/verify-one-click.mjs",
     "verify:one-click-deposits": "node --experimental-strip-types scripts/verify-one-click-deposits.mjs",
     "verify:near-account": "node --experimental-strip-types scripts/verify-near-account.mjs",
-    "verify:near-signing": "node --experimental-strip-types scripts/verify-near-signing.mjs"
+    "verify:near-signing": "node --experimental-strip-types scripts/verify-near-signing.mjs",
+    "verify:wallet-cipher": "node --experimental-strip-types scripts/verify-wallet-cipher.mjs",
+    "verify:sign-guard": "node --experimental-strip-types scripts/verify-sign-guard.mjs"
   },
   "dependencies": {
     "@near-js/crypto": "2.5.1",
