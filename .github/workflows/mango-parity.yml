@@ -1,11 +1,19 @@
-name: Mango parity verification
+name: Mobile audit verification
 
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,3 +24,9 @@ jobs:
       - run: npm run typecheck
       - run: npm run verify
       - run: npm run verify:wallet
+      - run: npm run verify:wallet-cipher
+      - run: npm run verify:sign-guard
+      - run: npm run verify:one-click
+      - run: npm run verify:one-click-deposits
+      - run: npm run verify:near-account
+      - run: npm run verify:near-signing
