@@ -36,6 +36,7 @@ import {viemChainForChainId} from './chainRegistry.ts';
 import {assertQuoteSafeToSign, type TransactionIntent} from './txIntentFirewall.ts';
 import {assertSolanaTransactionMatchesIntent} from './solanaTxIntent.ts';
 import {solanaOutputVerificationFor} from './solanaOutputGuard.ts';
+import {recordDiagnosticEvent} from '../../src/debug/diagnosticLog';
 import {SOLANA_NATIVE_SPEND, assertSolanaSpendWithinIntentWeb3, isInsufficientSolSimulation, SolanaSpendGuardError, type SolanaSpendIntent} from './solanaSpendGuard.ts';
 import {intentForQuote, type RelayQuote, type RelayTransactionStepItem} from './relayQuote.ts';
 import {TOKEN_ADDRESSES, ASSET_ONCHAIN_DECIMALS, ARC_USDC, MAINNET_CHAIN_IDS} from './chainData.ts';
@@ -124,7 +125,7 @@ export async function getSolanaFeePayerPublicKey(): Promise<string> {
   // The public key is not secret. Falling back lets the sponsor endpoint
   // make the authoritative decision; it still verifies the configured
   // private key and refuses to sign if it does not match this wallet.
-  console.warn('[solanaSponsor] Fee-payer lookup failed; using the configured public-key fallback.', lastFailure);
+  void recordDiagnosticEvent('solanaSponsor.fee-payer-fallback', lastFailure);
   cachedSolanaFeePayerPublicKey = SOLANA_FEE_PAYER_FALLBACK_PUBLIC_KEY;
   return cachedSolanaFeePayerPublicKey;
 }
@@ -526,14 +527,14 @@ export async function signAndSendSponsoredSolanaStep(
               finalInstructions = withComputeUnitLimit(candidateInstructions, safeUnits, computeUnitLimitInstruction);
               recoveryUnitsIncluded = BigInt(recoveryUnits);
             } else if (simulation.value.err) {
-              console.warn('[sponsorshipRecovery] Augmented transaction did not simulate clean — sending the plain sponsored transaction instead:', JSON.stringify(simulation.value.err));
+              void recordDiagnosticEvent('sponsorshipRecovery.simulation-fallback', new Error('Augmented transaction did not simulate cleanly; using the plain sponsored transaction.'));
             }
           }
         }
       }
     }
   } catch (err) {
-    console.warn('[sponsorshipRecovery] Skipping cost recovery for this trade:', err instanceof Error ? err.message : String(err));
+    void recordDiagnosticEvent('sponsorshipRecovery.skipped', err);
   }
 
   const message = new TransactionMessage({payerKey: feePayerPubkey, instructions: finalInstructions, recentBlockhash: blockhash}).compileToV0Message(lookupTables);
@@ -996,19 +997,14 @@ export async function executeRelayQuote(
   // Diagnostic only, no effect on execution — useful when a Relay quote
   // contains multiple transaction items and one later item is the source of
   // an execution failure.
-  console.warn(
-    '[executeRelayQuote] pendingItems:',
-    pendingItems.map(item => ({
-      chainId: item.data?.chainId,
-      to: item.data?.to,
-      selector: typeof item.data?.data === 'string' ? item.data.data.slice(0, 10) : undefined,
-      value: item.data?.value,
-    })),
+  void recordDiagnosticEvent(
+    'executeRelayQuote.pending-items',
+    new Error(`Relay quote has ${pendingItems.length} pending transaction item(s) across chain ids ${[...new Set(pendingItems.map(item => String(item.data?.chainId ?? 'unknown')))].join(', ')}.`),
   );
 
   const warnings = assertQuoteSafeToSign(quote, tagged.intent, pendingItems);
   for (const warning of warnings) {
-    console.warn(`[txIntentFirewall] ${warning}`);
+    void recordDiagnosticEvent('txIntentFirewall.warning', warning);
   }
 
   onStep?.('signing');
@@ -1066,7 +1062,7 @@ export async function executeRelayQuote(
           : await signAndSendRelaySolanaStep(item, session.solana.privateKey, spendIntent);
         txHashes.push(signature);
         for (const warning of solanaStepWarnings) {
-          console.warn(`[solanaTxIntent] ${warning}`);
+          void recordDiagnosticEvent('solanaTxIntent.warning', warning);
         }
         warnings.push(...solanaStepWarnings);
         continue;
