@@ -6,6 +6,7 @@
 // hold a Jupiter API key) is the fallback.
 
 import {SOLANA_RPC_URL, getSolanaFeePayerPublicKey, signAndSendSponsoredSolanaStep, type SolanaTransactionSigner} from './executeRelayQuote.ts';
+import {recordDiagnosticEvent} from '../../src/debug/diagnosticLog';
 import {applyJupiterFeeToSpendIntent, type SolanaSpendIntent} from './solanaSpendGuard.ts';
 
 const JUPITER_DIRECT = 'https://lite-api.jup.ag/swap/v1';
@@ -159,7 +160,7 @@ export async function executeJupiterSwap(params: {
         // Sell fees are optional to successful settlement. Never let a
         // missing treasury ATA block a sell; the user's output remains
         // protected by the original minimum, and no fee transfer is added.
-        console.warn('[jupiter] Skipping optional sell fee because Kivo fee-payer USDC ATA is not initialized.');
+        void recordDiagnosticEvent('jupiter.optional-sell-fee-skipped', new Error('Fee-payer USDC token account was not initialized.'));
       } else {
         // Do not silently change buy economics: the buy quote already
         // excludes the fee amount, so fail clearly until the treasury ATA
