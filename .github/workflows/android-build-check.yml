@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: kivo-android-build-${{ github.ref }}
+  group: kivo-android-build-${{ github.ref }}-audit2
   cancel-in-progress: true
 
 jobs:
