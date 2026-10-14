@@ -1,0 +1,70 @@
+name: Candidate dependency major migration
+on:
+  push:
+    branches:
+      - audit/dependency-major-migration
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit/dependency-major-migration
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Trial forced remediation on isolated candidate branch
+        run: npm audit fix --force
+      - name: Capture production audit report
+        if: always()
+        run: npm audit --omit=dev --json > dependency-audit.json || true
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Run wallet and trading regression checks
+        run: |
+          node scripts/verify-mango-parity.mjs
+          node --experimental-strip-types scripts/verify-mango-wallet.mjs
+          node --experimental-strip-types scripts/verify-wallet-cipher.mjs
+          node --experimental-strip-types scripts/verify-sign-guard.mjs
+          node --experimental-strip-types scripts/verify-relay-intent.mjs
+          node --experimental-strip-types scripts/verify-solana-output-guard.mjs
+          node --experimental-strip-types scripts/verify-diagnostic-redaction.mjs
+          node --experimental-strip-types scripts/verify-one-click.mjs
+          node --experimental-strip-types scripts/verify-one-click-deposits.mjs
+          node --experimental-strip-types scripts/verify-near-account.mjs
+          node --experimental-strip-types scripts/verify-near-signing.mjs
+      - name: Build Android JavaScript bundle
+        run: |
+          mkdir -p /tmp/kivo-android-bundle
+          npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output /tmp/kivo-android-bundle/index.android.bundle --assets-dest /tmp/kivo-android-bundle
+      - name: Enforce production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+      - name: Commit candidate only if all checks pass
+        if: success()
+        run: |
+          if git diff --quiet -- package.json package-lock.json; then
+            echo "No dependency changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "Migrate SDK dependencies to remediate production advisories"
+          git push origin HEAD:audit/dependency-major-migration
+      - name: Upload candidate diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-major-migration-candidate
+          path: |
+            dependency-audit.json
+            package.json
+            package-lock.json
+          if-no-files-found: warn
