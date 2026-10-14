@@ -35,6 +35,7 @@ import {Buffer} from 'buffer';
 import {viemChainForChainId} from './chainRegistry.ts';
 import {assertQuoteSafeToSign, type TransactionIntent} from './txIntentFirewall.ts';
 import {assertSolanaTransactionMatchesIntent} from './solanaTxIntent.ts';
+import {solanaOutputVerificationFor} from './solanaOutputGuard.ts';
 import {SOLANA_NATIVE_SPEND, assertSolanaSpendWithinIntentWeb3, isInsufficientSolSimulation, SolanaSpendGuardError, type SolanaSpendIntent} from './solanaSpendGuard.ts';
 import {intentForQuote, type RelayQuote, type RelayTransactionStepItem} from './relayQuote.ts';
 import {TOKEN_ADDRESSES, ASSET_ONCHAIN_DECIMALS, ARC_USDC, MAINNET_CHAIN_IDS} from './chainData.ts';
@@ -147,8 +148,7 @@ export function solanaSpendIntentFor(intent: TransactionIntent): SolanaSpendInte
   return {spend: intent.originCurrency, maxSpend: intent.amount};
 }
 
-export {solanaOutputVerificationFor} from './solanaOutputGuard.ts';
-import {solanaOutputVerificationFor} from './solanaOutputGuard.ts';
+export {solanaOutputVerificationFor};
 
 export type RelaySettlement = 'success' | 'pending' | 'refunded';
 
