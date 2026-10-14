@@ -11,9 +11,6 @@ export type SecretRecord = {
   ciphertext: string;
 };
 
-const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64');
-const unb64 = (value: string) => new Uint8Array(Buffer.from(value, 'base64'));
-
 const MIN_ACCEPTED_ITERATIONS = 50_000;
 const MAX_ACCEPTED_ITERATIONS = 5_000_000;
 const EXPECTED_SALT_BYTES = 16;
@@ -89,21 +86,3 @@ export function decryptWithKeyBytes(
   }
 }
 
-export async function encryptSecret(secret: string, password: string): Promise<SecretRecord> {
-  const salt = crypto.getRandomValues(new Uint8Array(EXPECTED_SALT_BYTES));
-  const iv = crypto.getRandomValues(new Uint8Array(EXPECTED_IV_BYTES));
-  const key = await derivePureJsAesKeyBytes(password, salt, PBKDF2_ITERATIONS);
-
-  return {
-    iterations: PBKDF2_ITERATIONS,
-    salt: b64(salt),
-    iv: b64(iv),
-    ciphertext: b64(encryptWithKeyBytes(secret, key, iv)),
-  };
-}
-
-export async function decryptSecret(record: SecretRecord, password: string): Promise<string> {
-  assertValidSecretRecord(record);
-  const key = await derivePureJsAesKeyBytes(password, unb64(record.salt), record.iterations);
-  return decryptWithKeyBytes(unb64(record.ciphertext), key, unb64(record.iv));
-}
