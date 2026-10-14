@@ -16,6 +16,7 @@
 // intent firewall before the device signs it.
 
 import type {ChainKey} from '../core/chainData';
+import {recordDiagnosticEvent} from '../../src/debug/diagnosticLog';
 import type {CashBalanceRow} from './balances';
 import {requestKivoQuote, type KivoQuote, type KivoQuoteView} from './quote';
 import {describeQuoteCost} from '../core/relayQuote';
@@ -72,7 +73,7 @@ export async function planUnifiedBuy(params: {
         tokenDecimals, slippageBps, execution: 'gasless',
       });
       const impact = quote.view.priceImpactPct;
-      if (impact != null && Math.abs(impact) > EXTREME_PRICE_IMPACT_PCT) { console.warn(`[kivo] blocked route: ${describeQuoteCost(quote.quote)}`); throw new Error(`${Math.abs(impact) >= 100 ? 'Fees for this route are more than the amount itself, so Kivo blocked it. Try a larger amount, or a token on the same network as your USDC.' : `Fees and price impact would take about ${Math.round(Math.abs(impact))}% of this trade, so Kivo blocked it. Small amounts cost relatively more; try a larger amount.`}`); }
+      if (impact != null && Math.abs(impact) > EXTREME_PRICE_IMPACT_PCT) { void recordDiagnosticEvent('kivo.blocked-high-impact-route', new Error('A route was blocked by the extreme price-impact guard.')); throw new Error(`${Math.abs(impact) >= 100 ? 'Fees for this route are more than the amount itself, so Kivo blocked it. Try a larger amount, or a token on the same network as your USDC.' : `Fees and price impact would take about ${Math.round(Math.abs(impact))}% of this trade, so Kivo blocked it. Small amounts cost relatively more; try a larger amount.`}`); }
       if (quote.view.unsupportedReason) throw new Error(quote.view.unsupportedReason);
       const outUsd = quote.view.receive.usd;
       const outAmount = Number(quote.view.receive.amount ?? NaN);
