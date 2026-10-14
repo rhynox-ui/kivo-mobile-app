@@ -7,6 +7,7 @@
 // up a new account first. RPC and relayer are mocked. Run: npm run verify.
 
 import assert from 'node:assert/strict';
+import bs58 from 'bs58';
 // @near-js ships borsh 1.x; the root 'borsh' is Solana's 0.7, so use the one @near-js encodes with.
 import {deserialize} from '../node_modules/@near-js/transactions/node_modules/borsh/lib/esm/index.js';
 import {SCHEMA, encodeDelegateAction} from '@near-js/transactions';
