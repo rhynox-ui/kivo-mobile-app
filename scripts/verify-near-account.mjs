@@ -117,5 +117,6 @@ assert.equal(combinedTotal.total, 3.234567);
 assert.equal(combinedTotal.complete, true);
 assert.equal(withNearCash(null, nearBalance), null);
 assert.equal(withNearCash(evmTotal, 0).total, 2);
+assert.equal(withNearCash(evmTotal, null).complete, false);
 
 console.log('NEAR account and cash integration checks passed: deterministic derivation, NEAR USDC read, 1Click routes, deposit registration, total balance inclusion, and spendable-chain separation.');
