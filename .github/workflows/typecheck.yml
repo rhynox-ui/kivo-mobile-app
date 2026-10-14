@@ -24,13 +24,9 @@ jobs:
       - name: Reject tracked release keystores
         shell: bash
         run: |
-          release_keystores="$(git ls-files '*.keystore' '*.jks' | grep -v '^android/app/debug.keystore      - name: Verify Jupiter sell fee accounting
-        run: node --experimental-strip-types scripts/verify-jupiter-sell-net-output.mjs
-      - name: Bundle Android JavaScript
-        run: npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output /tmp/index.android.bundle --assets-dest /tmp/assets
- || true)"
+          release_keystores="$(git ls-files '*.keystore' '*.jks' | grep -Ev '^android/app/debug\.keystore$' || true)"
           if [ -n "$release_keystores" ]; then
-            printf 'Unexpected tracked release keystore(s):\\n%s\\n' "$release_keystores"
+            printf 'Unexpected tracked release keystore(s):\n%s\n' "$release_keystores"
             exit 1
           fi
       - run: npm run verify
