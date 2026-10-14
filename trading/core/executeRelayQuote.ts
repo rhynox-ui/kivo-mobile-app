@@ -151,9 +151,16 @@ export async function solanaOutputVerificationFor(quote: RelayQuote, intent: Tra
   if (intent.destinationChainId !== 792703809) return {};
   const output = quote.details?.currencyOut;
   const mint = output?.currency?.address;
-  const minimumAmount = output?.minimumAmount ?? output?.amount;
-  if (!mint || !minimumAmount || !/^\d+$/.test(minimumAmount)) return {};
-  if (mint === SYSTEM_PROGRAM_ID || mint === 'So11111111111111111111111111111111111111112') return {};
+  const minimumAmount = output?.minimumAmount;
+  if (typeof mint !== 'string' || mint.length === 0 || typeof minimumAmount !== 'string' || !/^\\d+$/.test(minimumAmount) || BigInt(minimumAmount) <= 0n) {
+    throw new Error('The Solana quote omitted its expected output token or minimum receive amount — refusing to sign this trade.');
+  }
+  // Native SOL/WSOL can be unwrapped or closed during route cleanup. Until
+  // the spend guard can prove the minimum SOL delta independently, block
+  // these outputs rather than silently omitting the output check.
+  if (mint === SYSTEM_PROGRAM_ID || mint === 'So11111111111111111111111111111111111111112') {
+    throw new Error('Native SOL output cannot be verified safely on this route yet — refusing to sign this trade.');
+  }
   try {
     const [{PublicKey}, splToken] = await Promise.all([import('@solana/web3.js'), import('@solana/spl-token')]);
     const owner = new PublicKey(ownerAddress);
@@ -167,6 +174,7 @@ export async function solanaOutputVerificationFor(quote: RelayQuote, intent: Tra
     throw new Error('The Solana output could not be verified safely — refusing to sign this trade.');
   }
 }
+
 export type RelaySettlement = 'success' | 'pending' | 'refunded';
 
 /**
