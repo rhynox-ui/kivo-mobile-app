@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import bs58 from 'bs58';
 import {deriveNearAccount, NEAR_DERIVATION_PATH, nearDerivationPathForIndex} from '../trading/wallet/keys.ts';
 import {deriveSolanaKeypair} from '../src/wallet/solanaKeys.ts';
-import {fetchNearTokenBalance} from '../trading/core/nearTrade.ts';
+import {readNearTokenBalance} from '../trading/core/nearTokenBalance.ts';
 import {nearCashMoveAssets, nearCashMoveRequest, nearUsdcDepositCall} from '../trading/core/nearCashMoves.ts';
 import {NEAR_USDC, NEAR_USDC_DECIMALS, TOKEN_ADDRESSES, assetDecimalsForChain} from '../trading/core/chainData.ts';
 import {withNearCash} from '../trading/core/nearCashTotal.ts';
@@ -31,7 +31,7 @@ assert.notEqual(secondNear.privateKey, near.privateKey);
 assert.notEqual(near.address, session.solana.address);
 
 let viewCall;
-const rawNearBalance = await fetchNearTokenBalance(NEAR_USDC, 'alice.near', async (contract, method, args) => {
+const rawNearBalance = await readNearTokenBalance(NEAR_USDC, 'alice.near', async (contract, method, args) => {
   viewCall = {contract, method, args};
   return '1234567';
 });
