@@ -5,7 +5,7 @@ import {deriveSolanaKeypair} from '../src/wallet/solanaKeys.ts';
 import {fetchNearTokenBalance} from '../trading/core/nearTrade.ts';
 import {nearCashMoveAssets, nearCashMoveRequest, nearUsdcDepositCall} from '../trading/core/nearCashMoves.ts';
 import {NEAR_USDC, NEAR_USDC_DECIMALS, TOKEN_ADDRESSES, assetDecimalsForChain} from '../trading/core/chainData.ts';
-import {totalCashUsd, pickPayChain} from '../trading/kivo/balances.ts';
+import {withNearCash} from '../trading/core/nearCashTotal.ts';
 
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 
@@ -110,21 +110,12 @@ assert.equal(depositCall.actions[0].params.deposit, '12345');
 assert.equal(depositCall.actions[1].params.methodName, 'ft_transfer');
 assert.equal(depositCall.actions[1].params.args.amount, '987654');
 
-const evmRows = [{
-  chainKey: 'ethereum',
-  status: 'ok',
-  balance: {
-    chainKey: 'ethereum',
-    tokenAddress: TOKEN_ADDRESSES.USDC.ethereum,
-    symbol: 'USDC',
-    raw: 2_000_000n,
-    decimals: 6,
-    amount: 2,
-  },
-}];
-const evmTotal = totalCashUsd(evmRows);
+const evmTotal = {total: 2, complete: true};
 const nearBalance = Number(rawNearBalance) / 10 ** NEAR_USDC_DECIMALS;
-assert.equal(evmTotal.total + nearBalance, 3.234567);
-assert.equal(pickPayChain(evmRows, 'ethereum', 1), 'ethereum');
+const combinedTotal = withNearCash(evmTotal, nearBalance);
+assert.equal(combinedTotal.total, 3.234567);
+assert.equal(combinedTotal.complete, true);
+assert.equal(withNearCash(null, nearBalance), null);
+assert.equal(withNearCash(evmTotal, 0).total, 2);
 
 console.log('NEAR account and cash integration checks passed: deterministic derivation, NEAR USDC read, 1Click routes, deposit registration, total balance inclusion, and spendable-chain separation.');
