@@ -231,7 +231,9 @@ export async function getLegacyMnemonic(): Promise<string | null> {
     const credential = await Keychain.getGenericPassword({ service: LEGACY_SERVICE });
     return credential ? credential.password : null;
   } catch {
-    return null;
+    // A Keychain failure is not proof that no legacy wallet exists. Never let
+    // onboarding treat a transient read failure as permission to create a new wallet.
+    throw new VaultUnavailableError();
   }
 }
 
