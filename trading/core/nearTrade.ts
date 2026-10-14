@@ -22,6 +22,7 @@ import {DEV_FEE_WALLET_NEAR, appFeeBps} from './fees.ts';
 import {IntearRouteError, assertIntearRouteSafe, feeTransaction, fetchIntearRoutes, pickSafeRoute, type IntearRoute, type SafeRoute} from './intearRouter.ts';
 import {classifySwapOutcomes, type SwapOutcomeStatus} from './nearOutcome.ts';
 import {nearRpc, nearView} from './nearRpc.ts';
+import {readNearTokenBalance} from './nearTokenBalance.ts';
 import {assertRelayGaslessEvmAvailable} from './relayGaslessEvm.ts';
 import {privateKeyToAccount} from 'viem/accounts';
 import {getViemChain} from './chainRegistry.ts';
@@ -201,8 +202,7 @@ export async function fetchNearTokenMeta(tokenId: string, view: View = nearView)
 
 /** The wallet's balance of a NEP-141 token, in base units (0 when unregistered). */
 export async function fetchNearTokenBalance(tokenId: string, accountId: string, view: View = nearView): Promise<bigint> {
-  const raw = await view<string | null>(tokenId, 'ft_balance_of', {account_id: accountId});
-  return typeof raw === 'string' && /^\d+$/.test(raw) ? BigInt(raw) : 0n;
+  return readNearTokenBalance(tokenId, accountId, view);
 }
 
 /** Mango's fee on `usdcUnits` of USDC — 0.5%, capped at $50 (fees.ts appFeeBps). */
