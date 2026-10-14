@@ -1,0 +1,58 @@
+name: Safe dependency audit fix
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  safe-lockfile-fix:
+    if: github.actor != 'github-actions[bot]' && github.head_ref == 'fix/audit-activity-list-rendering'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.13.0'
+          cache: npm
+      - name: Apply only semver-compatible audit fixes
+        run: npm audit fix --package-lock-only --ignore-scripts
+      - name: Confirm manifest was not rewritten
+        run: git diff --exit-code -- package.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run verify
+      - run: npm run verify:wallet
+      - run: npm run verify:wallet-cipher
+      - run: npm run verify:sign-guard
+      - run: npm run verify:relay-intent
+      - run: npm run verify:solana-output
+      - run: npm run verify:diagnostic-redaction
+      - run: npm run verify:one-click
+      - run: npm run verify:one-click-deposits
+      - run: npm run verify:near-account
+      - run: npm run verify:near-signing
+      - name: Report remaining production advisories
+        run: npm audit --omit=dev --audit-level=high
+        continue-on-error: true
+      - name: Commit tested lockfile-only fixes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- package-lock.json; then
+            echo "No semver-compatible lockfile fixes are available without a breaking dependency migration."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "chore: apply tested non-breaking dependency audit fixes"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
