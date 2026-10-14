@@ -318,7 +318,7 @@ export function assertQuoteMatchesIntent(quote: RelayQuote | null | undefined, i
     return actual === expected;
   };
 
-  if (!currencyMatches(inCurrency, intent.originCurrency, intent.originIsNative)) {
+  if (!currencyMatches(inCurrency, intent.originCurrency, intent.originIsNative || solanaNativeAliases.has(intent.originCurrency ?? ''))) {
     fail('The route would spend a different source token than the one you chose, or its identity could not be verified.');
   }
   const destinationIsNative = isNativeCurrency(intent.destinationCurrency) || solanaNativeAliases.has(intent.destinationCurrency ?? '');
