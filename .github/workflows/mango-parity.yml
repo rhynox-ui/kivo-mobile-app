@@ -28,6 +28,7 @@ jobs:
       - run: npm run verify:sign-guard
       - run: npm run verify:relay-intent
       - run: npm run verify:solana-output
+      - run: npm run verify:diagnostic-redaction
       - run: npm run verify:one-click
       - run: npm run verify:one-click-deposits
       - run: npm run verify:near-account
