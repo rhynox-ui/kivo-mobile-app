@@ -17,6 +17,9 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - name: Report production dependency advisories
+        run: npm audit --omit=dev --audit-level=high
+        continue-on-error: true
       - name: Test real account-creation rewrite
         run: node --experimental-strip-types scripts/test-solana-account-creation.mjs
       - name: Typecheck
