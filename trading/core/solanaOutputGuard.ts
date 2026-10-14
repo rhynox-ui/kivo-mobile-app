@@ -19,7 +19,7 @@ export async function solanaOutputVerificationFor(
   const output = quote.details?.currencyOut;
   const mint = output?.currency?.address;
   const minimumAmount = output?.minimumAmount;
-  if (typeof mint !== 'string' || mint.length === 0 || typeof minimumAmount !== 'string' || !/^\\d+$/.test(minimumAmount) || BigInt(minimumAmount) <= 0n) {
+  if (typeof mint !== 'string' || mint.length === 0 || typeof minimumAmount !== 'string' || !/^\d+$/.test(minimumAmount) || BigInt(minimumAmount) <= 0n) {
     throw new Error('The Solana quote omitted its expected output token or minimum receive amount — refusing to sign this trade.');
   }
   // Native SOL/WSOL can be unwrapped or closed during route cleanup. Until
