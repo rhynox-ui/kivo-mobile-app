@@ -4,6 +4,8 @@ import { gcm } from '@noble/ciphers/aes.js';
 
 export const PBKDF2_ITERATIONS = 600_000;
 
+const unb64 = (value: string) => new Uint8Array(Buffer.from(value, 'base64'));
+
 export type SecretRecord = {
   iterations: number;
   salt: string;
