@@ -129,6 +129,10 @@ export function WalletSummaryScreen({
   const displayTotal = totalWithNear?.total ?? null;
   const funded = rows?.filter(r => r.status === 'ok' && r.balance.amount > 0) ?? [];
   const failedRows = rows?.filter(r => r.status === 'error') ?? [];
+  const failedNetworkNames = [
+    ...failedRows.map(r => CHAIN_LABEL[r.chainKey]),
+    ...(nearCash.status === 'error' && wallet?.nearAddress ? ['NEAR'] : []),
+  ];
   const mask = (value: string) => (settings.hideBalances ? '••••' : value);
 
   return (
@@ -177,7 +181,7 @@ export function WalletSummaryScreen({
             {rows == null ? (
               <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 12 }} />
             ) : failedRows.length > 0 && funded.length === 0 && nearCash.status !== 'loading' && (nearBalance === null || nearBalance === 0) ? (
-              <Text style={styles.note}>Balances could not be read right now ({failedRows.map(r => CHAIN_LABEL[r.chainKey]).join(', ')}). Pull to refresh or try again shortly.</Text>
+              <Text style={styles.note}>Balances could not be read right now ({failedNetworkNames.join(', ')}). Pull to refresh or try again shortly.</Text>
             ) : funded.length === 0 && failedRows.length === 0 && nearBalance === 0 ? (
               <Text style={styles.note}>No USDC yet. Tap Deposit and send USDC on any supported network.</Text>
             ) : (
