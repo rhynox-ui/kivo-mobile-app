@@ -11,11 +11,19 @@ import assert from 'node:assert/strict';
 import {deserialize} from '../node_modules/@near-js/transactions/node_modules/borsh/lib/esm/index.js';
 import {SCHEMA, encodeDelegateAction} from '@near-js/transactions';
 import {PublicKey} from '@near-js/crypto';
-import {deriveAccounts} from '../trading/wallet/keys.ts';
+import {deriveNearAccount} from '../trading/wallet/keys.ts';
+import {deriveSolanaKeypair} from '../src/wallet/solanaKeys.ts';
 import {DELEGATE_TTL_BLOCKS, NEAR_BOOTSTRAP_URL, NEAR_RELAY_URL, NearSendError, sendSponsoredNearCalls, signNearDelegates} from '../trading/core/nearSigning.ts';
 
 let checks = 0;
-const session = deriveAccounts('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+const near = deriveNearAccount(PHRASE);
+const solana = deriveSolanaKeypair(PHRASE);
+const session = {
+  evm: {address: '0x9858effd232b4033e47d90003d41ec34ecaeda94', privateKey: '0x' + '1'.repeat(64)},
+  solana: {address: solana.publicKey.toBase58(), privateKey: bs58.encode(solana.secretKey)},
+  near,
+};
 const USDC = '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1';
 const call = (method, receiverId = USDC) => ({receiverId, actions: [{type: 'FunctionCall', params: {methodName: method, args: {receiver_id: 'x.near', amount: '5'}, gas: '30000000000000', deposit: '1'}}]});
 
