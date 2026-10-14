@@ -136,9 +136,13 @@ export async function loadVault(): Promise<StoredVault | null> {
     if (stored?.version === 1 && stored.mnemonicRecord) {
       try {
         assertValidSecretRecord(stored.mnemonicRecord);
-        await createVersion2Record(stored.mnemonicRecord);
       } catch {
         throw new VaultCorruptError();
+      }
+      try {
+        await createVersion2Record(stored.mnemonicRecord);
+      } catch {
+        throw new VaultUnavailableError();
       }
       return { version: VAULT_SCHEMA_VERSION, mnemonicRecord: stored.mnemonicRecord };
     }
@@ -178,9 +182,13 @@ export async function loadVault(): Promise<StoredVault | null> {
     parsed = JSON.parse(legacy.password);
     if (!parsed?.mnemonicRecord) throw new Error('Missing wallet record');
     assertValidSecretRecord(parsed.mnemonicRecord);
-    await createVersion2Record(parsed.mnemonicRecord);
   } catch {
     throw new VaultCorruptError();
+  }
+  try {
+    await createVersion2Record(parsed.mnemonicRecord!);
+  } catch {
+    throw new VaultUnavailableError();
   }
 
   return { version: VAULT_SCHEMA_VERSION, mnemonicRecord: parsed.mnemonicRecord! };
