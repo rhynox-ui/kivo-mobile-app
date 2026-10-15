@@ -87,9 +87,11 @@ type VersionedMessageLike = {
   header?: {numRequiredSignatures?: number};
   staticAccountKeys?: Base58Key[];
   compiledInstructions?: CompiledInstructionLike[];
-  getAccountKeys?: (args?: {addressLookupTableAccounts?: unknown[]}) => {
-    get: (index: number) => Base58Key | undefined;
-  };
+  // web3.js's SDK-specific GetAccountKeysArgs are deliberately not imported.
+  getAccountKeys?: unknown;
+};
+type AccountKeysResolver = (args?: {addressLookupTableAccounts?: unknown[]}) => {
+  get: (index: number) => Base58Key | undefined;
 };
 type VersionedLikeTransaction = {message?: VersionedMessageLike};
 export type SolanaLikeTransaction = {
@@ -131,7 +133,10 @@ export function describeSolanaTransaction(
     const numRequiredSignatures = message.header?.numRequiredSignatures ?? 1;
     let resolvedKeys: {get: (index: number) => Base58Key | undefined} | null = null;
     try {
-      resolvedKeys = message.getAccountKeys?.({
+      const resolveAccountKeys = typeof message.getAccountKeys === 'function'
+        ? message.getAccountKeys as AccountKeysResolver
+        : null;
+      resolvedKeys = resolveAccountKeys?.({
         addressLookupTableAccounts: options?.addressLookupTableAccounts,
       }) ?? null;
     } catch {
