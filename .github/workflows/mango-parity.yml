@@ -45,5 +45,7 @@ jobs:
         run: node --experimental-strip-types scripts/verify-jupiter-sell-net-output.mjs
       - name: Bundle Android JavaScript
         run: npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output /tmp/index.android.bundle --assets-dest /tmp/assets
+      - name: Verify dependency overrides
+        run: npm run verify:dependency-overrides
       - name: Enforce production dependency audit
         run: npm audit --omit=dev --audit-level=high
