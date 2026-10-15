@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {applyJupiterFeeToSpendIntent} from '../trading/core/solanaSpendGuard.ts';
+import {applyJupiterFeeToSpendIntent, solanaAddressEquals} from '../trading/core/solanaSpendGuard.ts';
 
 const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const AGENCY = 'AgencyMintFixture';
@@ -39,4 +39,10 @@ assert.throws(
   'a fee that consumes the full quoted minimum must be rejected',
 );
 
-console.log('Jupiter sell fee accounting regression checks passed.');
+// Solana addresses are case-sensitive Base58; altered casing must not match.
+const canonicalMint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+assert.equal(solanaAddressEquals(canonicalMint, canonicalMint), true);
+assert.equal(solanaAddressEquals(canonicalMint, canonicalMint.toLowerCase()), false);
+assert.equal(solanaAddressEquals(canonicalMint, canonicalMint.slice(0, -1) + (canonicalMint.endsWith('A') ? 'a' : 'A')), false);
+
+console.log('Jupiter sell fee accounting and case-sensitive Solana address regression checks passed.');
