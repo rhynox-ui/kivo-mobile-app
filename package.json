@@ -6,7 +6,7 @@
     "start": "react-native start",
     "android": "react-native run-android",
     "typecheck": "tsc --noEmit",
-    "verify": "node scripts/verify-mango-parity.mjs",
+    "verify": "node --experimental-strip-types scripts/verify-mango-parity.mjs",
     "verify:wallet": "node --experimental-strip-types scripts/verify-mango-wallet.mjs",
     "verify:security": "node scripts/verify-mango-parity.mjs",
     "verify:one-click": "node --experimental-strip-types scripts/verify-one-click.mjs",
