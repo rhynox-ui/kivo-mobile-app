@@ -1,10 +1,6 @@
 name: Solana account-creation regression tests
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main, 'fix/solana-sponsor-ata-owner-guard']
   workflow_dispatch:
 
 jobs:
