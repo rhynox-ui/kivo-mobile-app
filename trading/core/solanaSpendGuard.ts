@@ -105,7 +105,12 @@ export type SpendGuardConnection = {
 
 type Tracked = {address: string; mint: string; amount: bigint; delegate: string | null};
 
-const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+/** Solana public keys are Base58 and case-sensitive; never normalize them like EVM addresses. */
+export function solanaAddressEquals(a: string, b: string): boolean {
+  return a === b;
+}
+
+const eq = solanaAddressEquals;
 
 function readU64LE(bytes: Uint8Array, offset: number): bigint {
   let v = 0n;
@@ -214,7 +219,7 @@ export async function assertSolanaSpendWithinIntent(
       throw new SolanaSpendGuardError('This transaction would give another account standing authority over one of your tokens. It was stopped before signing; nothing was sent.');
     }
     if (after < before.amount) {
-      const key = before.mint.toLowerCase();
+      const key = before.mint;
       spentByMint.set(key, (spentByMint.get(key) ?? 0n) + (before.amount - after));
     }
   }
