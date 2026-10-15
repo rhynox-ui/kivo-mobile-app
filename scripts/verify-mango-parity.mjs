@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { DEV_FEE_WALLET, DEV_FEE_WALLET_SOLANA, isFeeExemptWallet } from '../trading/core/fees.ts';
 
 const root = process.cwd();
 const read = p => fs.readFileSync(path.join(root, p), 'utf8');
@@ -76,6 +77,15 @@ check('Fee rate and cap', () => {
   const s = read('trading/core/fees.ts');
   assert.ok(s.includes('DEV_FEE_PCT = 0.005'));
   assert.ok(s.includes('DEV_FEE_MAX_USD = 50'));
+});
+check('Solana fee exemption preserves case-sensitive Base58', () => {
+  assert.equal(isFeeExemptWallet(DEV_FEE_WALLET), true);
+  assert.equal(isFeeExemptWallet(DEV_FEE_WALLET.slice(0, 2) + DEV_FEE_WALLET.slice(2).toUpperCase()), true);
+  assert.equal(isFeeExemptWallet(DEV_FEE_WALLET_SOLANA), true);
+  assert.equal(isFeeExemptWallet(DEV_FEE_WALLET_SOLANA.toLowerCase()), false);
+  assert.equal(isFeeExemptWallet(DEV_FEE_WALLET_SOLANA.slice(0, -1) + (DEV_FEE_WALLET_SOLANA.endsWith('A') ? 'a' : 'A')), false);
+  assert.equal(isFeeExemptWallet(undefined), false);
+  assert.equal(isFeeExemptWallet('   '), false);
 });
 check('Recovery phrase whitespace parsing', () => {
   const s = read('src/wallet/recoveryPhrase.ts');
