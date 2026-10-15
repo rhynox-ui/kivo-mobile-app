@@ -16,6 +16,7 @@ import {
 import { kivoTheme } from '../theme/kivoTheme';
 import { parseUnits } from 'viem';
 import { NEAR_USDC, NEAR_USDC_DECIMALS } from '@kivo/trading/core/chainData';
+import { withNearCash } from '@kivo/trading/core/nearCashTotal';
 import { fetchNearTokenBalance } from '@kivo/trading/core/nearTrade';
 import { nearCashMoveChains, nearCashMoveRequest, nearUsdcDepositCall } from '@kivo/trading/core/nearCashMoves';
 import { fetchOneClickTokens, requestOneClickQuote, submitOneClickDepositTx } from '@kivo/trading/core/oneClick';
@@ -42,6 +43,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 type Sheet = null | 'deposit' | 'withdraw';
 type DepositNetwork = ChainKey | 'near';
 type WithdrawNetwork = ChainKey | 'near';
+type NearBalanceState = {status: 'loading' | 'ok' | 'error' | 'not-available'; amount: number};
 
 const DEPOSIT_CHAINS: DepositNetwork[] = [...new Set<DepositNetwork>([...CASH_CHAINS, 'near'])];
 
@@ -83,14 +85,22 @@ export function WalletSummaryScreen({
   const [rows, setRows] = useState<CashBalanceRow[] | null>(null);
   const [sheet, setSheet] = useState<Sheet>(initialAction ?? null);
   const [gasless, setGasless] = useState<GaslessStatus | null>(null);
-  const [nearBalance, setNearBalance] = useState(0);
+  const [nearCash, setNearCash] = useState<NearBalanceState>({status: 'loading', amount: 0});
+  const nearBalance = nearCash.status === 'ok' || nearCash.status === 'not-available' ? nearCash.amount : null;
   const settings = useSettings();
 
   const load = () => {
     if (!wallet) return;
     setRows(null);
     fetchCashBalances(wallet.address, CASH_CHAINS, wallet.solanaAddress).then(setRows).catch(() => setRows((CASH_CHAINS).map((chainKey): CashBalanceRow => ({chainKey: chainKey as CashBalanceRow['chainKey'], status: 'error', error: 'Balance unavailable.'}))));
-    if (wallet.nearAddress) fetchNearTokenBalance(NEAR_USDC, wallet.nearAddress).then(v => setNearBalance(Number(v) / 10 ** NEAR_USDC_DECIMALS)).catch(() => setNearBalance(0));
+    if (wallet.nearAddress) {
+      setNearCash({status: 'loading', amount: 0});
+      fetchNearTokenBalance(NEAR_USDC, wallet.nearAddress)
+        .then(v => setNearCash({status: 'ok', amount: Number(v) / 10 ** NEAR_USDC_DECIMALS}))
+        .catch(() => setNearCash({status: 'error', amount: 0}));
+    } else {
+      setNearCash({status: 'not-available', amount: 0});
+    }
   };
 
   useEffect(() => {
@@ -104,13 +114,25 @@ export function WalletSummaryScreen({
     if (!wallet) return;
     setRows(null);
     fetchCashBalances(wallet.address, CASH_CHAINS, wallet.solanaAddress).then(setRows).catch(() => setRows((CASH_CHAINS).map((chainKey): CashBalanceRow => ({chainKey: chainKey as CashBalanceRow['chainKey'], status: 'error', error: 'Balance unavailable.'}))));
-    if (wallet.nearAddress) fetchNearTokenBalance(NEAR_USDC, wallet.nearAddress).then(v => setNearBalance(Number(v) / 10 ** NEAR_USDC_DECIMALS)).catch(() => setNearBalance(0));
+    if (wallet.nearAddress) {
+      setNearCash({status: 'loading', amount: 0});
+      fetchNearTokenBalance(NEAR_USDC, wallet.nearAddress)
+        .then(v => setNearCash({status: 'ok', amount: Number(v) / 10 ** NEAR_USDC_DECIMALS}))
+        .catch(() => setNearCash({status: 'error', amount: 0}));
+    } else {
+      setNearCash({status: 'not-available', amount: 0});
+    }
   }, [wallet?.address]);
 
   const total = rows ? totalCashUsd(rows) : null;
-  const displayTotal = total ? total.total + nearBalance : null;
+  const totalWithNear = withNearCash(total, nearBalance);
+  const displayTotal = totalWithNear?.total ?? null;
   const funded = rows?.filter(r => r.status === 'ok' && r.balance.amount > 0) ?? [];
   const failedRows = rows?.filter(r => r.status === 'error') ?? [];
+  const failedNetworkNames = [
+    ...failedRows.map(r => CHAIN_LABEL[r.chainKey]),
+    ...(nearCash.status === 'error' && wallet?.nearAddress ? ['NEAR'] : []),
+  ];
   const mask = (value: string) => (settings.hideBalances ? '••••' : value);
 
   return (
@@ -129,9 +151,9 @@ export function WalletSummaryScreen({
         <>
           <Text style={styles.balance}>{displayTotal == null ? '…' : mask(formatUsd(displayTotal))}</Text>
           <Text style={styles.sub}>
-            {total == null
+            {totalWithNear == null
               ? 'Reading USDC on supported networks…'
-              : total.complete
+              : totalWithNear.complete
                 ? 'Total cash · USDC across supported networks'
                 : 'Some networks did not respond — total may be incomplete'}
           </Text>
@@ -158,13 +180,15 @@ export function WalletSummaryScreen({
             <Text style={styles.cardTitle}>Cash by network</Text>
             {rows == null ? (
               <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginTop: 12 }} />
-            ) : failedRows.length > 0 && funded.length === 0 && nearBalance <= 0 ? (
-              <Text style={styles.note}>Balances could not be read right now ({failedRows.map(r => CHAIN_LABEL[r.chainKey]).join(', ')}). Pull to refresh or try again shortly.</Text>
-            ) : funded.length === 0 && nearBalance <= 0 ? (
+            ) : failedRows.length > 0 && funded.length === 0 && nearCash.status !== 'loading' && (nearBalance === null || nearBalance === 0) ? (
+              <Text style={styles.note}>Balances could not be read right now ({failedNetworkNames.join(', ')}). Pull to refresh or try again shortly.</Text>
+            ) : funded.length === 0 && failedRows.length === 0 && nearBalance === 0 ? (
               <Text style={styles.note}>No USDC yet. Tap Deposit and send USDC on any supported network.</Text>
             ) : (
               <>
-              {nearBalance > 0 && wallet.nearAddress && <View key="near" style={styles.row}><View style={styles.rowLeft}><NetworkIcon chainKey="near" size={22} /><Text style={styles.rowName}>USDC · NEAR</Text></View><Text style={styles.rowValue}>{mask(formatAmount(nearBalance, 2))}</Text></View>}
+              {nearCash.status === 'loading' && wallet.nearAddress && <Text style={styles.note}>Checking NEAR USDC balance…</Text>}
+              {nearCash.status === 'error' && wallet.nearAddress && <Text style={styles.note}>NEAR USDC balance could not be read; the total excludes NEAR until refresh.</Text>}
+              {nearBalance !== null && nearBalance > 0 && wallet.nearAddress && <View key="near" style={styles.row}><View style={styles.rowLeft}><NetworkIcon chainKey="near" size={22} /><Text style={styles.rowName}>USDC · NEAR</Text></View><Text style={styles.rowValue}>{mask(formatAmount(nearBalance, 2))}</Text></View>}
               {funded.map(row => (
                 <View key={row.chainKey} style={styles.row}>
                   <View style={styles.rowLeft}>
@@ -174,7 +198,7 @@ export function WalletSummaryScreen({
                   <Text style={styles.rowValue}>{row.status === 'ok' ? mask(formatAmount(row.balance.amount, 2)) : 'Unavailable'}</Text>
                 </View>
               ))}
-              {failedRows.length > 0 && <Text style={styles.note}>Not included (could not be read): {failedRows.map(r => CHAIN_LABEL[r.chainKey]).join(', ')}.</Text>}
+              {failedRows.length > 0 && <Text style={styles.note}>Not included (could not be read): {failedNetworkNames.join(', ')}.</Text>}
               </>
             )}
           </View>
@@ -198,7 +222,7 @@ export function WalletSummaryScreen({
         <WithdrawSheet
           visible={sheet === 'withdraw'}
           rows={rows}
-          nearBalance={nearBalance}
+          nearBalance={nearBalance ?? 0}
           gasless={gasless}
           wallet={wallet}
           onClose={() => setSheet(null)}

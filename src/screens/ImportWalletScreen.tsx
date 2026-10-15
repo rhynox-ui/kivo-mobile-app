@@ -1,3 +1,133 @@
-import React,{useMemo,useState}from'react';import{Pressable,StyleSheet,Text,TextInput,View}from'react-native';import{kivoTheme}from'../theme/kivoTheme';import{wordlist as english}from'@scure/bip39/wordlists/english.js';import{validateMnemonic}from'@scure/bip39';
-export function ImportWalletScreen({onDone,onBack,onPassword}:{onDone:()=>void;onBack:()=>void;onPassword:(mnemonic:string)=>void}){const[value,setValue]=useState('');const words=useMemo(()=>value.trim().toLowerCase().split(/\s+/).filter(Boolean),[value]);const valid=(words.length===12||words.length===24)&&validateMnemonic(words.join(' '),english);const current=words[words.length-1]??'';const suggestions=current&&!value.endsWith(' ')?english.filter(w=>w.startsWith(current)).slice(0,5):[];const pick=(word:string)=>setValue((value.endsWith(' ')?value:value.slice(0,value.lastIndexOf(current)))+word+' ');const problem=value.trim()?(words.length!==12&&words.length!==24?'Enter exactly 12 or 24 words.':!valid?'Recovery phrase is not valid. Check the words and order.':''):'';const submit=()=>{if(valid)onPassword(words.join(' '));};return <View style={styles.root}><View style={styles.header}><Pressable onPress={onBack}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.title}>Import wallet</Text></View><Text style={styles.body}>Enter your 12 or 24-word recovery phrase. It stays on this device and is stored in secure storage.</Text><TextInput value={value}onChangeText={setValue}placeholder="word1 word2 word3 …"placeholderTextColor={kivoTheme.colors.textMuted}autoCapitalize="none"autoCorrect={false}spellCheck={false}autoComplete="off"importantForAutofill="no"textContentType="none"multiline style={[styles.input,problem&&styles.inputError]}/>{suggestions.length>0&&<View style={styles.suggestions}>{suggestions.map(word=><Pressable key={word}onPress={()=>pick(word)}style={styles.chip}><Text style={styles.chipText}>{word}</Text></Pressable>)}</View>}<View style={styles.meta}><Text style={styles.count}>{words.length}/24 words</Text>{problem?<Text style={styles.error}>{problem}</Text>:valid?<Text style={styles.valid}>Valid recovery phrase</Text>:null}</View><Pressable disabled={!valid}onPress={submit}style={[styles.button,!valid&&styles.disabled]}><Text style={styles.buttonText}>Import securely</Text></Pressable></View>}
-const styles=StyleSheet.create({root:{flex:1,backgroundColor:kivoTheme.colors.background,padding:24},header:{flexDirection:'row',alignItems:'center',marginBottom:28},back:{color:kivoTheme.colors.cream,fontSize:38,width:35},title:{color:kivoTheme.colors.text,fontSize:22,fontWeight:'800'},body:{color:kivoTheme.colors.textMuted,fontSize:14,lineHeight:21},input:{minHeight:150,marginTop:20,borderWidth:1,borderColor:kivoTheme.colors.border,borderRadius:16,backgroundColor:kivoTheme.colors.surface,color:kivoTheme.colors.text,padding:16,textAlignVertical:'top'},inputError:{borderColor:kivoTheme.colors.danger},suggestions:{flexDirection:'row',gap:8,paddingTop:8,flexWrap:'wrap'},chip:{backgroundColor:kivoTheme.colors.surfaceRaised,borderRadius:999,paddingHorizontal:12,paddingVertical:7},chipText:{color:kivoTheme.colors.text,fontSize:12,fontWeight:'700'},meta:{minHeight:40,paddingTop:8},count:{color:kivoTheme.colors.textMuted,fontSize:11},error:{color:kivoTheme.colors.danger,fontSize:12,marginTop:4},valid:{color:kivoTheme.colors.success,fontSize:12,marginTop:4},button:{height:58,borderRadius:29,backgroundColor:kivoTheme.colors.cream,alignItems:'center',justifyContent:'center',marginTop:'auto',marginBottom:12},disabled:{opacity:.4},buttonText:{color:kivoTheme.colors.backgroundDeep,fontWeight:'800'}});
+import React, { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { kivoTheme } from '../theme/kivoTheme';
+import { wordlist as english } from '@scure/bip39/wordlists/english.js';
+import { validateMnemonic } from '@scure/bip39';
+
+export function ImportWalletScreen({
+  onDone,
+  onBack,
+  onPassword,
+}: {
+  onDone: () => void;
+  onBack: () => void;
+  onPassword: (mnemonic: string) => void;
+}) {
+  const [value, setValue] = useState('');
+  const words = useMemo(() => value.trim().toLowerCase().split(/\s+/).filter(Boolean), [value]);
+  const valid =
+    (words.length === 12 || words.length === 24) && validateMnemonic(words.join(' '), english);
+  const current = words[words.length - 1] ?? '';
+  const suggestions =
+    current && !value.endsWith(' ') ? english.filter((word) => word.startsWith(current)).slice(0, 5) : [];
+  const pick = (word: string) =>
+    setValue(
+      (value.endsWith(' ') ? value : value.slice(0, value.lastIndexOf(current))) + word + ' ',
+    );
+  const problem = value.trim()
+    ? words.length !== 12 && words.length !== 24
+      ? 'Enter exactly 12 or 24 words.'
+      : !valid
+        ? 'Recovery phrase is not valid. Check the words and order.'
+        : ''
+    : '';
+  const submit = () => {
+    if (valid) onPassword(words.join(' '));
+  };
+
+  return (
+    <View style={styles.root}>
+      <View style={styles.header}>
+        <Pressable onPress={onBack}>
+          <Text style={styles.back}>‹</Text>
+        </Pressable>
+        <Text style={styles.title}>Import wallet</Text>
+      </View>
+      <Text style={styles.body}>
+        Enter your 12 or 24-word recovery phrase. It stays on this device and is stored in secure
+        storage.
+      </Text>
+      <TextInput
+        value={value}
+        onChangeText={setValue}
+        placeholder="word1 word2 word3 …"
+        placeholderTextColor={kivoTheme.colors.textMuted}
+        autoCapitalize="none"
+        autoCorrect={false}
+        spellCheck={false}
+        autoComplete="off"
+        importantForAutofill="no"
+        textContentType="none"
+        multiline
+        style={[styles.input, problem && styles.inputError]}
+      />
+      {suggestions.length > 0 && (
+        <View style={styles.suggestions}>
+          {suggestions.map((word) => (
+            <Pressable key={word} onPress={() => pick(word)} style={styles.chip}>
+              <Text style={styles.chipText}>{word}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+      <View style={styles.meta}>
+        <Text style={styles.count}>{words.length}/24 words</Text>
+        {problem ? (
+          <Text style={styles.error}>{problem}</Text>
+        ) : valid ? (
+          <Text style={styles.valid}>Valid recovery phrase</Text>
+        ) : null}
+      </View>
+      <Pressable
+        disabled={!valid}
+        onPress={submit}
+        style={[styles.button, !valid && styles.disabled]}
+      >
+        <Text style={styles.buttonText}>Import securely</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: kivoTheme.colors.background, padding: 24 },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 28 },
+  back: { color: kivoTheme.colors.cream, fontSize: 38, width: 35 },
+  title: { color: kivoTheme.colors.text, fontSize: 22, fontWeight: '800' },
+  body: { color: kivoTheme.colors.textMuted, fontSize: 14, lineHeight: 21 },
+  input: {
+    minHeight: 150,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: kivoTheme.colors.border,
+    borderRadius: 16,
+    backgroundColor: kivoTheme.colors.surface,
+    color: kivoTheme.colors.text,
+    padding: 16,
+    textAlignVertical: 'top',
+  },
+  inputError: { borderColor: kivoTheme.colors.danger },
+  suggestions: { flexDirection: 'row', gap: 8, paddingTop: 8, flexWrap: 'wrap' },
+  chip: {
+    backgroundColor: kivoTheme.colors.surfaceRaised,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  chipText: { color: kivoTheme.colors.text, fontSize: 12, fontWeight: '700' },
+  meta: { minHeight: 40, paddingTop: 8 },
+  count: { color: kivoTheme.colors.textMuted, fontSize: 11 },
+  error: { color: kivoTheme.colors.danger, fontSize: 12, marginTop: 4 },
+  valid: { color: kivoTheme.colors.success, fontSize: 12, marginTop: 4 },
+  button: {
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: kivoTheme.colors.cream,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 'auto',
+    marginBottom: 12,
+  },
+  disabled: { opacity: 0.4 },
+  buttonText: { color: kivoTheme.colors.backgroundDeep, fontWeight: '800' },
+});

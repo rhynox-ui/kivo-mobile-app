@@ -1,15 +1,18 @@
 name: Kivo Android build check
 
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: kivo-android-build-${{ github.ref }}
+  group: kivo-android-build-${{ github.ref }}-audit2
   cancel-in-progress: true
 
 jobs:
   android-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     permissions:
       contents: read
     steps:
@@ -36,7 +39,7 @@ jobs:
         run: npm run typecheck
       - name: Build debug APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --console=plain --stacktrace --info
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:

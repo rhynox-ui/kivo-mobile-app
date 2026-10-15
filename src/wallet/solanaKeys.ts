@@ -5,7 +5,7 @@
 import { mnemonicToSeedSync } from '@scure/bip39';
 import { Keypair } from '@solana/web3.js';
 import { Buffer } from 'buffer';
-import { derivePath } from './slip10Ed25519';
+import { derivePath } from './slip10Ed25519.ts';
 
 export const SOLANA_DERIVATION_PATH = "m/44'/501'/0'/0'";
 

@@ -1,11 +1,19 @@
-name: Mango parity verification
+name: Mobile audit verification
 
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -13,6 +21,31 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - name: Reject tracked release keystores
+        shell: bash
+        run: |
+          release_keystores="$(git ls-files '*.keystore' '*.jks' | grep -Ev '^android/app/debug\.keystore$' || true)"
+          if [ -n "$release_keystores" ]; then
+            printf 'Unexpected tracked release keystore(s):\n%s\n' "$release_keystores"
+            exit 1
+          fi
       - run: npm run typecheck
       - run: npm run verify
       - run: npm run verify:wallet
+      - run: npm run verify:wallet-cipher
+      - run: npm run verify:sign-guard
+      - run: npm run verify:relay-intent
+      - run: npm run verify:solana-output
+      - run: npm run verify:diagnostic-redaction
+      - run: npm run verify:one-click
+      - run: npm run verify:one-click-deposits
+      - run: npm run verify:near-account
+      - run: npm run verify:near-signing
+      - name: Verify Jupiter sell fee accounting
+        run: node --experimental-strip-types scripts/verify-jupiter-sell-net-output.mjs
+      - name: Bundle Android JavaScript
+        run: npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output /tmp/index.android.bundle --assets-dest /tmp/assets
+      - name: Verify dependency overrides
+        run: npm run verify:dependency-overrides
+      - name: Enforce production dependency audit
+        run: node scripts/audit-production-dependencies.mjs

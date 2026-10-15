@@ -157,7 +157,11 @@ function fail(message: string): never {
 }
 
 function normalizeAddress(value: unknown): string | null {
-  return typeof value === 'string' ? value.trim().toLowerCase() : null;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  // EVM addresses are case-insensitive; Solana/base58 and NEAR identifiers
+  // are not. Preserve non-EVM casing so a quote cannot silently change them.
+  return /^0x[0-9a-fA-F]{40}$/.test(trimmed) ? trimmed.toLowerCase() : trimmed;
 }
 
 const EVM_ADDRESS = /^0x[0-9a-f]{40}$/;
@@ -283,54 +287,54 @@ export type RelayQuote = {details?: RelayQuoteDetails};
  * file's header for why absence is not treated as a failure here.
  */
 export function assertQuoteMatchesIntent(quote: RelayQuote | null | undefined, intent: TransactionIntent | null | undefined): void {
-  if (!intent) {
-    fail('This trade has no recorded intent to check against.');
-  }
+  if (!intent) fail('This trade has no recorded intent to check against.');
   const details = quote?.details;
-  if (!details) return;
+  if (!details) fail('The routing service omitted the quote details required to verify this trade.');
 
-  // Address EQUALITY is only asserted between two EVM addresses. A
-  // Relay quote's destination can be Solana, where the address is
-  // base58 and there is no single canonical spelling this code can be
-  // sure Relay echoes back unchanged — asserting equality there could
-  // block a legitimate bridge over a formatting difference, which is
-  // the one outcome worse than not checking. Chain ids and amounts,
-  // which are unambiguous on every chain, are still checked in full
-  // below, and the EVM origin side (the side that actually spends) is
-  // checked exactly.
-
-  const inChainId = details.currencyIn?.currency?.chainId;
-  if (Number.isFinite(inChainId) && Number(inChainId) !== intent.originChainId) {
+  const inChainId = Number(details.currencyIn?.currency?.chainId);
+  const outChainId = Number(details.currencyOut?.currency?.chainId);
+  if (!Number.isSafeInteger(inChainId) || inChainId <= 0) fail('The route omitted a valid source chain id.');
+  if (!Number.isSafeInteger(outChainId) || outChainId <= 0) fail('The route omitted a valid destination chain id.');
+  if (inChainId !== intent.originChainId) {
     fail(`The route would spend from chain ${inChainId}, not the chain you chose (${intent.originChainId}).`);
   }
-  const outChainId = details.currencyOut?.currency?.chainId;
-  if (Number.isFinite(outChainId) && Number(outChainId) !== intent.destinationChainId) {
+  if (outChainId !== intent.destinationChainId) {
     fail(`The route would deliver to chain ${outChainId}, not the chain you chose (${intent.destinationChainId}).`);
   }
 
   const inCurrency = normalizeAddress(details.currencyIn?.currency?.address);
-  if (comparableAddresses(inCurrency, intent.originCurrency) && inCurrency !== intent.originCurrency) {
-    // Native is the one legitimate mismatch: providers disagree on which
-    // sentinel means "the chain's own coin", and both spellings mean the
-    // same asset.
-    if (!(intent.originIsNative && isNativeCurrency(inCurrency))) {
-      fail(`The route would spend a different token (${inCurrency}) than the one you chose.`);
-    }
-  }
   const outCurrency = normalizeAddress(details.currencyOut?.currency?.address);
-  if (comparableAddresses(outCurrency, intent.destinationCurrency) && outCurrency !== intent.destinationCurrency) {
-    if (!(isNativeCurrency(intent.destinationCurrency) && isNativeCurrency(outCurrency))) {
-      fail(`The route would deliver a different token (${outCurrency}) than the one you chose.`);
+  if (!inCurrency) fail('The route omitted the source token address.');
+  if (!outCurrency) fail('The route omitted the destination token address.');
+
+  const solanaNativeAliases = new Set(['11111111111111111111111111111111', 'So11111111111111111111111111111111111111112']);
+  const currencyMatches = (actual: string, expected: string | null, nativeExpected: boolean): boolean => {
+    if (!expected) return false;
+    if (comparableAddresses(actual, expected)) {
+      if (actual === expected) return true;
+      return nativeExpected && isNativeCurrency(actual) && isNativeCurrency(expected);
     }
+    if (nativeExpected && solanaNativeAliases.has(actual) && solanaNativeAliases.has(expected)) return true;
+    return actual === expected;
+  };
+
+  if (!currencyMatches(inCurrency, intent.originCurrency, intent.originIsNative || solanaNativeAliases.has(intent.originCurrency ?? ''))) {
+    fail('The route would spend a different source token than the one you chose, or its identity could not be verified.');
+  }
+  const destinationIsNative = isNativeCurrency(intent.destinationCurrency) || solanaNativeAliases.has(intent.destinationCurrency ?? '');
+  if (!currencyMatches(outCurrency, intent.destinationCurrency, destinationIsNative)) {
+    fail('The route would deliver a different destination token than the one you chose, or its identity could not be verified.');
   }
 
   const recipient = normalizeAddress(details.recipient);
-  if (comparableAddresses(recipient, intent.recipientAddress) && recipient !== intent.recipientAddress) {
-    fail(`The route would send the proceeds to ${recipient}, not to the address you chose.`);
+  if (!recipient) fail('The route omitted the destination recipient.');
+  if (!intent.recipientAddress || recipient !== intent.recipientAddress) {
+    fail('The route recipient does not match the wallet address you chose.');
   }
 
   const spend = toBigInt(details.currencyIn?.amount);
-  if (spend !== null && spend > intent.amount) {
+  if (spend === null || spend <= 0n) fail('The route omitted a valid source amount.');
+  if (spend > intent.amount) {
     fail(`The route would spend ${spend} base units, more than the ${intent.amount} you entered.`);
   }
 }
