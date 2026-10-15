@@ -48,4 +48,4 @@ jobs:
       - name: Verify dependency overrides
         run: npm run verify:dependency-overrides
       - name: Enforce production dependency audit
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/audit-production-dependencies.mjs
