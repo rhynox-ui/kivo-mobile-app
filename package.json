@@ -17,7 +17,8 @@
     "verify:sign-guard": "node --experimental-strip-types scripts/verify-sign-guard.mjs",
     "verify:relay-intent": "node --experimental-strip-types scripts/verify-relay-intent.mjs",
     "verify:solana-output": "node --experimental-strip-types scripts/verify-solana-output-guard.mjs",
-    "verify:diagnostic-redaction": "node --experimental-strip-types scripts/verify-diagnostic-redaction.mjs"
+    "verify:diagnostic-redaction": "node --experimental-strip-types scripts/verify-diagnostic-redaction.mjs",
+    "verify:dependency-overrides": "node scripts/verify-dependency-overrides.mjs"
   },
   "dependencies": {
     "@near-js/crypto": "2.5.1",
