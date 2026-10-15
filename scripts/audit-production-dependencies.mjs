@@ -28,25 +28,39 @@ const isKnownBracesException = (vulnerability) => {
   return highVia.length > 0 && highVia.every((item) => item.url === BRACES_ADVISORY);
 };
 
-const isBracesOnlyChain = (name, path = new Set()) => {
-  if (name === "braces") return isKnownBracesException(report.vulnerabilities?.braces);
+const advisoryRoots = (name, path = new Set()) => {
   const vulnerability = report.vulnerabilities?.[name];
-  if (!vulnerability) return false;
-  if (path.has(name)) return true;
+  if (!vulnerability) return { roots: new Set(), unknown: true };
+  if (path.has(name)) return { roots: new Set(), unknown: false };
 
-  // npm audit's severity on a parent package can differ from the severity attached
-  // to a transitive package edge. Follow every reported cause, not only edges whose
-  // target package is independently labelled high; otherwise the same braces-only
-  // chain can be misclassified as a separate blocker.
-  const via = vulnerability.via ?? [];
-  if (via.length === 0) return false;
   const nextPath = new Set(path);
   nextPath.add(name);
-  return via.every((item) => {
-    if (typeof item === "string") return isBracesOnlyChain(item, nextPath);
-    return item.url === BRACES_ADVISORY && item.name === "braces" &&
-      isKnownBracesException(report.vulnerabilities?.braces);
-  });
+  const roots = new Set();
+  let unknown = false;
+  const via = vulnerability.via ?? [];
+
+  if (via.length === 0) unknown = true;
+  for (const item of via) {
+    if (typeof item === "string") {
+      const child = advisoryRoots(item, nextPath);
+      for (const root of child.roots) roots.add(root);
+      unknown ||= child.unknown;
+    } else if (item && typeof item.url === "string") {
+      roots.add(item.url);
+    } else {
+      unknown = true;
+    }
+  }
+  return { roots, unknown };
+};
+
+const isBracesOnlyChain = (name) => {
+  if (!isKnownBracesException(report.vulnerabilities?.braces)) return false;
+  const result = advisoryRoots(name);
+  // Do not suppress a package if any direct/transitive cause is unknown, or if
+  // another advisory is reachable. The exception only covers chains whose sole
+  // root advisory is the unpatched braces finding.
+  return !result.unknown && result.roots.size === 1 && result.roots.has(BRACES_ADVISORY);
 };
 
 const blocking = vulnerabilities.filter((vulnerability) =>
