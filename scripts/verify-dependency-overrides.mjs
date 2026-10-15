@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 
 // Guard the audited compatibility overrides so future lockfile refreshes cannot silently restore vulnerable versions.
+// bigint-buffer remains upstream-pinned until a reproducible replacement lockfile can be generated and validated.
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));
 
