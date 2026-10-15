@@ -33,18 +33,20 @@ const isBracesOnlyChain = (name, path = new Set()) => {
   const vulnerability = report.vulnerabilities?.[name];
   if (!vulnerability) return false;
   if (path.has(name)) return true;
+
+  // npm audit's severity on a parent package can differ from the severity attached
+  // to a transitive package edge. Follow every reported cause, not only edges whose
+  // target package is independently labelled high; otherwise the same braces-only
+  // chain can be misclassified as a separate blocker.
+  const via = vulnerability.via ?? [];
+  if (via.length === 0) return false;
   const nextPath = new Set(path);
   nextPath.add(name);
-  const highVia = (vulnerability.via ?? []).filter((item) =>
-    typeof item === "string"
-      ? ["high", "critical"].includes(report.vulnerabilities?.[item]?.severity)
-      : ["high", "critical"].includes(item.severity)
-  );
-  return highVia.length > 0 && highVia.every((item) =>
-    typeof item === "string"
-      ? isBracesOnlyChain(item, nextPath)
-      : item.name === "braces" && item.url === BRACES_ADVISORY
-  );
+  return via.every((item) => {
+    if (typeof item === "string") return isBracesOnlyChain(item, nextPath);
+    return item.url === BRACES_ADVISORY && item.name === "braces" &&
+      isKnownBracesException(report.vulnerabilities?.braces);
+  });
 };
 
 const blocking = vulnerabilities.filter((vulnerability) =>
