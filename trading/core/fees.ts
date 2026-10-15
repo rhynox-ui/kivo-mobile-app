@@ -23,14 +23,20 @@ export const DEV_FEE_WALLET_NEAR = 'widekingdom6862.near';
 // Owner/protocol wallets that should never be charged Kivo's own app fee.
 // Keep this exact allowlist small and explicit: it is NOT a user-configurable
 // exemption and it does not affect the token's own on-chain tax mechanics.
+// EVM addresses are case-insensitive; Solana public keys are Base58 and
+// case-sensitive. Never lowercase a Solana key or a different key can match.
 export const FEE_EXEMPT_WALLETS = new Set<string>([
-  DEV_FEE_WALLET,
+  DEV_FEE_WALLET.toLowerCase(),
   DEV_FEE_WALLET_SOLANA,
-].map(address => address.toLowerCase()));
+]);
 
 export function isFeeExemptWallet(address?: string | null): boolean {
   if (typeof address !== 'string' || !address.trim()) return false;
-  return FEE_EXEMPT_WALLETS.has(address.trim().toLowerCase());
+  const normalized = address.trim();
+  if (/^0x[0-9a-fA-F]{40}$/.test(normalized)) {
+    return FEE_EXEMPT_WALLETS.has(normalized.toLowerCase());
+  }
+  return FEE_EXEMPT_WALLETS.has(normalized);
 }
 
 export const DEV_FEE_PCT = 0.005;
