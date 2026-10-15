@@ -28,8 +28,27 @@ const isKnownBracesException = (vulnerability) => {
   return highVia.length > 0 && highVia.every((item) => item.url === BRACES_ADVISORY);
 };
 
+const isBracesOnlyChain = (name, path = new Set()) => {
+  if (name === "braces") return isKnownBracesException(report.vulnerabilities?.braces);
+  const vulnerability = report.vulnerabilities?.[name];
+  if (!vulnerability) return false;
+  if (path.has(name)) return true;
+  const nextPath = new Set(path);
+  nextPath.add(name);
+  const highVia = (vulnerability.via ?? []).filter((item) =>
+    typeof item === "string"
+      ? ["high", "critical"].includes(report.vulnerabilities?.[item]?.severity)
+      : ["high", "critical"].includes(item.severity)
+  );
+  return highVia.length > 0 && highVia.every((item) =>
+    typeof item === "string"
+      ? isBracesOnlyChain(item, nextPath)
+      : item.name === "braces" && item.url === BRACES_ADVISORY
+  );
+};
+
 const blocking = vulnerabilities.filter((vulnerability) =>
-  ["high", "critical"].includes(vulnerability.severity) && !isKnownBracesException(vulnerability)
+  ["high", "critical"].includes(vulnerability.severity) && !isBracesOnlyChain(vulnerability.name)
 );
 
 console.log(
