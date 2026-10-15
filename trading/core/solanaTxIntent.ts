@@ -78,20 +78,26 @@ export type DescribedSolanaTransaction = {
 // original it's ported from.
 type Base58Key = {toBase58?: () => string} | string | null | undefined;
 type LegacyLikeTransaction = {feePayer?: Base58Key; instructions?: {programId?: Base58Key; data?: Uint8Array; keys?: {pubkey?: Base58Key; isSigner?: boolean}[]}[]};
-type VersionedLikeTransaction = {
-  message?: {
-    header?: {numRequiredSignatures?: number};
-    staticAccountKeys?: Base58Key[];
-    compiledInstructions?: {programIdIndex: number; accountKeyIndexes?: number[]; data?: Uint8Array}[];
-    getAccountKeys?: (args?: {addressLookupTableAccounts?: unknown[]}) => {get: (index: number) => Base58Key | undefined};
+type CompiledInstructionLike = {
+  programIdIndex: number;
+  accountKeyIndexes?: number[];
+  data?: Uint8Array;
+};
+type VersionedMessageLike = {
+  header?: {numRequiredSignatures?: number};
+  staticAccountKeys?: Base58Key[];
+  compiledInstructions?: CompiledInstructionLike[];
+  getAccountKeys?: (args?: {addressLookupTableAccounts?: unknown[]}) => {
+    get: (index: number) => Base58Key | undefined;
   };
 };
+type VersionedLikeTransaction = {message?: VersionedMessageLike};
 export type SolanaLikeTransaction = {
   feePayer?: Base58Key;
   instructions?: LegacyLikeTransaction['instructions'];
   // Deliberately duck-typed: web3.js MessageV0 has readonly/internal
   // fields whose exact TypeScript shape changes between SDK releases.
-  message?: any;
+  message?: VersionedLikeTransaction['message'];
 };
 
 function keyToBase58(key: Base58Key): string | null {
@@ -118,8 +124,10 @@ export function describeSolanaTransaction(
   // are exactly the accounts this transaction requires a signature from
   // — that's how @solana/web3.js itself orders the table when compiling.
   const message = transaction.message;
-  if (message && Array.isArray(message.staticAccountKeys) && Array.isArray(message.compiledInstructions)) {
-    const keys = message.staticAccountKeys.map((k: any) => keyToBase58(k) ?? String(k));
+  const staticAccountKeys = message?.staticAccountKeys;
+  const compiledInstructions = message?.compiledInstructions;
+  if (message && Array.isArray(staticAccountKeys) && Array.isArray(compiledInstructions)) {
+    const keys = staticAccountKeys.map((k: Base58Key) => keyToBase58(k) ?? String(k));
     const numRequiredSignatures = message.header?.numRequiredSignatures ?? 1;
     let resolvedKeys: {get: (index: number) => Base58Key | undefined} | null = null;
     try {
@@ -132,7 +140,7 @@ export function describeSolanaTransaction(
     return {
       feePayer: keys[0] ?? null,
       requiredSigners: keys.slice(0, numRequiredSignatures),
-      instructions: message.compiledInstructions.map((ix: any) => ({
+      instructions: compiledInstructions.map((ix: CompiledInstructionLike) => ({
         programId: keys[ix.programIdIndex] ?? null,
         firstDataByte: ix.data?.length ? ix.data[0] : null,
         accounts: (ix.accountKeyIndexes ?? []).map((index: number) =>
