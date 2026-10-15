@@ -7,7 +7,8 @@ const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta
 
 assert.equal(packageJson.overrides?.uuid, "11.1.1", "uuid override must stay on patched 11.1.1");
 assert.equal(packageJson.overrides?.["bigint-buffer"], "file:vendor/bigint-buffer-safe", "bigint-buffer must use the audited local replacement");
-assert.equal(lock.packages["node_modules/bigint-buffer"]?.version, "1.1.6", "patched bigint-buffer must be locked at local version 1.1.6");
+assert.equal(lock.packages["node_modules/bigint-buffer"]?.link, true, "bigint-buffer must link to the local patched package");
+assert.equal(lock.packages["vendor/bigint-buffer-safe"]?.version, "1.1.6", "patched bigint-buffer must be locked at local version 1.1.6");
 const uuidLockEntries = Object.entries(lock.packages).filter(([path]) =>
   path === "node_modules/uuid" || path.endsWith("/node_modules/uuid")
 );
