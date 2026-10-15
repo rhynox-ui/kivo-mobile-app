@@ -1,0 +1,11 @@
+{
+  "name": "bigint-buffer",
+  "version": "1.1.6",
+  "private": true,
+  "description": "Kivo vendored, input-validated pure JavaScript replacement for bigint-buffer",
+  "main": "index.js",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.11.0"
+  }
+}
