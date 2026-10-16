@@ -238,13 +238,7 @@ export function RootNavigator() {
         <Stack.Screen
           name="ImportWallet"
           component={({ navigation }: NativeStackScreenProps<RootStackParamList, 'ImportWallet'>) => (
-            <ImportWalletScreen
-              onBack={() => navigation.goBack()}
-              onDone={() => navigation.replace('Home')}
-              onPassword={(mnemonic) =>
-                navigation.navigate('PasswordSetup', { mnemonic, mode: 'import' })
-              }
-            />
+            <ImportWalletScreen onBack={() => navigation.goBack()} />
           )}
         />
         <Stack.Screen
