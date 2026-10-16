@@ -248,7 +248,7 @@ export class KivoApi {
   conversations() { return this.request<ApiConversation[]>('GET', '/api/conversations'); }
   openDm(address: string) { return this.request<{id: string}>('POST', '/api/conversations/dm', {address}); }
   history(conversationId: string, before?: number) { return this.request<ApiMessage[]>('GET', `/api/conversations/${encodeURIComponent(conversationId)}/messages${before ? `?before=${before}` : ''}`); }
-  send(conversationId: string, input: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; replyTo?: string; clientId: string}) { return this.request<ApiMessage>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/messages`, input); }
+  send(conversationId: string, input: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; token?: {chain: string; address: string}; replyTo?: string; clientId: string}) { return this.request<ApiMessage>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/messages`, input); }
   editMessage(id: string, text: string) { return this.request<ApiMessage>('PATCH', `/api/messages/${encodeURIComponent(id)}`, {text}); }
   forwardMessage(id: string, conversationId: string) { return this.request<ApiMessage>('POST', `/api/messages/${encodeURIComponent(id)}/forward`, {conversationId}); }
   blockedUsers() { return this.request<string[]>('GET', '/api/blocks'); }
