@@ -4,6 +4,13 @@ import type {ProfileSocial, PublicCommunityCard} from './types';
 import type {ApiBan, ApiCommunity, ApiConversation, ApiMember, ApiMessage, ApiProfile, AuthChallenge, AuthSession, CommunityKind, CommunitySettingsInput, ProfileApprovalChallenge, ProfileLinks, SyncResponse} from './types';
 import {kivoUserIdForWallet, normalizeWalletAddress} from './types';
 
+export type FeedPost = {
+  id: string; userId: string; username: string; avatarUrl: string | null; body: string; imageUrl: string | null; createdAt: number;
+  token: null | {chain: string; address: string; symbol: string; name: string; imageUrl: string | null; entryMarketCapUsd: number | null};
+  likeCount: number; dislikeCount: number; replyCount: number; likedByViewer: boolean; dislikedByViewer: boolean; pinned: boolean;
+};
+export type FeedReply = {id: string; postId: string; userId: string; username: string; avatarUrl: string | null; body: string; createdAt: number};
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) { super(message); this.status = status; }
@@ -231,10 +238,17 @@ export class KivoApi {
   requestAccountDeletion() { return this.request<{pending: true; status: 'pending'; requestedAt: number; executeAt: number}>('POST', '/api/account-deletion', {}); }
   cancelAccountDeletion() { return this.request<{pending: false; cancelled: true}>('DELETE', '/api/account-deletion'); }
   moderationStatus() { return this.request<{cooldownUntil: number; reason: string}>('GET', '/api/moderation/status'); }
+  feedPosts(cursor?: string, following = false) { const params = new URLSearchParams(); if (cursor) params.set('cursor', cursor); if (following) params.set('following', '1'); const query = params.toString(); return this.request<FeedPost[]>('GET', `/api/feed${query ? `?${query}` : ''}`); }
+  createFeedPost(input: {body: string; imageKey?: string | null; token?: {chain: string; address: string} | null}) { return this.request<FeedPost>('POST', '/api/feed', input); }
+  setFeedReaction(postId: string, reaction: 'like' | 'dislike' | null) { return this.request<{reaction: 'like' | 'dislike' | null; likeCount: number; dislikeCount: number}>('POST', `/api/feed/${encodeURIComponent(postId)}/reaction`, {reaction}); }
+  deleteFeedPost(postId: string) { return this.request<{deleted: true}>('DELETE', `/api/feed/${encodeURIComponent(postId)}`); }
+  setFeedPostPinned(postId: string, pinned: boolean) { return this.request<{pinned: boolean}>('POST', `/api/feed/${encodeURIComponent(postId)}/pin`, {pinned}); }
+  feedReplies(postId: string) { return this.request<FeedReply[]>('GET', `/api/feed/${encodeURIComponent(postId)}/replies`, undefined, false); }
+  createFeedReply(postId: string, body: string) { return this.request<FeedReply>('POST', `/api/feed/${encodeURIComponent(postId)}/replies`, {body}); }
   conversations() { return this.request<ApiConversation[]>('GET', '/api/conversations'); }
   openDm(address: string) { return this.request<{id: string}>('POST', '/api/conversations/dm', {address}); }
   history(conversationId: string, before?: number) { return this.request<ApiMessage[]>('GET', `/api/conversations/${encodeURIComponent(conversationId)}/messages${before ? `?before=${before}` : ''}`); }
-  send(conversationId: string, input: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; replyTo?: string; clientId: string}) { return this.request<ApiMessage>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/messages`, input); }
+  send(conversationId: string, input: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; token?: {chain: string; address: string}; replyTo?: string; clientId: string}) { return this.request<ApiMessage>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/messages`, input); }
   editMessage(id: string, text: string) { return this.request<ApiMessage>('PATCH', `/api/messages/${encodeURIComponent(id)}`, {text}); }
   forwardMessage(id: string, conversationId: string) { return this.request<ApiMessage>('POST', `/api/messages/${encodeURIComponent(id)}/forward`, {conversationId}); }
   blockedUsers() { return this.request<string[]>('GET', '/api/blocks'); }

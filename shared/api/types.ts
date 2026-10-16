@@ -112,6 +112,8 @@ export type ApiMessage = {
   senderId: string;
   text: string;
   media: {url: string; width: number | null; height: number | null} | null;
+  /** Optional token card attachment for group/channel messages. */
+  token?: null | {chain: string; address: string; symbol?: string; name?: string; imageUrl?: string | null; entryMarketCapUsd?: number | null};
   replyTo: string | null;
   createdAt: number;
   deleted: boolean;
