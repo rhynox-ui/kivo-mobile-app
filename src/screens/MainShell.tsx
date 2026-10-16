@@ -49,6 +49,7 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
   }, []);
   const [stack, setStack] = useState<View_[]>([{ name: 'main' }]);
   const [selectedToken, setSelectedToken] = useState<KivoToken | null>(null);
+  const [pendingFeedPostId, setPendingFeedPostId] = useState<string | null>(null);
   const [tradeSide, setTradeSide] = useState<TradeSide>('buy');
   const chat = useChatState();
   const unread = chat.conversations.reduce((sum, c) => sum + unreadCount(c.id), 0);
@@ -93,7 +94,7 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
     case 'token': return <TokenDetailScreen token={selectedToken} onMarket={setSelectedToken} onBack={back} onBuy={() => { setTradeSide('buy'); home('Trade'); }} onSell={() => { setTradeSide('sell'); home('Trade'); }} />;
     case 'wallet': return <WalletSummaryScreen onBack={back} onTrade={() => home('Trade')} initialAction={view.action} />;
     case 'editProfile': return <EditProfileScreen onBack={back} onOpenVerification={(subjectId, subjectName) => push({ name: 'verification', subjectType: 'profile', subjectId, subjectName })} />;
-    case 'notifications': return <NotificationScreen onBack={back} />;
+    case 'notifications': return <NotificationScreen onBack={back} onOpenPost={postId => { back(); setPendingFeedPostId(postId); changeTab('Feed'); }} />;
     case 'activity': return <ActivityScreen onBack={back} />;
     case 'security': return <SecurityScreen onBack={back} />;
     case 'settings': return <SettingsScreen onBack={back} onOpenWallet={() => push({ name: 'wallet' })} onOpenProfile={() => push({ name: 'editProfile' })} onOpenSecurity={() => push({ name: 'security' })} onLogout={onLogout} />;
@@ -103,7 +104,7 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
   return (
     <View style={styles.root}>
       <View style={styles.body}>
-        {tab === 'Feed' && <FeedScreen onOpenToken={token => openToken({ chainKey: token.chain as KivoToken['chainKey'], tokenAddress: token.address, symbol: token.symbol, name: token.name, imageUrl: token.imageUrl, priceUsd: null, change24h: null, marketCapUsd: null, liquidityUsd: null })} />}
+        {tab === 'Feed' && <FeedScreen initialPostId={pendingFeedPostId} onPostOpened={() => setPendingFeedPostId(null)} onOpenToken={token => openToken({ chainKey: token.chain as KivoToken['chainKey'], tokenAddress: token.address, symbol: token.symbol, name: token.name, imageUrl: token.imageUrl, priceUsd: null, change24h: null, marketCapUsd: null, liquidityUsd: null })} />}
         {tab === 'Chats' && <ChatListScreen onOpenChat={openChat} onOpenCommunities={() => push({ name: 'communities', kind: 'group' })} onOpenNotifications={() => push({ name: 'notifications' })} />}
         {tab === 'Discover' && <DiscoverScreen onSelectToken={openToken} onOpenChat={openChat} onOpenCommunity={openCommunity} onOpenPerson={userId => push({ name: 'person', userId })} />}
         {tab === 'Trade' && <TradeScreen selectedToken={selectedToken} initialSide={tradeSide} onToken={() => setTab('Discover')} onOpenHistory={() => push({ name: 'activity' })} />}

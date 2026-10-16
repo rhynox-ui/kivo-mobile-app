@@ -76,6 +76,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const [tokenAttachmentOpen, setTokenAttachmentOpen] = useState(false);
   const [tokenAttachmentChain, setTokenAttachmentChain] = useState('solana');
   const [tokenAttachmentAddress, setTokenAttachmentAddress] = useState('');
+  const [verifiedTokenAttachment, setVerifiedTokenAttachment] = useState<{chain:string;address:string;symbol:string;name:string;imageUrl:string|null}|null>(null);
+  const [verifyingTokenAttachment, setVerifyingTokenAttachment] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   type MenuItem = { text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void };
   const [optionsMenu, setOptionsMenu] = useState<MenuItem[] | null>(null);
@@ -176,6 +178,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     if (sendingRef.current) return;
     const text = draft;
     if (!text.trim() && !tokenAttachmentAddress.trim()) return;
+    if (tokenAttachmentAddress.trim() && (!verifiedTokenAttachment || verifiedTokenAttachment.address !== tokenAttachmentAddress.trim() || verifiedTokenAttachment.chain !== tokenAttachmentChain)) { kivoAlert('Token attachment','Verify the token market before sending the token card.'); return; }
     if (overLimit) {
       kivoAlert('Message', verifiedSender ? 'This message is too long.' : `Messages are limited to ${charLimit} characters. Blue Star accounts can send up to ${messageCharLimit(true).toLocaleString()} characters.`);
       return;
@@ -189,10 +192,11 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
         setEditingMessageId(null);
         setDraft('');
       } else {
-        await sendText(id, text, replyingTo?.id, tokenAttachmentAddress.trim() ? {chain: tokenAttachmentChain, address: tokenAttachmentAddress.trim()} : undefined);
+        await sendText(id, text, replyingTo?.id, verifiedTokenAttachment ? {chain: verifiedTokenAttachment.chain, address: verifiedTokenAttachment.address} : undefined);
         setDraft('');
         setReplyingTo(null);
         setTokenAttachmentAddress('');
+        setVerifiedTokenAttachment(null);
         setTokenAttachmentOpen(false);
       }
     } catch (error) { kivoAlert(editingId ? 'Edit message' : 'Message', error instanceof Error ? error.message : 'Not sent.'); }
@@ -368,7 +372,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
             {overLimit && !verifiedSender ? <Text style={styles.limitHint}>★ Get Verified for up to {messageCharLimit(true).toLocaleString()} characters</Text> : null}
           </View>
         ) : null}
-        {tokenAttachmentOpen && <View style={styles.tokenAttachPanel}><View style={styles.tokenChainRow}>{['solana','ethereum','base','bnb','robinhood','arbitrum','avalanche','abstract','hyperevm','ink','plasma','unichain','xlayer','arc'].map(chain => <Pressable key={chain} style={[styles.tokenChainChoice, tokenAttachmentChain === chain && styles.tokenChainChoiceActive]} onPress={() => setTokenAttachmentChain(chain)}><Text style={styles.tokenChainChoiceText}>{chain}</Text></Pressable>)}</View><TextInput value={tokenAttachmentAddress} onChangeText={setTokenAttachmentAddress} autoCapitalize="none" placeholder="Token mint / contract address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.tokenAddressInput}/></View>}
+        {tokenAttachmentOpen && <View style={styles.tokenAttachPanel}><View style={styles.tokenChainRow}>{['solana','ethereum','base','bnb','robinhood','arbitrum','avalanche','abstract','hyperevm','ink','plasma','unichain','xlayer','arc'].map(chain => <Pressable key={chain} style={[styles.tokenChainChoice, tokenAttachmentChain === chain && styles.tokenChainChoiceActive]} onPress={() => {setTokenAttachmentChain(chain);setVerifiedTokenAttachment(null);}}><Text style={styles.tokenChainChoiceText}>{chain}</Text></Pressable>)}</View><TextInput value={tokenAttachmentAddress} onChangeText={value=>{setTokenAttachmentAddress(value);setVerifiedTokenAttachment(null);}} autoCapitalize="none" placeholder="Token mint / contract address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.tokenAddressInput}/><Pressable disabled={verifyingTokenAttachment||!tokenAttachmentAddress.trim()} style={styles.tokenVerifyButton} onPress={async()=>{setVerifyingTokenAttachment(true);setVerifiedTokenAttachment(null);try{const chainIds:Record<string,string>={ethereum:'ethereum',base:'base',bnb:'bsc',robinhood:'robinhood',solana:'solana',arbitrum:'arbitrum',avalanche:'avalanche',abstract:'abstract',hyperevm:'hyperevm',ink:'ink',plasma:'plasma',unichain:'unichain',xlayer:'xlayer',arc:'arc'};const address=tokenAttachmentAddress.trim();if(!(tokenAttachmentChain==='solana'?/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address):/^0x[0-9a-fA-F]{40}$/.test(address)))throw new Error('Invalid token address for selected network.');const chainId=chainIds[tokenAttachmentChain];let response=await fetch('https://kivo-web.pages.dev/api/market/dexscreener/latest/dex/tokens/'+encodeURIComponent(address));let pairs:any[]=[];if(response.ok){const data=await response.json();pairs=Array.isArray(data.pairs)?data.pairs:[];}if(!pairs.length){response=await fetch('https://kivo-web.pages.dev/api/market/dexscreener/tokens/v1/'+encodeURIComponent(chainId)+'/'+encodeURIComponent(address));if(response.ok){const data=await response.json();pairs=Array.isArray(data)?data:Array.isArray(data.pairs)?data.pairs:[];}}const target=tokenAttachmentChain==='solana'?address:address.toLowerCase();const pair=pairs.filter(p=>p.chainId===chainId&&p.pairAddress&&[p.baseToken?.address,p.quoteToken?.address].some(a=>typeof a==='string'&&(tokenAttachmentChain==='solana'?a===target:a.toLowerCase()===target))).sort((a,b)=>(Number(b.liquidity?.usd)||0)-(Number(a.liquidity?.usd)||0))[0];if(!pair)throw new Error('No active market found for this token on the selected network.');const isBase=tokenAttachmentChain==='solana'?pair.baseToken?.address===address:pair.baseToken?.address?.toLowerCase()===address.toLowerCase();const details=isBase?pair.baseToken:pair.quoteToken;if(!details?.symbol)throw new Error('Market data did not provide a token symbol.');setVerifiedTokenAttachment({chain:tokenAttachmentChain,address,symbol:String(details.symbol).slice(0,20),name:String(details.name||details.symbol).slice(0,80),imageUrl:typeof pair.info?.imageUrl==='string'&&pair.info.imageUrl.startsWith('https://')?pair.info.imageUrl:null});}catch(error){kivoAlert('Token market',error instanceof Error?error.message:'Could not verify token.');}finally{setVerifyingTokenAttachment(false);}}}><Text style={styles.tokenVerifyText}>{verifyingTokenAttachment?'Verifying market…':'Verify token market'}</Text></Pressable>{verifiedTokenAttachment&&<View style={styles.tokenPreview}>{verifiedTokenAttachment.imageUrl?<Image source={{uri:verifiedTokenAttachment.imageUrl}} style={styles.tokenPreviewIcon}/>:null}<View style={{flex:1}}><Text style={styles.tokenPreviewName}>${verifiedTokenAttachment.symbol} · {verifiedTokenAttachment.name}</Text><Text style={styles.tokenPreviewNetwork}>{verifiedTokenAttachment.chain}</Text><Text style={styles.tokenPreviewAddress}>{verifiedTokenAttachment.address.slice(0,8)}…{verifiedTokenAttachment.address.slice(-6)}</Text></View><Pressable onPress={()=>{setVerifiedTokenAttachment(null);setTokenAttachmentAddress('');}}><Text style={styles.tokenVerifyText}>Remove</Text></Pressable></View>}</View>}
         <View style={styles.composer}>
           <Pressable onPress={() => setTokenAttachmentOpen(value => !value)} hitSlop={8} style={styles.attach} accessibilityLabel="Attach token"><Text style={styles.attachText}>◇</Text></Pressable>
           <Pressable onPress={attach} hitSlop={8} style={styles.attach} accessibilityLabel="Attach photo"><Text style={styles.attachText}>＋</Text></Pressable>
@@ -497,6 +501,13 @@ const styles = StyleSheet.create({
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background },
   attach: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
   attachText: { color: c.cream, fontSize: 26 },
+  tokenVerifyButton: { alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
+  tokenVerifyText: { color: c.accent, fontSize: 12, fontWeight: '800' },
+  tokenPreview: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
+  tokenPreviewIcon: { width: 34, height: 34, borderRadius: 17 },
+  tokenPreviewName: { color: c.text, fontSize: 13, fontWeight: '800' },
+  tokenPreviewNetwork: { color: c.textMuted, fontSize: 11, marginTop: 2 },
+  tokenPreviewAddress: { color: c.textMuted, fontSize: 10, marginTop: 2 },
   tokenAttachPanel: { paddingHorizontal: 10, paddingVertical: 8, gap: 8, backgroundColor: c.background, borderTopWidth: 1, borderTopColor: c.border },
   tokenChainRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   tokenChainChoice: { paddingHorizontal: 9, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: c.border },
