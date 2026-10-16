@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChatListScreen } from './ChatListScreen';
 import { FeedScreen } from './FeedScreen';
-import { FeedScreen } from './FeedScreen';
 import { ConversationScreen } from './ConversationScreen';
 import { CommunitiesScreen } from './CommunitiesScreen';
 import { CommunityScreen } from './CommunityScreen';
@@ -104,7 +103,6 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
   return (
     <View style={styles.root}>
       <View style={styles.body}>
-        {tab === 'Feed' && <FeedScreen onOpenToken={token => openToken({ chainKey: token.chain as KivoToken['chainKey'], tokenAddress: token.address, symbol: token.symbol, name: token.name, imageUrl: token.imageUrl, priceUsd: null, change24h: null, marketCapUsd: null, liquidityUsd: null })} />}
         {tab === 'Feed' && <FeedScreen onOpenToken={token => openToken({ chainKey: token.chain as KivoToken['chainKey'], tokenAddress: token.address, symbol: token.symbol, name: token.name, imageUrl: token.imageUrl, priceUsd: null, change24h: null, marketCapUsd: null, liquidityUsd: null })} />}
         {tab === 'Chats' && <ChatListScreen onOpenChat={openChat} onOpenCommunities={() => push({ name: 'communities', kind: 'group' })} onOpenNotifications={() => push({ name: 'notifications' })} />}
         {tab === 'Discover' && <DiscoverScreen onSelectToken={openToken} onOpenChat={openChat} onOpenCommunity={openCommunity} onOpenPerson={userId => push({ name: 'person', userId })} />}
