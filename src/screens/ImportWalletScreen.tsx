@@ -13,7 +13,7 @@ type Preview = { kind: string; status: string; addresses: { network: string; add
 function inspectLocally(raw: string): Preview {
   const value = raw.trim();
   if (!value) return { kind: 'Waiting for input', status: 'Enter a phrase or private key to preview its format.', addresses: [], networks: [] };
-  const words = value.toLowerCase().split(/\\s+/).filter(Boolean);
+  const words = value.toLowerCase().split(/\s+/).filter(Boolean);
   if ((words.length === 12 || words.length === 24) && validateMnemonic(words.join(' '), english)) {
     const phrase = words.join(' ');
     const addresses: Preview['addresses'] = [];
