@@ -48,7 +48,8 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
     });
   }, []);
   const [stack, setStack] = useState<View_[]>([{ name: 'main' }]);
-  const [selectedToken, setSelectedToken] = useState<KivoToken | null>(null);\n  const [pendingFeedPostId, setPendingFeedPostId] = useState<string | null>(null);
+  const [selectedToken, setSelectedToken] = useState<KivoToken | null>(null);
+  const [pendingFeedPostId, setPendingFeedPostId] = useState<string | null>(null);
   const [tradeSide, setTradeSide] = useState<TradeSide>('buy');
   const chat = useChatState();
   const unread = chat.conversations.reduce((sum, c) => sum + unreadCount(c.id), 0);
