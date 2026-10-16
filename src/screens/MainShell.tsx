@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChatListScreen } from './ChatListScreen';
+import { FeedScreen } from './FeedScreen';
 import { ConversationScreen } from './ConversationScreen';
 import { CommunitiesScreen } from './CommunitiesScreen';
 import { CommunityScreen } from './CommunityScreen';
@@ -23,7 +24,7 @@ import { unreadCount } from '@kivo/shared/chat/store';
 import type { CommunityKind } from '@kivo/shared/api/types';
 import type { KivoToken, TradeSide } from '@kivo/trading/kivo/tokens';
 
-type Tab = 'Chats' | 'Discover' | 'Trade' | 'Profile';
+type Tab = 'Chats' | 'Feed' | 'Discover' | 'Trade' | 'Profile';
 type View_ =
   | { name: 'main' }
   | { name: 'conversation'; id: string }
@@ -35,7 +36,7 @@ type View_ =
   | { name: 'verification'; subjectType: 'profile' | 'channel'; subjectId: string; subjectName: string }
   | { name: 'wallet'; action?: 'deposit' | 'withdraw' } | { name: 'editProfile' } | { name: 'settings' } | { name: 'notifications' } | { name: 'activity' } | { name: 'security' };
 
-const TAB_GLYPH: Record<Tab, string> = { Chats: '💬', Discover: '◎', Trade: '⇄', Profile: '◯' };
+const TAB_GLYPH: Record<Tab, string> = { Chats: '💬', Feed: '▤', Discover: '◎', Trade: '⇄', Profile: '◯' };
 
 export function MainShell({ onLogout }: { onLogout?: () => void }) {
   const [tab, setTab] = useState<Tab>('Chats');
@@ -102,6 +103,7 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
   return (
     <View style={styles.root}>
       <View style={styles.body}>
+        {tab === 'Feed' && <FeedScreen onOpenToken={token => openToken({ chainKey: token.chain as KivoToken['chainKey'], tokenAddress: token.address, symbol: token.symbol, name: token.name, imageUrl: token.imageUrl, priceUsd: null, change24h: null, marketCapUsd: null, liquidityUsd: null })} />}
         {tab === 'Chats' && <ChatListScreen onOpenChat={openChat} onOpenCommunities={() => push({ name: 'communities', kind: 'group' })} onOpenNotifications={() => push({ name: 'notifications' })} />}
         {tab === 'Discover' && <DiscoverScreen onSelectToken={openToken} onOpenChat={openChat} onOpenCommunity={openCommunity} onOpenPerson={userId => push({ name: 'person', userId })} />}
         {tab === 'Trade' && <TradeScreen selectedToken={selectedToken} initialSide={tradeSide} onToken={() => setTab('Discover')} onOpenHistory={() => push({ name: 'activity' })} />}
@@ -120,7 +122,7 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
         />}
       </View>
       <View style={styles.nav}>
-        {(['Chats', 'Discover', 'Trade', 'Profile'] as Tab[]).map(item => (
+        {(['Chats', 'Feed', 'Discover', 'Trade', 'Profile'] as Tab[]).map(item => (
           <Pressable key={item} accessibilityRole="tab" accessibilityState={{ selected: tab === item }} onPress={() => changeTab(item)} style={styles.navItem}>
             <View>
               <Text style={[styles.navGlyph, tab === item && styles.navActive]}>{TAB_GLYPH[item]}</Text>
