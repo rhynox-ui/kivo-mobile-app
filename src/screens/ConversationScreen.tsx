@@ -308,7 +308,581 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
               <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
-                {message.token && <Pressable accessibilityRole="button" accessibilityLabel={`Open ${message.token.symbol ? '
+                {message.token && <Pressable accessibilityRole="button" accessibilityLabel="Open token in Trade" onPress={() => onOpenToken?.(message.token!)} style={styles.tokenAttachment}><View style={styles.tokenAttachmentTop}>{message.token.imageUrl ? <Image source={{uri: message.token.imageUrl}} style={styles.tokenAttachmentIcon} resizeMode="cover" /> : <View style={styles.tokenAttachmentIconFallback}><Text style={styles.tokenAttachmentIconGlyph}>◈</Text></View>}<View style={styles.tokenAttachmentTitle}><Text style={styles.tokenAttachmentSymbol}>{message.token.symbol ? '
+                {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
+                {message.replyTo && !message.deleted ? (() => {
+                  const quoted = messages.find(item => item.id === message.replyTo);
+                  return <View style={styles.replyQuote}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={2}>{quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available'}</Text></View>;
+                })() : null}
+                {message.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : message.text ? (() => {
+                  // Long messages collapse after ~12 lines so one post can't take over the chat.
+                  const long = messageLength(message.text) > 700 || message.text.split('\n').length > 12;
+                  const open = expanded[message.id] === true;
+                  return <View>
+                    <Text style={styles.text} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text)}</Text>
+                    {long ? <Pressable hitSlop={6} onPress={() => setExpanded(prev => ({ ...prev, [message.id]: !open }))}><Text style={styles.showMore}>{open ? 'Show less' : 'Show more'}</Text></Pressable> : null}
+                  </View>;
+                })() : null}
+                <Text style={styles.meta}>
+                  {message.editedAt ? 'edited · ' : ''}{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {mine ? message.status === 'pending' ? '  ◷' : message.status === 'failed' ? '  ⚠ tap & hold' : '  ✓' : ''}
+                </Text>
+              </Pressable>
+            </View>
+          );
+        }}
+      />
+
+        {unseenMessages > 0 && (
+          <Pressable style={styles.jumpLatest} onPress={() => { list.current?.scrollToEnd({ animated: true }); atBottom.current = true; setUnseenMessages(0); }} accessibilityLabel="Jump to latest messages">
+            <View style={styles.jumpCount}><Text style={styles.jumpCountText}>{unseenMessages > 999 ? '999+' : unseenMessages}</Text></View>
+            <Text style={styles.jumpArrow}>⌄</Text>
+          </Pressable>
+        )}
+      </View>
+      {canPost ? (
+        <View>
+        {replyingTo && !editingMessageId && <View style={styles.editingBar}><View style={{ flex: 1, marginRight: 12 }}><Text style={styles.editingLabel}>Replying to {displayName(replyingTo.senderId)}</Text><Text style={styles.replyBarText} numberOfLines={1}>{replyingTo.text || '📷 Photo'}</Text></View><Pressable onPress={() => setReplyingTo(null)} hitSlop={10}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
+        {editingMessageId && <View style={styles.editingBar}><Text style={styles.editingLabel}>Editing message</Text><Pressable onPress={() => { setEditingMessageId(null); setDraft(''); }}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
+        {showCounter ? (
+          <View style={styles.limitRow} accessibilityLiveRegion="polite">
+            <Text style={[styles.limitCount, overLimit && styles.limitOver]}>{draftLength.toLocaleString()}/{charLimit.toLocaleString()}</Text>
+            {overLimit && !verifiedSender ? <Text style={styles.limitHint}>★ Get Verified for up to {messageCharLimit(true).toLocaleString()} characters</Text> : null}
+          </View>
+        ) : null}
+        {tokenAttachmentOpen && <View style={styles.tokenAttachPanel}><View style={styles.tokenChainRow}>{['solana','ethereum','base','bnb','robinhood','arbitrum','avalanche','abstract','hyperevm','ink','plasma','unichain','xlayer','arc'].map(chain => <Pressable key={chain} style={[styles.tokenChainChoice, tokenAttachmentChain === chain && styles.tokenChainChoiceActive]} onPress={() => setTokenAttachmentChain(chain)}><Text style={styles.tokenChainChoiceText}>{chain}</Text></Pressable>)}</View><TextInput value={tokenAttachmentAddress} onChangeText={setTokenAttachmentAddress} autoCapitalize="none" placeholder="Token mint / contract address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.tokenAddressInput}/></View>}
+        <View style={styles.composer}>
+          <Pressable onPress={() => setTokenAttachmentOpen(value => !value)} hitSlop={8} style={styles.attach} accessibilityLabel="Attach token"><Text style={styles.attachText}>◇</Text></Pressable>
+          <Pressable onPress={attach} hitSlop={8} style={styles.attach} accessibilityLabel="Attach photo"><Text style={styles.attachText}>＋</Text></Pressable>
+          <TextInput value={draft} onChangeText={setDraft} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={messageCharLimit(true) * 2} style={styles.input} />
+          <Pressable disabled={(!draft.trim() && !tokenAttachmentAddress.trim()) || sending} onPress={send} style={[styles.send, ((!draft.trim() && !tokenAttachmentAddress.trim()) || overLimit || sending) && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
+        </View>
+        </View>
+      ) : (
+        <View style={styles.readonly}><Text style={styles.readonlyText}>{conversation?.kind === 'group' ? '📢 Only admins can send messages.' : '📢 Only the channel owner and admins can post.'}</Text></View>
+      )}
+      <KivoModal transparent visible={!!forwardingMessage} animationType="fade" onRequestClose={() => setForwardingMessage(null)}>
+        <View style={styles.forwardOverlay}>
+          <View style={styles.forwardSheet}>
+            <View style={styles.forwardHeader}>
+              <Text style={styles.forwardTitle}>Forward to…</Text>
+              <Pressable onPress={() => setForwardingMessage(null)} hitSlop={10}><Text style={styles.forwardCancel}>Cancel</Text></Pressable>
+            </View>
+            <ScrollView style={styles.forwardList} keyboardShouldPersistTaps="handled">
+              {state.conversations.filter(c => c.id !== id && (c.kind === 'dm' || c.myRole === 'owner' || c.myRole === 'admin' || (c.kind === 'group' && !c.onlyAdminsPost))).map(c => (
+                <Pressable key={c.id} style={styles.forwardDestination} onPress={() => {
+                  const selected = forwardingMessage;
+                  setForwardingMessage(null);
+                  if (selected) void forwardMessage(id, selected.id, c.id).then(() => kivoAlert('Forwarded', 'Message sent to ' + c.title + '.')).catch(error => kivoAlert('Forward', error instanceof Error ? error.message : 'Could not forward.'));
+                }}>
+                  <Avatar name={c.title} uri={c.avatarUrl} size={38} verified={c.kind !== 'dm' && (c.isVerified === true || (c.kind === 'channel' && false))} />
+                  <View style={styles.forwardDestinationCopy}>
+                    <View style={styles.forwardDestinationTitleLine}><Text style={styles.forwardDestinationTitle} numberOfLines={1}>{c.title}</Text>{c.kind !== 'dm' && (c.isVerified === true || (c.kind === 'channel' && false)) ? <Text accessibilityLabel="Verified community" style={styles.forwardVerifiedBadge}>★</Text> : null}</View>
+                    <Text style={styles.forwardDestinationKind}>{c.kind === 'dm' ? 'Direct message' : c.kind === 'group' ? 'Group' : 'Channel'}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </KivoModal>
+      <BottomSheet visible={!!optionsMenu} onClose={() => setOptionsMenu(null)}>
+        <Text style={styles.sheetTitle}>Message options</Text>
+        {(optionsMenu ?? []).map(item => (
+          <Pressable key={item.text} style={styles.sheetRow} accessibilityRole="button" onPress={() => { setOptionsMenu(null); item.onPress?.(); }}>
+            <Text style={[styles.sheetRowText, item.style === 'destructive' && styles.sheetRowDanger]}>{item.text}</Text>
+          </Pressable>
+        ))}
+        <Pressable style={styles.sheetRow} accessibilityRole="button" onPress={() => setOptionsMenu(null)}><Text style={styles.sheetCancel}>Cancel</Text></Pressable>
+      </BottomSheet>
+      <PhotoViewer
+        uri={viewing?.media?.url ?? null}
+        title={viewing ? displayName(viewing.senderId) : undefined}
+        subtitle={viewing ? new Date(viewing.createdAt).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : undefined}
+        onClose={() => setViewing(null)}
+        onReply={viewing && canPost ? () => { const target = viewing; setEditingMessageId(null); setReplyingTo(target); } : undefined}
+      />
+    </KeyboardAvoidingView>
+  );
+}
+
+const c = kivoTheme.colors;
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: c.backgroundDeep },
+  header: { minHeight: 64, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.background },
+  back: { color: c.cream, fontSize: 36, width: 24 },
+  headerCopy: { flex: 1, minWidth: 0 },
+  nameLine: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+  verifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 11, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 17, height: 17, borderRadius: 9, overflow: 'hidden' },
+  name: { color: c.text, fontSize: 16, fontWeight: '800' },
+  status: { color: c.textMuted, fontSize: 11.5, marginTop: 2 },
+  info: { color: c.cream, fontSize: 20, paddingHorizontal: 6 },
+  listWrap: { flex: 1, position: 'relative' },
+  messages: { padding: 10, paddingBottom: 16, gap: 3 },
+  editingBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 7, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border },
+  editingLabel: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
+  editingCancel: { color: c.textMuted, fontSize: 12.5, fontWeight: '700' },
+  replyBarText: { color: c.textMuted, fontSize: 12.5, marginTop: 2 },
+  replyQuote: { borderLeftWidth: 3, borderLeftColor: c.accent, paddingLeft: 8, marginBottom: 6, opacity: 0.9 },
+  replyQuoteName: { color: c.accent, fontSize: 12, fontWeight: '800' },
+  replyQuoteText: { color: c.textMuted, fontSize: 12.5 },
+  sheetTitle: { color: c.text, fontSize: 18, fontWeight: '800', marginBottom: 6 },
+  sheetRow: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: c.border },
+  sheetRowText: { color: c.text, fontSize: 16, fontWeight: '700' },
+  sheetRowDanger: { color: '#E0443E' },
+  sheetCancel: { color: c.textMuted, fontSize: 16, fontWeight: '600' },
+  jumpLatest: { position: 'absolute', right: 12, bottom: 18, minWidth: 44, height: 44, borderRadius: 22, paddingHorizontal: 5, backgroundColor: '#24394B', alignItems: 'center', justifyContent: 'center', elevation: 5, flexDirection: 'row', gap: 3 },
+  jumpCount: { minWidth: 25, height: 25, borderRadius: 13, paddingHorizontal: 5, backgroundColor: '#55B7F3', alignItems: 'center', justifyContent: 'center' },
+  jumpCountText: { color: '#FFFFFF', fontSize: 11.5, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  jumpArrow: { color: '#EAF4FF', fontSize: 19, fontWeight: '900' },
+  emptyText: { color: c.textMuted, textAlign: 'center', marginTop: 40 },
+  day: { alignItems: 'center', marginVertical: 10 },
+  dayText: { color: c.textMuted, fontSize: 11.5, backgroundColor: c.surface, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999, overflow: 'hidden' },
+  bubbleRow: { flexDirection: 'row', marginVertical: 1 },
+  bubbleRowMine: { justifyContent: 'flex-end' },
+  bubbleRowGroupIncoming: { alignItems: 'flex-end' },
+  avatarColumn: { width: 34, flexShrink: 0, marginRight: 8, alignItems: 'center', justifyContent: 'flex-end' },
+  bubble: { maxWidth: '84%', paddingHorizontal: 11, paddingTop: 7, paddingBottom: 5, borderRadius: 16, borderBottomLeftRadius: 4, backgroundColor: c.surfaceRaised, gap: 4 },
+  bubbleMine: { backgroundColor: '#1D6B4C', borderBottomLeftRadius: 16, borderBottomRightRadius: 4 },
+  post: { maxWidth: '96%', borderRadius: 16 },
+  deleted: { opacity: 0.6 },
+  senderLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  senderVerifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 9, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 14, height: 14, borderRadius: 7, overflow: 'hidden' },
+  sender: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
+  forwardedLabel: { color: c.textMuted, fontSize: 11, fontStyle: 'italic', fontWeight: '700' },
+  forwardOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.62)', justifyContent: 'center', padding: 22 },
+  forwardSheet: { maxHeight: '78%', borderRadius: 20, overflow: 'hidden', backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border },
+  forwardHeader: { paddingHorizontal: 18, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: c.border },
+  forwardTitle: { color: c.text, fontSize: 17, fontWeight: '900' },
+  forwardCancel: { color: c.accent, fontSize: 13, fontWeight: '800' },
+  forwardList: { flexGrow: 0 },
+  forwardDestination: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12, borderBottomWidth: 1, borderBottomColor: c.border },
+  forwardDestinationCopy: { flex: 1, minWidth: 0 },
+  forwardDestinationTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  forwardVerifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 9, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 14, height: 14, borderRadius: 7, overflow: 'hidden' },
+  forwardDestinationTitle: { color: c.text, fontSize: 14, fontWeight: '800' },
+  forwardDestinationKind: { color: c.textMuted, fontSize: 11.5, marginTop: 3 },
+  photo: { width: 240, maxWidth: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: c.background },
+  photoUnavailable: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: c.border },
+  photoUnavailableText: { color: c.textMuted, fontSize: 12, fontWeight: '700' },
+  text: { color: c.text, fontSize: 15, lineHeight: 20 },
+  showMore: { color: c.accent, fontWeight: '800', fontSize: 13, marginTop: 4 },
+  limitRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 6 },
+  limitCount: { color: c.textMuted, fontSize: 12 },
+  limitOver: { color: c.danger },
+  limitHint: { color: '#2589F5', fontSize: 12, fontWeight: '800', flexShrink: 1, textAlign: 'right' },
+  messageLink: { color: c.accent, textDecorationLine: 'underline', textDecorationColor: 'rgba(183,226,123,0.75)', backgroundColor: 'rgba(244,240,199,0.10)', borderRadius: 3 },
+  messageHashtag: { color: '#9BC9FF', textDecorationLine: 'underline', backgroundColor: 'rgba(115,170,255,0.12)' },
+  messageTicker: { color: c.accent, fontWeight: '800', backgroundColor: 'rgba(183,226,123,0.12)' },
+  deletedText: { color: c.textMuted, fontStyle: 'italic', fontSize: 13 },
+  meta: { color: 'rgba(247,245,223,0.6)', fontSize: 10.5, alignSelf: 'flex-end' },
+  composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background },
+  attach: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
+  attachText: { color: c.cream, fontSize: 26 },
+  tokenAttachPanel: { paddingHorizontal: 10, paddingVertical: 8, gap: 8, backgroundColor: c.background, borderTopWidth: 1, borderTopColor: c.border },
+  tokenChainRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  tokenChainChoice: { paddingHorizontal: 9, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: c.border },
+  tokenChainChoiceActive: { backgroundColor: c.accent, borderColor: c.accent },
+  tokenChainChoiceText: { color: c.text, fontSize: 11, fontWeight: '700' },
+  tokenAddressInput: { minHeight: 38, borderRadius: 10, paddingHorizontal: 11, backgroundColor: c.surface, color: c.text, borderWidth: 1, borderColor: c.border },
+  tokenAttachment: { padding: 10, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.background, gap: 7, marginVertical: 4 },
+  tokenAttachmentTop: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  tokenAttachmentIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: c.surface },
+  tokenAttachmentIconFallback: { width: 34, height: 34, borderRadius: 17, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' },
+  tokenAttachmentIconGlyph: { color: c.accent, fontSize: 20, fontWeight: '900' },
+  tokenAttachmentTitle: { flex: 1, minWidth: 0, gap: 2 },
+  tokenAttachmentSymbol: { color: c.text, fontWeight: '900', fontSize: 14 },
+  tokenAttachmentName: { color: c.textMuted, fontSize: 12 },
+  tokenAttachmentAddressRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  tokenAttachmentAddress: { color: c.text, fontSize: 11, flex: 1 },
+  tokenAttachmentCopy: { paddingHorizontal: 7, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: c.border },
+  tokenAttachmentCopyText: { color: c.accent, fontSize: 11, fontWeight: '800' },
+  tokenAttachmentHint: { color: c.textMuted, fontSize: 11, fontWeight: '700' },
+  input: { flex: 1, minHeight: 44, maxHeight: 140, borderRadius: 22, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11, backgroundColor: c.surface, color: c.text, fontSize: 15 },
+  send: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#2FD67B', alignItems: 'center', justifyContent: 'center' },
+  sendDisabled: { opacity: 0.45 },
+  sendText: { color: c.backgroundDeep, fontSize: 18, fontWeight: '900' },
+  readonly: { padding: 14, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background, alignItems: 'center' },
+  readonlyText: { color: c.textMuted, fontSize: 13 },
+});
+ + message.token.symbol : 'token'} in Trade`} onPress={() => onOpenToken?.(message.token!)} style={styles.tokenAttachment}><View style={styles.tokenAttachmentTop}>{message.token.imageUrl ? <Image source={{uri: message.token.imageUrl}} style={styles.tokenAttachmentIcon} resizeMode="cover" /> : <View style={styles.tokenAttachmentIconFallback}><Text style={styles.tokenAttachmentIconGlyph}>◈</Text></View>}<View style={styles.tokenAttachmentTitle}><Text style={styles.tokenAttachmentSymbol}>{message.token.symbol ? '
+                {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
+                {message.replyTo && !message.deleted ? (() => {
+                  const quoted = messages.find(item => item.id === message.replyTo);
+                  return <View style={styles.replyQuote}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={2}>{quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available'}</Text></View>;
+                })() : null}
+                {message.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : message.text ? (() => {
+                  // Long messages collapse after ~12 lines so one post can't take over the chat.
+                  const long = messageLength(message.text) > 700 || message.text.split('\n').length > 12;
+                  const open = expanded[message.id] === true;
+                  return <View>
+                    <Text style={styles.text} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text)}</Text>
+                    {long ? <Pressable hitSlop={6} onPress={() => setExpanded(prev => ({ ...prev, [message.id]: !open }))}><Text style={styles.showMore}>{open ? 'Show less' : 'Show more'}</Text></Pressable> : null}
+                  </View>;
+                })() : null}
+                <Text style={styles.meta}>
+                  {message.editedAt ? 'edited · ' : ''}{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {mine ? message.status === 'pending' ? '  ◷' : message.status === 'failed' ? '  ⚠ tap & hold' : '  ✓' : ''}
+                </Text>
+              </Pressable>
+            </View>
+          );
+        }}
+      />
+
+        {unseenMessages > 0 && (
+          <Pressable style={styles.jumpLatest} onPress={() => { list.current?.scrollToEnd({ animated: true }); atBottom.current = true; setUnseenMessages(0); }} accessibilityLabel="Jump to latest messages">
+            <View style={styles.jumpCount}><Text style={styles.jumpCountText}>{unseenMessages > 999 ? '999+' : unseenMessages}</Text></View>
+            <Text style={styles.jumpArrow}>⌄</Text>
+          </Pressable>
+        )}
+      </View>
+      {canPost ? (
+        <View>
+        {replyingTo && !editingMessageId && <View style={styles.editingBar}><View style={{ flex: 1, marginRight: 12 }}><Text style={styles.editingLabel}>Replying to {displayName(replyingTo.senderId)}</Text><Text style={styles.replyBarText} numberOfLines={1}>{replyingTo.text || '📷 Photo'}</Text></View><Pressable onPress={() => setReplyingTo(null)} hitSlop={10}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
+        {editingMessageId && <View style={styles.editingBar}><Text style={styles.editingLabel}>Editing message</Text><Pressable onPress={() => { setEditingMessageId(null); setDraft(''); }}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
+        {showCounter ? (
+          <View style={styles.limitRow} accessibilityLiveRegion="polite">
+            <Text style={[styles.limitCount, overLimit && styles.limitOver]}>{draftLength.toLocaleString()}/{charLimit.toLocaleString()}</Text>
+            {overLimit && !verifiedSender ? <Text style={styles.limitHint}>★ Get Verified for up to {messageCharLimit(true).toLocaleString()} characters</Text> : null}
+          </View>
+        ) : null}
+        {tokenAttachmentOpen && <View style={styles.tokenAttachPanel}><View style={styles.tokenChainRow}>{['solana','base','ethereum','bnb'].map(chain => <Pressable key={chain} style={[styles.tokenChainChoice, tokenAttachmentChain === chain && styles.tokenChainChoiceActive]} onPress={() => setTokenAttachmentChain(chain)}><Text style={styles.tokenChainChoiceText}>{chain}</Text></Pressable>)}</View><TextInput value={tokenAttachmentAddress} onChangeText={setTokenAttachmentAddress} autoCapitalize="none" placeholder="Token mint / contract address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.tokenAddressInput}/></View>}
+        <View style={styles.composer}>
+          <Pressable onPress={() => setTokenAttachmentOpen(value => !value)} hitSlop={8} style={styles.attach} accessibilityLabel="Attach token"><Text style={styles.attachText}>◇</Text></Pressable>
+          <Pressable onPress={attach} hitSlop={8} style={styles.attach} accessibilityLabel="Attach photo"><Text style={styles.attachText}>＋</Text></Pressable>
+          <TextInput value={draft} onChangeText={setDraft} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={messageCharLimit(true) * 2} style={styles.input} />
+          <Pressable disabled={(!draft.trim() && !tokenAttachmentAddress.trim()) || sending} onPress={send} style={[styles.send, ((!draft.trim() && !tokenAttachmentAddress.trim()) || overLimit || sending) && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
+        </View>
+        </View>
+      ) : (
+        <View style={styles.readonly}><Text style={styles.readonlyText}>{conversation?.kind === 'group' ? '📢 Only admins can send messages.' : '📢 Only the channel owner and admins can post.'}</Text></View>
+      )}
+      <KivoModal transparent visible={!!forwardingMessage} animationType="fade" onRequestClose={() => setForwardingMessage(null)}>
+        <View style={styles.forwardOverlay}>
+          <View style={styles.forwardSheet}>
+            <View style={styles.forwardHeader}>
+              <Text style={styles.forwardTitle}>Forward to…</Text>
+              <Pressable onPress={() => setForwardingMessage(null)} hitSlop={10}><Text style={styles.forwardCancel}>Cancel</Text></Pressable>
+            </View>
+            <ScrollView style={styles.forwardList} keyboardShouldPersistTaps="handled">
+              {state.conversations.filter(c => c.id !== id && (c.kind === 'dm' || c.myRole === 'owner' || c.myRole === 'admin' || (c.kind === 'group' && !c.onlyAdminsPost))).map(c => (
+                <Pressable key={c.id} style={styles.forwardDestination} onPress={() => {
+                  const selected = forwardingMessage;
+                  setForwardingMessage(null);
+                  if (selected) void forwardMessage(id, selected.id, c.id).then(() => kivoAlert('Forwarded', 'Message sent to ' + c.title + '.')).catch(error => kivoAlert('Forward', error instanceof Error ? error.message : 'Could not forward.'));
+                }}>
+                  <Avatar name={c.title} uri={c.avatarUrl} size={38} verified={c.kind !== 'dm' && (c.isVerified === true || (c.kind === 'channel' && false))} />
+                  <View style={styles.forwardDestinationCopy}>
+                    <View style={styles.forwardDestinationTitleLine}><Text style={styles.forwardDestinationTitle} numberOfLines={1}>{c.title}</Text>{c.kind !== 'dm' && (c.isVerified === true || (c.kind === 'channel' && false)) ? <Text accessibilityLabel="Verified community" style={styles.forwardVerifiedBadge}>★</Text> : null}</View>
+                    <Text style={styles.forwardDestinationKind}>{c.kind === 'dm' ? 'Direct message' : c.kind === 'group' ? 'Group' : 'Channel'}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </KivoModal>
+      <BottomSheet visible={!!optionsMenu} onClose={() => setOptionsMenu(null)}>
+        <Text style={styles.sheetTitle}>Message options</Text>
+        {(optionsMenu ?? []).map(item => (
+          <Pressable key={item.text} style={styles.sheetRow} accessibilityRole="button" onPress={() => { setOptionsMenu(null); item.onPress?.(); }}>
+            <Text style={[styles.sheetRowText, item.style === 'destructive' && styles.sheetRowDanger]}>{item.text}</Text>
+          </Pressable>
+        ))}
+        <Pressable style={styles.sheetRow} accessibilityRole="button" onPress={() => setOptionsMenu(null)}><Text style={styles.sheetCancel}>Cancel</Text></Pressable>
+      </BottomSheet>
+      <PhotoViewer
+        uri={viewing?.media?.url ?? null}
+        title={viewing ? displayName(viewing.senderId) : undefined}
+        subtitle={viewing ? new Date(viewing.createdAt).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : undefined}
+        onClose={() => setViewing(null)}
+        onReply={viewing && canPost ? () => { const target = viewing; setEditingMessageId(null); setReplyingTo(target); } : undefined}
+      />
+    </KeyboardAvoidingView>
+  );
+}
+
+const c = kivoTheme.colors;
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: c.backgroundDeep },
+  header: { minHeight: 64, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.background },
+  back: { color: c.cream, fontSize: 36, width: 24 },
+  headerCopy: { flex: 1, minWidth: 0 },
+  nameLine: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+  verifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 11, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 17, height: 17, borderRadius: 9, overflow: 'hidden' },
+  name: { color: c.text, fontSize: 16, fontWeight: '800' },
+  status: { color: c.textMuted, fontSize: 11.5, marginTop: 2 },
+  info: { color: c.cream, fontSize: 20, paddingHorizontal: 6 },
+  listWrap: { flex: 1, position: 'relative' },
+  messages: { padding: 10, paddingBottom: 16, gap: 3 },
+  editingBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 7, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border },
+  editingLabel: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
+  editingCancel: { color: c.textMuted, fontSize: 12.5, fontWeight: '700' },
+  replyBarText: { color: c.textMuted, fontSize: 12.5, marginTop: 2 },
+  replyQuote: { borderLeftWidth: 3, borderLeftColor: c.accent, paddingLeft: 8, marginBottom: 6, opacity: 0.9 },
+  replyQuoteName: { color: c.accent, fontSize: 12, fontWeight: '800' },
+  replyQuoteText: { color: c.textMuted, fontSize: 12.5 },
+  sheetTitle: { color: c.text, fontSize: 18, fontWeight: '800', marginBottom: 6 },
+  sheetRow: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: c.border },
+  sheetRowText: { color: c.text, fontSize: 16, fontWeight: '700' },
+  sheetRowDanger: { color: '#E0443E' },
+  sheetCancel: { color: c.textMuted, fontSize: 16, fontWeight: '600' },
+  jumpLatest: { position: 'absolute', right: 12, bottom: 18, minWidth: 44, height: 44, borderRadius: 22, paddingHorizontal: 5, backgroundColor: '#24394B', alignItems: 'center', justifyContent: 'center', elevation: 5, flexDirection: 'row', gap: 3 },
+  jumpCount: { minWidth: 25, height: 25, borderRadius: 13, paddingHorizontal: 5, backgroundColor: '#55B7F3', alignItems: 'center', justifyContent: 'center' },
+  jumpCountText: { color: '#FFFFFF', fontSize: 11.5, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  jumpArrow: { color: '#EAF4FF', fontSize: 19, fontWeight: '900' },
+  emptyText: { color: c.textMuted, textAlign: 'center', marginTop: 40 },
+  day: { alignItems: 'center', marginVertical: 10 },
+  dayText: { color: c.textMuted, fontSize: 11.5, backgroundColor: c.surface, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999, overflow: 'hidden' },
+  bubbleRow: { flexDirection: 'row', marginVertical: 1 },
+  bubbleRowMine: { justifyContent: 'flex-end' },
+  bubbleRowGroupIncoming: { alignItems: 'flex-end' },
+  avatarColumn: { width: 34, flexShrink: 0, marginRight: 8, alignItems: 'center', justifyContent: 'flex-end' },
+  bubble: { maxWidth: '84%', paddingHorizontal: 11, paddingTop: 7, paddingBottom: 5, borderRadius: 16, borderBottomLeftRadius: 4, backgroundColor: c.surfaceRaised, gap: 4 },
+  bubbleMine: { backgroundColor: '#1D6B4C', borderBottomLeftRadius: 16, borderBottomRightRadius: 4 },
+  post: { maxWidth: '96%', borderRadius: 16 },
+  deleted: { opacity: 0.6 },
+  senderLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  senderVerifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 9, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 14, height: 14, borderRadius: 7, overflow: 'hidden' },
+  sender: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
+  forwardedLabel: { color: c.textMuted, fontSize: 11, fontStyle: 'italic', fontWeight: '700' },
+  forwardOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.62)', justifyContent: 'center', padding: 22 },
+  forwardSheet: { maxHeight: '78%', borderRadius: 20, overflow: 'hidden', backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border },
+  forwardHeader: { paddingHorizontal: 18, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: c.border },
+  forwardTitle: { color: c.text, fontSize: 17, fontWeight: '900' },
+  forwardCancel: { color: c.accent, fontSize: 13, fontWeight: '800' },
+  forwardList: { flexGrow: 0 },
+  forwardDestination: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12, borderBottomWidth: 1, borderBottomColor: c.border },
+  forwardDestinationCopy: { flex: 1, minWidth: 0 },
+  forwardDestinationTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  forwardVerifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 9, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 14, height: 14, borderRadius: 7, overflow: 'hidden' },
+  forwardDestinationTitle: { color: c.text, fontSize: 14, fontWeight: '800' },
+  forwardDestinationKind: { color: c.textMuted, fontSize: 11.5, marginTop: 3 },
+  photo: { width: 240, maxWidth: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: c.background },
+  photoUnavailable: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: c.border },
+  photoUnavailableText: { color: c.textMuted, fontSize: 12, fontWeight: '700' },
+  text: { color: c.text, fontSize: 15, lineHeight: 20 },
+  showMore: { color: c.accent, fontWeight: '800', fontSize: 13, marginTop: 4 },
+  limitRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 6 },
+  limitCount: { color: c.textMuted, fontSize: 12 },
+  limitOver: { color: c.danger },
+  limitHint: { color: '#2589F5', fontSize: 12, fontWeight: '800', flexShrink: 1, textAlign: 'right' },
+  messageLink: { color: c.accent, textDecorationLine: 'underline', textDecorationColor: 'rgba(183,226,123,0.75)', backgroundColor: 'rgba(244,240,199,0.10)', borderRadius: 3 },
+  messageHashtag: { color: '#9BC9FF', textDecorationLine: 'underline', backgroundColor: 'rgba(115,170,255,0.12)' },
+  messageTicker: { color: c.accent, fontWeight: '800', backgroundColor: 'rgba(183,226,123,0.12)' },
+  deletedText: { color: c.textMuted, fontStyle: 'italic', fontSize: 13 },
+  meta: { color: 'rgba(247,245,223,0.6)', fontSize: 10.5, alignSelf: 'flex-end' },
+  composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background },
+  attach: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
+  attachText: { color: c.cream, fontSize: 26 },
+  tokenAttachPanel: { paddingHorizontal: 10, paddingVertical: 8, gap: 8, backgroundColor: c.background, borderTopWidth: 1, borderTopColor: c.border },
+  tokenChainRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  tokenChainChoice: { paddingHorizontal: 9, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: c.border },
+  tokenChainChoiceActive: { backgroundColor: c.accent, borderColor: c.accent },
+  tokenChainChoiceText: { color: c.text, fontSize: 11, fontWeight: '700' },
+  tokenAddressInput: { minHeight: 38, borderRadius: 10, paddingHorizontal: 11, backgroundColor: c.surface, color: c.text, borderWidth: 1, borderColor: c.border },
+  tokenAttachment: { padding: 10, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.background, gap: 6, marginVertical: 4 },
+  tokenAttachmentSymbol: { color: c.text, fontWeight: '900', fontSize: 14 },
+  tokenAttachmentName: { color: c.textMuted, fontSize: 12 },
+  tokenAttachmentAddress: { color: c.text, fontSize: 11 },
+  input: { flex: 1, minHeight: 44, maxHeight: 140, borderRadius: 22, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11, backgroundColor: c.surface, color: c.text, fontSize: 15 },
+  send: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#2FD67B', alignItems: 'center', justifyContent: 'center' },
+  sendDisabled: { opacity: 0.45 },
+  sendText: { color: c.backgroundDeep, fontSize: 18, fontWeight: '900' },
+  readonly: { padding: 14, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background, alignItems: 'center' },
+  readonlyText: { color: c.textMuted, fontSize: 13 },
+});
+ + message.token.symbol : 'Token attachment'}</Text><Text style={styles.tokenAttachmentName}>{message.token.name || message.token.chain}</Text></View></View><TokenMarketMetrics chain={message.token.chain} address={message.token.address} /><View style={styles.tokenAttachmentAddressRow}><Text style={styles.tokenAttachmentAddress} numberOfLines={1}>{message.token.address.slice(0, 6) + '…' + message.token.address.slice(-5)}</Text><Pressable accessibilityRole="button" accessibilityLabel="Copy token address" hitSlop={8} onPress={() => { Clipboard.setString(message.token!.address); kivoAlert('Token address', 'Copied to clipboard.'); }} style={styles.tokenAttachmentCopy}><Text style={styles.tokenAttachmentCopyText}>⧉ Copy</Text></Pressable></View><Text style={styles.tokenAttachmentHint}>Tap to trade</Text></Pressable>}
+                {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
+                {message.replyTo && !message.deleted ? (() => {
+                  const quoted = messages.find(item => item.id === message.replyTo);
+                  return <View style={styles.replyQuote}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={2}>{quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available'}</Text></View>;
+                })() : null}
+                {message.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : message.text ? (() => {
+                  // Long messages collapse after ~12 lines so one post can't take over the chat.
+                  const long = messageLength(message.text) > 700 || message.text.split('\n').length > 12;
+                  const open = expanded[message.id] === true;
+                  return <View>
+                    <Text style={styles.text} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text)}</Text>
+                    {long ? <Pressable hitSlop={6} onPress={() => setExpanded(prev => ({ ...prev, [message.id]: !open }))}><Text style={styles.showMore}>{open ? 'Show less' : 'Show more'}</Text></Pressable> : null}
+                  </View>;
+                })() : null}
+                <Text style={styles.meta}>
+                  {message.editedAt ? 'edited · ' : ''}{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {mine ? message.status === 'pending' ? '  ◷' : message.status === 'failed' ? '  ⚠ tap & hold' : '  ✓' : ''}
+                </Text>
+              </Pressable>
+            </View>
+          );
+        }}
+      />
+
+        {unseenMessages > 0 && (
+          <Pressable style={styles.jumpLatest} onPress={() => { list.current?.scrollToEnd({ animated: true }); atBottom.current = true; setUnseenMessages(0); }} accessibilityLabel="Jump to latest messages">
+            <View style={styles.jumpCount}><Text style={styles.jumpCountText}>{unseenMessages > 999 ? '999+' : unseenMessages}</Text></View>
+            <Text style={styles.jumpArrow}>⌄</Text>
+          </Pressable>
+        )}
+      </View>
+      {canPost ? (
+        <View>
+        {replyingTo && !editingMessageId && <View style={styles.editingBar}><View style={{ flex: 1, marginRight: 12 }}><Text style={styles.editingLabel}>Replying to {displayName(replyingTo.senderId)}</Text><Text style={styles.replyBarText} numberOfLines={1}>{replyingTo.text || '📷 Photo'}</Text></View><Pressable onPress={() => setReplyingTo(null)} hitSlop={10}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
+        {editingMessageId && <View style={styles.editingBar}><Text style={styles.editingLabel}>Editing message</Text><Pressable onPress={() => { setEditingMessageId(null); setDraft(''); }}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
+        {showCounter ? (
+          <View style={styles.limitRow} accessibilityLiveRegion="polite">
+            <Text style={[styles.limitCount, overLimit && styles.limitOver]}>{draftLength.toLocaleString()}/{charLimit.toLocaleString()}</Text>
+            {overLimit && !verifiedSender ? <Text style={styles.limitHint}>★ Get Verified for up to {messageCharLimit(true).toLocaleString()} characters</Text> : null}
+          </View>
+        ) : null}
+        {tokenAttachmentOpen && <View style={styles.tokenAttachPanel}><View style={styles.tokenChainRow}>{['solana','base','ethereum','bnb'].map(chain => <Pressable key={chain} style={[styles.tokenChainChoice, tokenAttachmentChain === chain && styles.tokenChainChoiceActive]} onPress={() => setTokenAttachmentChain(chain)}><Text style={styles.tokenChainChoiceText}>{chain}</Text></Pressable>)}</View><TextInput value={tokenAttachmentAddress} onChangeText={setTokenAttachmentAddress} autoCapitalize="none" placeholder="Token mint / contract address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.tokenAddressInput}/></View>}
+        <View style={styles.composer}>
+          <Pressable onPress={() => setTokenAttachmentOpen(value => !value)} hitSlop={8} style={styles.attach} accessibilityLabel="Attach token"><Text style={styles.attachText}>◇</Text></Pressable>
+          <Pressable onPress={attach} hitSlop={8} style={styles.attach} accessibilityLabel="Attach photo"><Text style={styles.attachText}>＋</Text></Pressable>
+          <TextInput value={draft} onChangeText={setDraft} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={messageCharLimit(true) * 2} style={styles.input} />
+          <Pressable disabled={(!draft.trim() && !tokenAttachmentAddress.trim()) || sending} onPress={send} style={[styles.send, ((!draft.trim() && !tokenAttachmentAddress.trim()) || overLimit || sending) && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
+        </View>
+        </View>
+      ) : (
+        <View style={styles.readonly}><Text style={styles.readonlyText}>{conversation?.kind === 'group' ? '📢 Only admins can send messages.' : '📢 Only the channel owner and admins can post.'}</Text></View>
+      )}
+      <KivoModal transparent visible={!!forwardingMessage} animationType="fade" onRequestClose={() => setForwardingMessage(null)}>
+        <View style={styles.forwardOverlay}>
+          <View style={styles.forwardSheet}>
+            <View style={styles.forwardHeader}>
+              <Text style={styles.forwardTitle}>Forward to…</Text>
+              <Pressable onPress={() => setForwardingMessage(null)} hitSlop={10}><Text style={styles.forwardCancel}>Cancel</Text></Pressable>
+            </View>
+            <ScrollView style={styles.forwardList} keyboardShouldPersistTaps="handled">
+              {state.conversations.filter(c => c.id !== id && (c.kind === 'dm' || c.myRole === 'owner' || c.myRole === 'admin' || (c.kind === 'group' && !c.onlyAdminsPost))).map(c => (
+                <Pressable key={c.id} style={styles.forwardDestination} onPress={() => {
+                  const selected = forwardingMessage;
+                  setForwardingMessage(null);
+                  if (selected) void forwardMessage(id, selected.id, c.id).then(() => kivoAlert('Forwarded', 'Message sent to ' + c.title + '.')).catch(error => kivoAlert('Forward', error instanceof Error ? error.message : 'Could not forward.'));
+                }}>
+                  <Avatar name={c.title} uri={c.avatarUrl} size={38} verified={c.kind !== 'dm' && (c.isVerified === true || (c.kind === 'channel' && false))} />
+                  <View style={styles.forwardDestinationCopy}>
+                    <View style={styles.forwardDestinationTitleLine}><Text style={styles.forwardDestinationTitle} numberOfLines={1}>{c.title}</Text>{c.kind !== 'dm' && (c.isVerified === true || (c.kind === 'channel' && false)) ? <Text accessibilityLabel="Verified community" style={styles.forwardVerifiedBadge}>★</Text> : null}</View>
+                    <Text style={styles.forwardDestinationKind}>{c.kind === 'dm' ? 'Direct message' : c.kind === 'group' ? 'Group' : 'Channel'}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </KivoModal>
+      <BottomSheet visible={!!optionsMenu} onClose={() => setOptionsMenu(null)}>
+        <Text style={styles.sheetTitle}>Message options</Text>
+        {(optionsMenu ?? []).map(item => (
+          <Pressable key={item.text} style={styles.sheetRow} accessibilityRole="button" onPress={() => { setOptionsMenu(null); item.onPress?.(); }}>
+            <Text style={[styles.sheetRowText, item.style === 'destructive' && styles.sheetRowDanger]}>{item.text}</Text>
+          </Pressable>
+        ))}
+        <Pressable style={styles.sheetRow} accessibilityRole="button" onPress={() => setOptionsMenu(null)}><Text style={styles.sheetCancel}>Cancel</Text></Pressable>
+      </BottomSheet>
+      <PhotoViewer
+        uri={viewing?.media?.url ?? null}
+        title={viewing ? displayName(viewing.senderId) : undefined}
+        subtitle={viewing ? new Date(viewing.createdAt).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : undefined}
+        onClose={() => setViewing(null)}
+        onReply={viewing && canPost ? () => { const target = viewing; setEditingMessageId(null); setReplyingTo(target); } : undefined}
+      />
+    </KeyboardAvoidingView>
+  );
+}
+
+const c = kivoTheme.colors;
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: c.backgroundDeep },
+  header: { minHeight: 64, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.background },
+  back: { color: c.cream, fontSize: 36, width: 24 },
+  headerCopy: { flex: 1, minWidth: 0 },
+  nameLine: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+  verifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 11, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 17, height: 17, borderRadius: 9, overflow: 'hidden' },
+  name: { color: c.text, fontSize: 16, fontWeight: '800' },
+  status: { color: c.textMuted, fontSize: 11.5, marginTop: 2 },
+  info: { color: c.cream, fontSize: 20, paddingHorizontal: 6 },
+  listWrap: { flex: 1, position: 'relative' },
+  messages: { padding: 10, paddingBottom: 16, gap: 3 },
+  editingBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 7, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border },
+  editingLabel: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
+  editingCancel: { color: c.textMuted, fontSize: 12.5, fontWeight: '700' },
+  replyBarText: { color: c.textMuted, fontSize: 12.5, marginTop: 2 },
+  replyQuote: { borderLeftWidth: 3, borderLeftColor: c.accent, paddingLeft: 8, marginBottom: 6, opacity: 0.9 },
+  replyQuoteName: { color: c.accent, fontSize: 12, fontWeight: '800' },
+  replyQuoteText: { color: c.textMuted, fontSize: 12.5 },
+  sheetTitle: { color: c.text, fontSize: 18, fontWeight: '800', marginBottom: 6 },
+  sheetRow: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: c.border },
+  sheetRowText: { color: c.text, fontSize: 16, fontWeight: '700' },
+  sheetRowDanger: { color: '#E0443E' },
+  sheetCancel: { color: c.textMuted, fontSize: 16, fontWeight: '600' },
+  jumpLatest: { position: 'absolute', right: 12, bottom: 18, minWidth: 44, height: 44, borderRadius: 22, paddingHorizontal: 5, backgroundColor: '#24394B', alignItems: 'center', justifyContent: 'center', elevation: 5, flexDirection: 'row', gap: 3 },
+  jumpCount: { minWidth: 25, height: 25, borderRadius: 13, paddingHorizontal: 5, backgroundColor: '#55B7F3', alignItems: 'center', justifyContent: 'center' },
+  jumpCountText: { color: '#FFFFFF', fontSize: 11.5, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  jumpArrow: { color: '#EAF4FF', fontSize: 19, fontWeight: '900' },
+  emptyText: { color: c.textMuted, textAlign: 'center', marginTop: 40 },
+  day: { alignItems: 'center', marginVertical: 10 },
+  dayText: { color: c.textMuted, fontSize: 11.5, backgroundColor: c.surface, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999, overflow: 'hidden' },
+  bubbleRow: { flexDirection: 'row', marginVertical: 1 },
+  bubbleRowMine: { justifyContent: 'flex-end' },
+  bubbleRowGroupIncoming: { alignItems: 'flex-end' },
+  avatarColumn: { width: 34, flexShrink: 0, marginRight: 8, alignItems: 'center', justifyContent: 'flex-end' },
+  bubble: { maxWidth: '84%', paddingHorizontal: 11, paddingTop: 7, paddingBottom: 5, borderRadius: 16, borderBottomLeftRadius: 4, backgroundColor: c.surfaceRaised, gap: 4 },
+  bubbleMine: { backgroundColor: '#1D6B4C', borderBottomLeftRadius: 16, borderBottomRightRadius: 4 },
+  post: { maxWidth: '96%', borderRadius: 16 },
+  deleted: { opacity: 0.6 },
+  senderLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  senderVerifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 9, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 14, height: 14, borderRadius: 7, overflow: 'hidden' },
+  sender: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
+  forwardedLabel: { color: c.textMuted, fontSize: 11, fontStyle: 'italic', fontWeight: '700' },
+  forwardOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.62)', justifyContent: 'center', padding: 22 },
+  forwardSheet: { maxHeight: '78%', borderRadius: 20, overflow: 'hidden', backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border },
+  forwardHeader: { paddingHorizontal: 18, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: c.border },
+  forwardTitle: { color: c.text, fontSize: 17, fontWeight: '900' },
+  forwardCancel: { color: c.accent, fontSize: 13, fontWeight: '800' },
+  forwardList: { flexGrow: 0 },
+  forwardDestination: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12, borderBottomWidth: 1, borderBottomColor: c.border },
+  forwardDestinationCopy: { flex: 1, minWidth: 0 },
+  forwardDestinationTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  forwardVerifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 9, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 14, height: 14, borderRadius: 7, overflow: 'hidden' },
+  forwardDestinationTitle: { color: c.text, fontSize: 14, fontWeight: '800' },
+  forwardDestinationKind: { color: c.textMuted, fontSize: 11.5, marginTop: 3 },
+  photo: { width: 240, maxWidth: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: c.background },
+  photoUnavailable: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: c.border },
+  photoUnavailableText: { color: c.textMuted, fontSize: 12, fontWeight: '700' },
+  text: { color: c.text, fontSize: 15, lineHeight: 20 },
+  showMore: { color: c.accent, fontWeight: '800', fontSize: 13, marginTop: 4 },
+  limitRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 6 },
+  limitCount: { color: c.textMuted, fontSize: 12 },
+  limitOver: { color: c.danger },
+  limitHint: { color: '#2589F5', fontSize: 12, fontWeight: '800', flexShrink: 1, textAlign: 'right' },
+  messageLink: { color: c.accent, textDecorationLine: 'underline', textDecorationColor: 'rgba(183,226,123,0.75)', backgroundColor: 'rgba(244,240,199,0.10)', borderRadius: 3 },
+  messageHashtag: { color: '#9BC9FF', textDecorationLine: 'underline', backgroundColor: 'rgba(115,170,255,0.12)' },
+  messageTicker: { color: c.accent, fontWeight: '800', backgroundColor: 'rgba(183,226,123,0.12)' },
+  deletedText: { color: c.textMuted, fontStyle: 'italic', fontSize: 13 },
+  meta: { color: 'rgba(247,245,223,0.6)', fontSize: 10.5, alignSelf: 'flex-end' },
+  composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background },
+  attach: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
+  attachText: { color: c.cream, fontSize: 26 },
+  tokenAttachPanel: { paddingHorizontal: 10, paddingVertical: 8, gap: 8, backgroundColor: c.background, borderTopWidth: 1, borderTopColor: c.border },
+  tokenChainRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  tokenChainChoice: { paddingHorizontal: 9, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: c.border },
+  tokenChainChoiceActive: { backgroundColor: c.accent, borderColor: c.accent },
+  tokenChainChoiceText: { color: c.text, fontSize: 11, fontWeight: '700' },
+  tokenAddressInput: { minHeight: 38, borderRadius: 10, paddingHorizontal: 11, backgroundColor: c.surface, color: c.text, borderWidth: 1, borderColor: c.border },
+  tokenAttachment: { padding: 10, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.background, gap: 6, marginVertical: 4 },
+  tokenAttachmentSymbol: { color: c.text, fontWeight: '900', fontSize: 14 },
+  tokenAttachmentName: { color: c.textMuted, fontSize: 12 },
+  tokenAttachmentAddress: { color: c.text, fontSize: 11 },
+  input: { flex: 1, minHeight: 44, maxHeight: 140, borderRadius: 22, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11, backgroundColor: c.surface, color: c.text, fontSize: 15 },
+  send: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#2FD67B', alignItems: 'center', justifyContent: 'center' },
+  sendDisabled: { opacity: 0.45 },
+  sendText: { color: c.backgroundDeep, fontSize: 18, fontWeight: '900' },
+  readonly: { padding: 14, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background, alignItems: 'center' },
+  readonlyText: { color: c.textMuted, fontSize: 13 },
+});
+ + message.token.symbol : 'Token attachment'}</Text><Text style={styles.tokenAttachmentName}>{message.token.name || message.token.chain}</Text></View></View><TokenMarketMetrics chain={message.token.chain} address={message.token.address} /><View style={styles.tokenAttachmentAddressRow}><Text style={styles.tokenAttachmentAddress} numberOfLines={1}>{message.token.address.slice(0, 6) + '…' + message.token.address.slice(-5)}</Text><Pressable accessibilityRole="button" accessibilityLabel="Copy token address" hitSlop={8} onPress={() => { Clipboard.setString(message.token!.address); kivoAlert('Token address', 'Copied to clipboard.'); }} style={styles.tokenAttachmentCopy}><Text style={styles.tokenAttachmentCopyText}>⧉ Copy</Text></Pressable></View><Text style={styles.tokenAttachmentHint}>Tap to trade</Text></Pressable>}
+                
                 {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
                 {message.replyTo && !message.deleted ? (() => {
                   const quoted = messages.find(item => item.id === message.replyTo);
