@@ -93,7 +93,7 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
     case 'token': return <TokenDetailScreen token={selectedToken} onMarket={setSelectedToken} onBack={back} onBuy={() => { setTradeSide('buy'); home('Trade'); }} onSell={() => { setTradeSide('sell'); home('Trade'); }} />;
     case 'wallet': return <WalletSummaryScreen onBack={back} onTrade={() => home('Trade')} initialAction={view.action} />;
     case 'editProfile': return <EditProfileScreen onBack={back} onOpenVerification={(subjectId, subjectName) => push({ name: 'verification', subjectType: 'profile', subjectId, subjectName })} />;
-    case 'notifications': return <NotificationScreen onBack={back} />;
+    case 'notifications': return <NotificationScreen onBack={back} onOpenPost={() => { back(); changeTab('Feed'); }} />;
     case 'activity': return <ActivityScreen onBack={back} />;
     case 'security': return <SecurityScreen onBack={back} />;
     case 'settings': return <SettingsScreen onBack={back} onOpenWallet={() => push({ name: 'wallet' })} onOpenProfile={() => push({ name: 'editProfile' })} onOpenSecurity={() => push({ name: 'security' })} onLogout={onLogout} />;
