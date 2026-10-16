@@ -10,6 +10,7 @@ export type FeedPost = {
   likeCount: number; dislikeCount: number; replyCount: number; likedByViewer: boolean; dislikedByViewer: boolean; pinned: boolean;
 };
 export type FeedReply = {id: string; postId: string; userId: string; username: string; avatarUrl: string | null; body: string; createdAt: number};
+export type FeedPostNotification = {id: string; kind: 'post' | 'like' | 'dislike' | 'reply'; postId: string; actorId: string; actorUsername: string; postPreview: string; createdAt: number; readAt: number | null};
 
 export class ApiError extends Error {
   status: number;
@@ -245,6 +246,10 @@ export class KivoApi {
   setFeedPostPinned(postId: string, pinned: boolean) { return this.request<{pinned: boolean}>('POST', `/api/feed/${encodeURIComponent(postId)}/pin`, {pinned}); }
   feedReplies(postId: string) { return this.request<FeedReply[]>('GET', `/api/feed/${encodeURIComponent(postId)}/replies`, undefined, false); }
   createFeedReply(postId: string, body: string) { return this.request<FeedReply>('POST', `/api/feed/${encodeURIComponent(postId)}/replies`, {body}); }
+  feedNotifications() { return this.request<FeedPostNotification[]>('GET', '/api/feed/notifications'); }
+  markFeedNotificationsRead() { return this.request<{updated: boolean}>('POST', '/api/feed/notifications/read', {}); }
+  feedPostNotificationSubscription(authorId: string) { return this.request<{enabled: boolean}>('GET', `/api/feed/notifications/${encodeURIComponent(authorId)}`); }
+  setFeedPostNotificationSubscription(authorId: string, enabled: boolean) { return this.request<{enabled: boolean}>('POST', `/api/feed/notifications/${encodeURIComponent(authorId)}`, {enabled}); }
   conversations() { return this.request<ApiConversation[]>('GET', '/api/conversations'); }
   openDm(address: string) { return this.request<{id: string}>('POST', '/api/conversations/dm', {address}); }
   history(conversationId: string, before?: number) { return this.request<ApiMessage[]>('GET', `/api/conversations/${encodeURIComponent(conversationId)}/messages${before ? `?before=${before}` : ''}`); }
