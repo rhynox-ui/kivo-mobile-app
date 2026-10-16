@@ -15,6 +15,8 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
   const [groups, setGroups] = useState<PublicCommunityCard[]>([]);
   const [verifiedChannels, setVerifiedChannels] = useState<Set<string>>(() => new Set());
   const [blocked, setBlocked] = useState(false);
+  const [postNotifications, setPostNotifications] = useState(false);
+  const [postNotificationsLoaded, setPostNotificationsLoaded] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<{isVerified: boolean; expiresAt: number | null; permanent: boolean} | null>(null);
   // EVM (kivo:0x…) or Solana (kivo:sol:…, case-sensitive) account.
   const address = walletAddressOfUserId(userId);
@@ -31,6 +33,18 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
     api.social(userId).then(setStats).catch(() => {});
     api.publicCommunitiesOf(userId).then(setGroups).catch(() => {});
     api.blockedUsers().then(ids => setBlocked(ids.includes(userId))).catch(() => {});
+    let active = true;
+    setPostNotificationsLoaded(false);
+    if (api.signedInUserId() && api.signedInUserId() !== userId) {
+      api.feedPostNotificationSubscription(userId)
+        .then(result => { if (active) setPostNotifications(result.enabled); })
+        .catch(() => { if (active) setPostNotifications(false); })
+        .finally(() => { if (active) setPostNotificationsLoaded(true); });
+    } else {
+      setPostNotifications(false);
+      setPostNotificationsLoaded(true);
+    }
+    return () => { active = false; };
   }, [userId]);
   useEffect(() => {
     let active = true;
@@ -97,6 +111,15 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
           </Pressable>
           <Pressable onPress={() => guard(async () => onOpenChat(await openDirectMessage(person?.address ?? address)))} style={[styles.button, styles.secondary]}><Text style={styles.secondaryText}>Message</Text></Pressable>
         </View>
+        {api.signedInUserId() && api.signedInUserId() !== userId ? (
+          <Pressable disabled={!postNotificationsLoaded} onPress={() => guard(async () => {
+            const next = !postNotifications;
+            const result = await api.setFeedPostNotificationSubscription(userId, next);
+            setPostNotifications(result.enabled);
+          })} style={[styles.button, styles.secondary, { alignSelf: 'stretch', flex: 0, opacity: postNotificationsLoaded ? 1 : 0.55 }]}>
+            <Text style={styles.secondaryText}>{!postNotificationsLoaded ? 'Loading post notifications…' : postNotifications ? '🔔 Post notifications on' : '♧ Notify me when they post'}</Text>
+          </Pressable>
+        ) : null}
         <Pressable onPress={() => kivoAlert(blocked ? 'Unblock user?' : 'Block user?', blocked ? 'This user is currently blocked. Unblocking will let them message you again.' : 'This user is not blocked. Blocking will stop them from sending you direct messages.', [
           { text: 'Cancel', style: 'cancel' },
           { text: blocked ? 'Unblock user' : 'Block user', style: blocked ? 'default' : 'destructive', onPress: () => guard(async () => { if (blocked) await api.unblockUser(userId); else await api.blockUser(userId); setBlocked(!blocked); }) },
