@@ -6,7 +6,7 @@ import {kivoUserIdForWallet, normalizeWalletAddress} from './types';
 
 export type FeedPost = {
   id: string; userId: string; username: string; avatarUrl: string | null; body: string; imageUrl: string | null; createdAt: number;
-  token: null | {chain: string; address: string; symbol: string; name: string; imageUrl: string | null};
+  token: null | {chain: string; address: string; symbol: string; name: string; imageUrl: string | null; entryMarketCapUsd: number | null};
   likeCount: number; dislikeCount: number; replyCount: number; likedByViewer: boolean; dislikedByViewer: boolean; pinned: boolean;
 };
 export type FeedReply = {id: string; postId: string; userId: string; username: string; avatarUrl: string | null; body: string; createdAt: number};
