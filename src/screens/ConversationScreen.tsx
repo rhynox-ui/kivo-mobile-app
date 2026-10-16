@@ -13,6 +13,7 @@ import { KivoModal } from '../components/KivoModal';
 import { BottomSheet } from '../components/BottomSheet';
 import { PhotoViewer } from '../components/PhotoViewer';
 import { TokenMarketMetrics } from '../components/TokenMarketMetrics';
+import { TokenEntryMarketCap } from '../components/TokenEntryMarketCap';
 
 type Item = { type: 'day'; key: string; label: string } | { type: 'message'; key: string; message: LocalMessage; showName: boolean; showAvatar: boolean };
 
@@ -322,6 +323,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                       <Text style={styles.tokenAttachmentAddress} numberOfLines={1}>{message.token.address.slice(0, 6) + "…" + message.token.address.slice(-5)}</Text>
                       <Pressable accessibilityRole="button" accessibilityLabel="Copy token address" hitSlop={8} onPress={() => { Clipboard.setString(message.token!.address); kivoAlert("Token address", "Copied to clipboard."); }} style={styles.tokenAttachmentCopy}><Text style={styles.tokenAttachmentCopyText}>⧉ Copy</Text></Pressable>
                     </View>
+                    <TokenEntryMarketCap value={message.token.entryMarketCapUsd}/>
                     <Text style={styles.tokenAttachmentHint}>Tap to trade</Text>
                   </Pressable>
                 )}
