@@ -11,6 +11,7 @@ import { api } from '../state/session';
 import { KivoModal } from '../components/KivoModal';
 import { BottomSheet } from '../components/BottomSheet';
 import { PhotoViewer } from '../components/PhotoViewer';
+import { TokenMarketMetrics } from '../components/TokenMarketMetrics';
 
 type Item = { type: 'day'; key: string; label: string } | { type: 'message'; key: string; message: LocalMessage; showName: boolean; showAvatar: boolean };
 
@@ -306,7 +307,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
               <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
-                {message.token && <View style={styles.tokenAttachment}><Text style={styles.tokenAttachmentSymbol}>{message.token.symbol ? ' uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
+                {message.token && <View style={styles.tokenAttachment}><Text style={styles.tokenAttachmentSymbol}>{message.token.symbol ? '
+                {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
                 {message.replyTo && !message.deleted ? (() => {
                   const quoted = messages.find(item => item.id === message.replyTo);
                   return <View style={styles.replyQuote}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={2}>{quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available'}</Text></View>;
@@ -352,7 +354,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson }: { i
           <Pressable onPress={() => setTokenAttachmentOpen(value => !value)} hitSlop={8} style={styles.attach} accessibilityLabel="Attach token"><Text style={styles.attachText}>◇</Text></Pressable>
           <Pressable onPress={attach} hitSlop={8} style={styles.attach} accessibilityLabel="Attach photo"><Text style={styles.attachText}>＋</Text></Pressable>
           <TextInput value={draft} onChangeText={setDraft} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={messageCharLimit(true) * 2} style={styles.input} />
-          <Pressable disabled={!draft.trim() || sending} onPress={send} style={[styles.send, (!draft.trim() || overLimit || sending) && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
+          <Pressable disabled={(!draft.trim() && !tokenAttachmentAddress.trim()) || sending} onPress={send} style={[styles.send, ((!draft.trim() && !tokenAttachmentAddress.trim()) || overLimit || sending) && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
         </View>
         </View>
       ) : (
@@ -476,6 +478,16 @@ const styles = StyleSheet.create({
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background },
   attach: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
   attachText: { color: c.cream, fontSize: 26 },
+  tokenAttachPanel: { paddingHorizontal: 10, paddingVertical: 8, gap: 8, backgroundColor: c.background, borderTopWidth: 1, borderTopColor: c.border },
+  tokenChainRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  tokenChainChoice: { paddingHorizontal: 9, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: c.border },
+  tokenChainChoiceActive: { backgroundColor: c.accent, borderColor: c.accent },
+  tokenChainChoiceText: { color: c.text, fontSize: 11, fontWeight: '700' },
+  tokenAddressInput: { minHeight: 38, borderRadius: 10, paddingHorizontal: 11, backgroundColor: c.surface, color: c.text, borderWidth: 1, borderColor: c.border },
+  tokenAttachment: { padding: 10, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.background, gap: 6, marginVertical: 4 },
+  tokenAttachmentSymbol: { color: c.text, fontWeight: '900', fontSize: 14 },
+  tokenAttachmentName: { color: c.textMuted, fontSize: 12 },
+  tokenAttachmentAddress: { color: c.text, fontSize: 11 },
   input: { flex: 1, minHeight: 44, maxHeight: 140, borderRadius: 22, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11, backgroundColor: c.surface, color: c.text, fontSize: 15 },
   send: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#2FD67B', alignItems: 'center', justifyContent: 'center' },
   sendDisabled: { opacity: 0.45 },
@@ -483,7 +495,7 @@ const styles = StyleSheet.create({
   readonly: { padding: 14, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background, alignItems: 'center' },
   readonlyText: { color: c.textMuted, fontSize: 13 },
 });
- + message.token.symbol : 'Token attachment'}</Text><Text style={styles.tokenAttachmentName}>{message.token.name || message.token.chain}</Text><Text style={styles.tokenAttachmentAddress} numberOfLines={1}>{message.token.address}</Text><Text style={styles.tokenAttachmentHint}>Token · {message.token.chain}</Text></View>}
+ + message.token.symbol : 'Token attachment'}</Text><Text style={styles.tokenAttachmentName}>{message.token.name || message.token.chain}</Text><TokenMarketMetrics chain={message.token.chain} address={message.token.address} /><Text style={styles.tokenAttachmentAddress} numberOfLines={1}>{message.token.address}</Text></View>}
                 {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
                 {message.replyTo && !message.deleted ? (() => {
                   const quoted = messages.find(item => item.id === message.replyTo);
