@@ -2,10 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { kivoTheme } from '../theme/kivoTheme';
 import { wordlist as english } from '@scure/bip39/wordlists/english.js';
-import { detectImportInput, serializeWalletSecret } from '../wallet/walletSecret';
+import { detectPhraseImport, serializeWalletSecret } from '../wallet/walletSecret';
 
-// One field for every supported format. Detection, validation and address
-// derivation all run on this device; the secret is only handed to the
+// Recovery phrase only: Kivo is one wallet across Solana, EVM networks and
+// NEAR, and only a phrase covers all of them (a single-network private key
+// would leave the other networks on an unrelated wallet). Validation and
+// address derivation run on this device; the phrase is only handed to the
 // password step, which encrypts it into the local vault.
 export function ImportWalletScreen({
   onBack,
@@ -17,7 +19,7 @@ export function ImportWalletScreen({
 }) {
   const [value, setValue] = useState('');
   const [reveal, setReveal] = useState(true);
-  const detected = useMemo(() => detectImportInput(value), [value]);
+  const detected = useMemo(() => detectPhraseImport(value), [value]);
   const looksLikeWords = /^[a-z\s]*$/i.test(value) && value.trim().includes(' ');
   const words = value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const current = words[words.length - 1] ?? '';
@@ -42,13 +44,14 @@ export function ImportWalletScreen({
         <Text style={styles.title}>Import wallet</Text>
       </View>
       <Text style={styles.body}>
-        Paste a recovery phrase or a private key. Kivo detects the network automatically, derives the
-        address on this device and encrypts the secret here. It is never sent to Kivo.
+        Enter your 12 or 24-word recovery phrase. One phrase gives you the same wallet on Solana, Ethereum,
+        Base, BNB Chain and every other Kivo network. Kivo checks it on this device and encrypts it here. It is
+        never sent to Kivo.
       </Text>
       <TextInput
         value={value}
         onChangeText={setValue}
-        placeholder="Private key or recovery phrase"
+        placeholder="Recovery phrase (12 or 24 words)"
         placeholderTextColor={kivoTheme.colors.textMuted}
         autoCapitalize="none"
         autoCorrect={false}
@@ -62,7 +65,7 @@ export function ImportWalletScreen({
       />
       <View style={styles.row}>
         <Text style={styles.count}>
-          {looksLikeWords ? `${words.length}/24 words` : 'EVM · Solana · NEAR keys, or a 12/24-word phrase'}
+          {looksLikeWords ? `${words.length}/24 words` : 'Recovery phrase · 12 or 24 words. Private keys are not accepted.'}
         </Text>
         <Pressable onPress={() => setReveal(!reveal)} hitSlop={8}>
           <Text style={styles.toggle}>{reveal ? 'Hide' : 'Show'}</Text>
@@ -89,15 +92,6 @@ export function ImportWalletScreen({
               </View>
             ))}
             <Text style={styles.note}>Check this is the address you expect before importing.</Text>
-            {detected.kind !== 'mnemonic' && detected.generatesEvm ? (
-              <Text style={styles.note}>
-                Kivo profiles sign in with an EVM account, so Kivo will create a new EVM account for this wallet. Back it up
-                from Security › Export private keys.
-              </Text>
-            ) : null}
-            {detected.kind === 'evm' ? (
-              <Text style={styles.note}>This key has no Solana or NEAR account. Import a recovery phrase to use all networks.</Text>
-            ) : null}
           </View>
         )}
       </View>

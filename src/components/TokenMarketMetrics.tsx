@@ -31,17 +31,20 @@ function formatCap(value: number | null): string {
   const compact = value >= 1e9 ? (value / 1e9).toFixed(1) + 'B' : value >= 1e6 ? (value / 1e6).toFixed(1) + 'M' : value >= 1e3 ? (value / 1e3).toFixed(1) + 'K' : Math.round(value).toLocaleString();
   return 'MC $' + compact;
 }
-export function TokenMarketMetrics({ chain, address }: { chain: string; address: string }) {
+export function TokenMarketMetrics({ chain, address, stacked = false }: { chain: string; address: string; /** MC over 24h change, right-aligned (token card header). */ stacked?: boolean }) {
   const [snapshot, setSnapshot] = useState<Snapshot>({ marketCapUsd: null, change24h: null });
   useEffect(() => { let active = true; void loadSnapshot(chain, address).then(value => { if (active) setSnapshot(value); }); return () => { active = false; }; }, [chain, address]);
   const change = snapshot.change24h;
   const changeText = change == null ? '—' : (change > 0 ? '+' : '') + change.toFixed(2) + '%';
+  if (stacked) return <View style={styles.stack}><Text numberOfLines={1} style={styles.capStrong}>{formatCap(snapshot.marketCapUsd).replace(/^MC (.*)$/, '$1 MC')}</Text><Text numberOfLines={1} style={[styles.change, change == null ? styles.muted : change >= 0 ? styles.positive : styles.negative]}>{changeText}</Text></View>;
   return <View style={styles.row}><Text numberOfLines={1} style={styles.cap}>{formatCap(snapshot.marketCapUsd)}</Text><Text numberOfLines={1} style={[styles.change, change == null ? styles.muted : change >= 0 ? styles.positive : styles.negative]}>{changeText}</Text></View>;
 }
 const c = kivoTheme.colors;
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, minWidth: 0 },
   cap: { color: c.textMuted, fontSize: 12, fontWeight: '700', flexShrink: 1 },
+  stack: { alignItems: 'flex-end', gap: 2, flexShrink: 0 },
+  capStrong: { color: c.text, fontSize: 13, fontWeight: '900' },
   change: { fontSize: 12, fontWeight: '800', flexShrink: 0 },
   muted: { color: c.textMuted },
   positive: { color: '#2FD67B' },

@@ -29,8 +29,17 @@ import { NearTradePanel } from './NearTradePanel';
 import { normalizeAmountInput } from '../utils/amountInput';
 import { KivoModal } from '../components/KivoModal';
 import Clipboard from '@react-native-clipboard/clipboard';
+import { ShareTradeSheet, type SharedTrade } from '../components/ShareTradeSheet';
 
 type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
+
+/**
+ * Networks where Relay refused to sponsor a direct same-network swap this
+ * session (gas-free raw calls are enabled per Relay key and chain). Trades
+ * there go through a regular Relay-quoted route instead, which is sponsored.
+ */
+const directUnavailable = new Set<string>();
+const DIRECT_UNAVAILABLE = /isn't switched on for/;
 type ExecResult = { tone: 'success' | 'pending' | 'error'; message: string; hashes: string[]; chainIds: number[]; requestId: string | null; receipt?: { paid: string; received: string; feesUsd: number | null } };
 
 // Gasless (Mango Pro model): one signature on the device, Relay submits and pays gas.
@@ -71,6 +80,10 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   const [reviewOpen, setReviewOpen] = useState(false);
   const [update, setUpdate] = useState<ExecutionUpdate | null>(null);
   const [result, setResult] = useState<ExecResult | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareTrade, setShareTrade] = useState<SharedTrade | null>(null);
+  // Shown above the ticket when Kivo re-routed a trade (e.g. direct gas-free swap unavailable).
+  const [notice, setNotice] = useState('');
   // One haptic per trade outcome (respects the Haptics setting).
   useEffect(() => { if (result) haptic(result.tone === 'success' ? 'success' : result.tone === 'error' ? 'error' : 'warning'); }, [result]);
   const [running, setRunning] = useState(false);
@@ -154,7 +167,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     try {
       // Same network as the user's cash: straight to Uniswap, Relay pays the gas.
       // Native coins (ETH, SOL…) always route through Relay, which trades them directly.
-      const direct = gaslessTradingEnabled && !isNativeToken(token)
+      const direct = gaslessTradingEnabled && !isNativeToken(token) && !directUnavailable.has(token.chainKey)
         ? await planDirectTrade({ side, token, amount: parsed, userAddress: address, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined, cash, tokenBalance, tokenDecimals: side === 'buy' ? tokenDecimals : tokenBalance?.decimals ?? 18, slippageBps: settings.slippageBps ?? undefined }).catch(() => null)
         : null;
       if (seq !== quoteSeq.current) return;
@@ -179,6 +192,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   }, [token, address, parsed, amountProblem, side, cash, spendable, tokenBalance, amount, settings.slippageBps, gaslessTradingEnabled]);
 
   // Debounced auto-quote while typing.
+  useEffect(() => { setNotice(''); }, [amount, selectedToken?.tokenAddress, side]);
   useEffect(() => {
     quoteSeq.current++;
     setQuote(null); setQuoteState('idle');
@@ -200,9 +214,11 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     // the Solana public key, not the wallet's unrelated EVM (0x...) address.
     // Compare the quote against the matching account while keeping the
     // execution-time signer and transaction-intent checks unchanged.
-    const quoteSignerAddress = token?.chainKey === 'solana' ? wallet?.solanaAddress : address;
-    if (!quoteSignerAddress) return { ok: false as const, error: 'This wallet has no Solana address. Refresh the quote.' };
-    try { return { ok: true as const, warnings: plan.legs.flatMap(leg => preflightKivoQuote(leg.quote, quoteSignerAddress, Date.now(), {allowSolana: true}).warnings) }; }
+    // Each leg is signed on its ORIGIN network: a Base-USDC buy of a Solana
+    // token is signed by the EVM wallet, a SOL-funded leg by the Solana one.
+    const signerFor = (leg: UnifiedLeg) => leg.quote.input.chainKey === 'solana' ? wallet?.solanaAddress : address;
+    if (plan.legs.some(leg => !signerFor(leg))) return { ok: false as const, error: 'This wallet has no Solana address. Refresh the quote.' };
+    try { return { ok: true as const, warnings: plan.legs.flatMap(leg => preflightKivoQuote(leg.quote, signerFor(leg)!, Date.now(), {allowSolana: true}).warnings) }; }
     catch (error) { return { ok: false as const, error: error instanceof Error ? error.message : 'Safety check failed.' }; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan, address, wallet?.solanaAddress, token?.chainKey, reviewOpen]);
@@ -313,6 +329,8 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
         : outcome.status === 'refunded' ? 'The route could not be filled and was refunded.' : 'Submitted — the route is still settling.';
       setResult({ tone, message, hashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId,
         receipt: { paid: payLabel(done.pay), received: `${done.receive.amount ? formatAmount(Number(done.receive.amount)) : '—'} ${cashLabel(done.receive.symbol)}`, feesUsd: done.totalFeeUsd ?? null } });
+      const receivedLabel = `${done.receive.amount ? formatAmount(Number(done.receive.amount)) : '—'} ${cashLabel(done.receive.symbol)}`;
+      setShareTrade({ side, chain: token.chainKey, address: token.tokenAddress, symbol: token.symbol, imageUrl: token.imageUrl, paid: payLabel(done.pay), received: receivedLabel });
       // Bookkeeping must never turn a sent trade into an error.
       void markOwnAction(address!).catch(() => {});
       recordTrade({ side, token: tokenInfo, pay: { amount: done.pay.amount, symbol: done.pay.symbol, chainKey: done.pay.chainKey }, receive: { amount: done.receive.amount, symbol: done.receive.symbol, chainKey: done.receive.chainKey }, txHashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId, status: outcome.status });
@@ -320,6 +338,15 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     } catch (error) {
       const hashes = error instanceof KivoExecutionError ? error.txHashes : [];
       const message = error instanceof Error ? error.message : 'Trade failed.';
+      // Relay refused to sponsor the direct swap on this network and nothing
+      // was sent: re-quote through a sponsored Relay route for a new review.
+      if (plan.direct && !hashes.length && DIRECT_UNAVAILABLE.test(message)) {
+        directUnavailable.add(token.chainKey);
+        setReviewOpen(false); setResult(null); setUpdate(null);
+        setNotice(`Nothing was sent. Kivo found another gas-free route on ${chainLabel(token.chainKey)}: review the new quote and confirm again.`);
+        void fetchQuote();
+        return;
+      }
       setResult({ tone: 'error', message: hashes.length ? `${message} Some transactions were already sent; check them before trying again.` : message, hashes, chainIds: [], requestId: null });
       if (hashes.length) recordTrade({ side, token: tokenInfo, pay: { amount: view.pay.amount, symbol: view.pay.symbol, chainKey: view.pay.chainKey }, receive: { amount: view.receive.amount, symbol: view.receive.symbol, chainKey: view.receive.chainKey }, txHashes: hashes, chainIds: [], requestId: null, status: 'failed', error: message });
     } finally {
@@ -352,6 +379,12 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   const gasSponsored = !plan ? null
     : plan.direct ? true
     : plan.legs.every(leg => leg.chainKey === 'solana' || quoteSponsorshipStatus(leg.quote.quote) === 'on');
+  // The wallet(s) that sign: each leg signs on its origin network (Solana or EVM).
+  const signingWallets = (() => {
+    const origins = plan?.direct ? [plan.direct.view.pay.chainKey] : plan?.legs.map(leg => leg.quote.input.chainKey) ?? [];
+    const labels = Array.from(new Set(origins.map(chain => shortAddress(chain === 'solana' ? wallet?.solanaAddress ?? null : address))));
+    return labels.length ? labels.join(' + ') : shortAddress(address);
+  })();
   const gasLabel = gasSponsored === false
     ? (view?.fees.gasUsd != null ? `${formatUsd(view.fees.gasUsd)} (in route fees)` : 'Included in route fees')
     : 'Paid by Kivo';
@@ -424,6 +457,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
                 <Text style={[styles.sellText, side === 'sell' && ready && styles.sellTextReady]}>↓  {'Sell'}</Text>
               </Pressable>
             </View>
+            {notice && quoteState !== 'error' ? <Text style={styles.hint}>{notice}</Text> : null}
             {hint ? <Text style={[styles.hint, hintIsError && styles.hintError]}>{hint}</Text> : null}
             {quoteState === 'error' && partialUsd != null ? <Pressable onPress={() => setAmount(partialUsd.toFixed(2))} style={styles.refresh} accessibilityRole="button"><Text style={styles.refreshText}>Buy {formatUsd(partialUsd)} instead</Text></Pressable> : null}
             {quoteState === 'error' || expired ? <Pressable onPress={fetchQuote} style={styles.refresh}><Text style={styles.refreshText}>{expired ? 'Refresh quote' : 'Try again'}</Text></Pressable> : null}
@@ -591,6 +625,33 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
         <View style={styles.sheetBackdrop}>
           <View style={styles.sheet}>
             <ScrollView style={styles.reviewScroll} contentContainerStyle={styles.reviewScrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            {result ? (
+              // Finished: only the outcome, what was paid and received, and the transaction.
+              <View style={styles.outcome}>
+                <View style={[styles.outcomeBadge, result.tone === 'error' && styles.outcomeBadgeError, result.tone === 'pending' && styles.outcomeBadgePending]}>
+                  <Text style={[styles.outcomeGlyph, result.tone === 'error' && styles.outcomeGlyphError]}>{result.tone === 'success' ? '✓' : result.tone === 'error' ? '✕' : '…'}</Text>
+                </View>
+                <Text style={[styles.outcomeTitle, result.tone === 'error' && styles.resultTitleError]}>
+                  {result.tone === 'error' ? `${side === 'sell' ? 'Sell' : 'Buy'} failed` : result.tone === 'pending' ? 'Submitted' : `${side === 'sell' ? 'Sold' : 'Bought'} ${token?.symbol ?? ''}`}
+                </Text>
+                {result.tone !== 'success' ? <Text style={[styles.outcomeMessage, result.tone === 'error' && styles.error]}>{result.message}</Text> : null}
+                {result.tone !== 'error' && result.receipt ? (
+                  <View style={styles.outcomeRows}>
+                    <QuoteRow label={side === 'buy' ? 'Spent' : 'Sold'} value={result.receipt.paid} />
+                    <QuoteRow label="Received" value={result.receipt.received} />
+                  </View>
+                ) : null}
+                {result.hashes.map((hash, index) => {
+                  const url = transactionLink(hash, result.chainIds[index] ?? result.chainIds[0], token ? MAINNET_CHAIN_IDS[token.chainKey] : null);
+                  return <Pressable key={hash} hitSlop={8} onPress={() => { Linking.openURL(url).catch(() => {}); }}><Text style={styles.link}>{result.hashes.length > 1 ? `Transaction ${index + 1}` : 'View transaction'}  ↗</Text></Pressable>;
+                })}
+                {!result.hashes.length && result.requestId ? <Pressable onPress={() => Linking.openURL(relayRequestUrl(result.requestId!))}><Text style={styles.link}>View transaction  ↗</Text></Pressable> : null}
+                {result.tone !== 'error' && shareTrade ? (
+                  <Pressable onPress={() => setShareOpen(true)} style={styles.primaryButton}><Text style={styles.primaryText}>Share</Text></Pressable>
+                ) : null}
+                <Pressable onPress={closeReview} style={styles.secondaryButton}><Text style={styles.secondaryText}>Close</Text></Pressable>
+              </View>
+            ) : (<>
             <Text style={styles.sheetTitle}>Confirm {side}</Text>
             {view && <>
               <View style={styles.summary}>
@@ -600,48 +661,22 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
               </View>
               <QuoteRow label="Route fees" value={formatUsd(view.totalFeeUsd)} />
               <QuoteRow label="Network gas" value={gasLabel} />
-              <QuoteRow label="Signing wallet" value={shortAddress(token?.chainKey === 'solana' ? wallet?.solanaAddress ?? null : address)} />
+              <QuoteRow label="Signing wallet" value={signingWallets} />
             </>}
             {preflight && !preflight.ok
               ? <Text style={styles.error}>{preflight.error}</Text>
               : <Text style={styles.okText}>Kivo checked every transaction in this route against your trade before anything is signed.{preflight?.ok && preflight.warnings.length ? ` ${preflight.warnings.join(' ')}` : ''}</Text>}
-            {(update || result) && (
+            {update && (
               <View style={styles.timeline}>
                 {STAGES.map(([stages, label], index) => {
                   const activeIndex = update ? STAGES.findIndex(([s]) => s.includes(update.stage)) : -1;
-                  const done = result?.tone === 'success' || index < activeIndex;
-                  const failed = result?.tone === 'error' && index === Math.max(activeIndex, 0);
-                  return <Text key={label} style={[styles.stage, done && styles.stageDone, index === activeIndex && !result && styles.stageActive, failed && styles.stageFailed]}>{done ? '●' : '○'}  {label}</Text>;
+                  const done = index < activeIndex;
+                  return <Text key={label} style={[styles.stage, done && styles.stageDone, index === activeIndex && styles.stageActive]}>{done ? '●' : '○'}  {label}</Text>;
                 })}
-                {update && !result && <Text style={styles.small}>{update.message}</Text>}
+                <Text style={styles.small}>{update.message}</Text>
               </View>
             )}
-            {result && (
-              <View style={[styles.resultCard, result.tone === 'error' && styles.resultCardError, result.tone === 'success' && styles.resultCardSuccess]}>
-                <Text style={[styles.resultTitle, result.tone === 'error' && styles.resultTitleError, result.tone === 'success' && styles.resultTitleSuccess]}>
-                  {(side === 'sell' ? 'Sell' : 'Buy') + (result.tone === 'error' ? ' failed' : result.tone === 'pending' ? ' submitted' : ' complete')}
-                </Text>
-                <ScrollView style={styles.resultMessageScroll} nestedScrollEnabled>
-                  <Text style={result.tone === 'error' ? styles.error : styles.okText}>{result.message}</Text>
-                </ScrollView>
-                {result.tone === 'success' && result.receipt ? <View style={styles.details}>
-                  <QuoteRow label={side === 'buy' ? 'You paid' : 'You sold'} value={result.receipt.paid} />
-                  <QuoteRow label="You received" value={result.receipt.received} />
-                  <QuoteRow label="Fees" value={result.receipt.feesUsd == null ? '—' : formatUsd(result.receipt.feesUsd)} />
-                </View> : null}
-              </View>
-            )}
-            {result?.tone === 'success' && token && onShareToFeed ? (
-              <Pressable onPress={() => { const draft = { chain: token.chainKey, address: token.tokenAddress, text: `Just ${side === 'buy' ? 'bought' : 'sold'} $${token.symbol} on Kivo` }; closeReview(); onShareToFeed(draft); }} style={styles.secondaryButton}><Text style={styles.secondaryText}>Share to feed</Text></Pressable>
-            ) : null}
-            {result?.hashes.map((hash, index) => {
-              const url = transactionLink(hash, result.chainIds[index] ?? result.chainIds[0], token ? MAINNET_CHAIN_IDS[token.chainKey] : null);
-              return <Pressable key={hash} hitSlop={8} onPress={() => { Linking.openURL(url).catch(() => {}); }}><Text style={styles.link}>Transaction {index + 1}: {shortAddress(hash, 10, 6)}  ↗ View on explorer</Text></Pressable>;
-            })}
-            {result?.requestId && <Pressable onPress={() => Linking.openURL(relayRequestUrl(result.requestId!))}><Text style={styles.link}>Route status</Text></Pressable>}
-            {result ? (
-              <Pressable onPress={closeReview} style={styles.secondaryButton}><Text style={styles.secondaryText}>Close</Text></Pressable>
-            ) : (
+            {(
               <>
                 <Pressable disabled={running || !preflight?.ok} onPress={execute} style={({ pressed }) => [styles.primaryButton, side === 'sell' && styles.sellButton, (running || !preflight?.ok) && styles.disabled, pressed && styles.pressed]}>
                   {/* Immediate feedback: the first tap is enough (the safety check and wallet unlock take a moment). */}
@@ -651,10 +686,12 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
                 {!running && <Pressable onPress={closeReview} style={styles.ghostButton}><Text style={styles.secondaryText}>Cancel</Text></Pressable>}
               </>
             )}
+            </>)}
             </ScrollView>
           </View>
         </View>
       </KivoModal>
+      <ShareTradeSheet trade={shareTrade} visible={shareOpen} onClose={() => setShareOpen(false)} onShareToFeed={onShareToFeed ? draft => { setShareOpen(false); closeReview(); onShareToFeed(draft); } : undefined} />
     </ScrollView>
   );
 }
@@ -704,6 +741,15 @@ const c = {
 };
 
 const styles = StyleSheet.create({
+  outcome: { alignItems: 'stretch', paddingTop: 8 },
+  outcomeBadge: { alignSelf: 'center', width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(169, 232, 139, 0.16)', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  outcomeBadgeError: { backgroundColor: 'rgba(255, 125, 125, 0.16)' },
+  outcomeBadgePending: { backgroundColor: 'rgba(244, 240, 199, 0.12)' },
+  outcomeGlyph: { color: '#A9E88B', fontSize: 30, fontWeight: '900' },
+  outcomeGlyphError: { color: '#FF7D7D' },
+  outcomeTitle: { alignSelf: 'center', color: '#F4F0C7', fontSize: 22, fontWeight: '900', marginBottom: 8 },
+  outcomeMessage: { color: '#A9BDB6', fontSize: 14, lineHeight: 20, textAlign: 'center', marginBottom: 10 },
+  outcomeRows: { marginVertical: 8 },
   container: { flex: 1, backgroundColor: c.background },
   content: { padding: 16, paddingBottom: 48 },
   flex: { flex: 1 },
@@ -798,13 +844,8 @@ const styles = StyleSheet.create({
   sheet: { backgroundColor: c.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 34, borderWidth: 1, borderColor: c.border, maxHeight: '92%' },
   reviewScroll: { flexShrink: 1 },
   reviewScrollContent: { paddingBottom: 2 },
-  resultCard: { marginTop: 12, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
-  resultCardError: { borderColor: c.danger },
-  resultCardSuccess: { borderColor: c.success },
   resultTitle: { color: c.text, fontSize: 13, fontWeight: '900', marginBottom: 4 },
   resultTitleError: { color: c.danger },
-  resultTitleSuccess: { color: c.success },
-  resultMessageScroll: { maxHeight: 100 },
   settingsSheet: { paddingBottom: 26 },
   settingsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   activeBadge: { backgroundColor: c.surfaceRaised, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
@@ -826,6 +867,5 @@ const styles = StyleSheet.create({
   stage: { color: c.textMuted, fontSize: 13, fontWeight: '700' },
   stageActive: { color: c.text },
   stageDone: { color: c.success },
-  stageFailed: { color: c.danger },
   link: { color: c.accent, fontWeight: '700', fontSize: 12.5, marginTop: 8 },
 });

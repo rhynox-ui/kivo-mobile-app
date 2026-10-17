@@ -170,3 +170,24 @@ function withGeneratedEvm(kind: 'solana' | 'near', label: string, partial: Omit<
   };
 }
 
+
+export const PRIVATE_KEY_IMPORT_REFUSED =
+  'Kivo imports recovery phrases only. Kivo uses one wallet across Solana, Ethereum, Base, BNB Chain and the other EVM networks, and NEAR, and only a recovery phrase holds all of them. A private key covers a single network, so the other networks would be a different, unrelated wallet and funds sent there could be lost. Import this wallet\'s 12 or 24-word recovery phrase instead.';
+
+/**
+ * New imports: a BIP-39 recovery phrase only. Private keys (EVM, Solana,
+ * NEAR) are recognised and refused with an explanation; wallets imported
+ * from a key earlier keep working (parseWalletSecret still reads them).
+ */
+export function detectPhraseImport(input: string): DetectedImport {
+  const value = input.trim();
+  if (!value) return { status: 'empty' };
+  // A single word is the start of a phrase, not a key.
+  if (/^[a-z]+$/i.test(value)) return { status: 'incomplete', message: '1 word entered. Recovery phrases have 12 or 24 words.' };
+  // Detection never needs a real EVM key here: a key import is refused before anything is kept.
+  const detected = detectImportInput(value, () => `0x${'1'.repeat(64)}` as Hex);
+  if (detected.status === 'ok' && detected.kind === 'mnemonic') return detected;
+  const isWords = value.split(/\s+/).length > 1;
+  if (isWords && detected.status !== 'ok') return detected;
+  return { status: 'invalid', message: PRIVATE_KEY_IMPORT_REFUSED };
+}
