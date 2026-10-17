@@ -1,42 +1,40 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { kivoTheme } from '../theme/kivoTheme';
 import { wordlist as english } from '@scure/bip39/wordlists/english.js';
-import { validateMnemonic } from '@scure/bip39';
+import { detectImportInput, serializeWalletSecret } from '../wallet/walletSecret';
 
+// One field for every supported format. Detection, validation and address
+// derivation all run on this device; the secret is only handed to the
+// password step, which encrypts it into the local vault.
 export function ImportWalletScreen({
-  onDone,
   onBack,
   onPassword,
 }: {
   onDone: () => void;
   onBack: () => void;
-  onPassword: (mnemonic: string) => void;
+  onPassword: (secret: string) => void;
 }) {
   const [value, setValue] = useState('');
-  const words = useMemo(() => value.trim().toLowerCase().split(/\s+/).filter(Boolean), [value]);
-  const valid =
-    (words.length === 12 || words.length === 24) && validateMnemonic(words.join(' '), english);
+  const [reveal, setReveal] = useState(true);
+  const detected = useMemo(() => detectImportInput(value), [value]);
+  const looksLikeWords = /^[a-z\s]*$/i.test(value) && value.trim().includes(' ');
+  const words = value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const current = words[words.length - 1] ?? '';
   const suggestions =
-    current && !value.endsWith(' ') ? english.filter((word) => word.startsWith(current)).slice(0, 5) : [];
+    looksLikeWords && current && !value.endsWith(' ')
+      ? english.filter((word) => word.startsWith(current)).slice(0, 5)
+      : [];
   const pick = (word: string) =>
-    setValue(
-      (value.endsWith(' ') ? value : value.slice(0, value.lastIndexOf(current))) + word + ' ',
-    );
-  const problem = value.trim()
-    ? words.length !== 12 && words.length !== 24
-      ? 'Enter exactly 12 or 24 words.'
-      : !valid
-        ? 'Recovery phrase is not valid. Check the words and order.'
-        : ''
-    : '';
+    setValue((value.endsWith(' ') ? value : value.slice(0, value.lastIndexOf(current))) + word + ' ');
+  const ok = detected.status === 'ok';
+  const problem = detected.status === 'invalid' || detected.status === 'ambiguous' || detected.status === 'incomplete' ? detected.message : '';
   const submit = () => {
-    if (valid) onPassword(words.join(' '));
+    if (detected.status === 'ok') onPassword(serializeWalletSecret(detected.secret));
   };
 
   return (
-    <View style={styles.root}>
+    <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <Pressable onPress={onBack}>
           <Text style={styles.back}>‹</Text>
@@ -44,13 +42,13 @@ export function ImportWalletScreen({
         <Text style={styles.title}>Import wallet</Text>
       </View>
       <Text style={styles.body}>
-        Enter your 12 or 24-word recovery phrase. It stays on this device and is stored in secure
-        storage.
+        Paste a recovery phrase or a private key. Kivo detects the network automatically, derives the
+        address on this device and encrypts the secret here. It is never sent to Kivo.
       </Text>
       <TextInput
         value={value}
         onChangeText={setValue}
-        placeholder="word1 word2 word3 …"
+        placeholder="Private key or recovery phrase"
         placeholderTextColor={kivoTheme.colors.textMuted}
         autoCapitalize="none"
         autoCorrect={false}
@@ -58,9 +56,18 @@ export function ImportWalletScreen({
         autoComplete="off"
         importantForAutofill="no"
         textContentType="none"
-        multiline
-        style={[styles.input, problem && styles.inputError]}
+        secureTextEntry={!reveal}
+        multiline={reveal}
+        style={[styles.input, !reveal && styles.inputHidden, problem ? styles.inputError : null]}
       />
+      <View style={styles.row}>
+        <Text style={styles.count}>
+          {looksLikeWords ? `${words.length}/24 words` : 'EVM · Solana · NEAR keys, or a 12/24-word phrase'}
+        </Text>
+        <Pressable onPress={() => setReveal(!reveal)} hitSlop={8}>
+          <Text style={styles.toggle}>{reveal ? 'Hide' : 'Show'}</Text>
+        </Pressable>
+      </View>
       {suggestions.length > 0 && (
         <View style={styles.suggestions}>
           {suggestions.map((word) => (
@@ -71,26 +78,47 @@ export function ImportWalletScreen({
         </View>
       )}
       <View style={styles.meta}>
-        <Text style={styles.count}>{words.length}/24 words</Text>
-        {problem ? (
-          <Text style={styles.error}>{problem}</Text>
-        ) : valid ? (
-          <Text style={styles.valid}>Valid recovery phrase</Text>
-        ) : null}
+        {problem ? <Text style={styles.error}>{problem}</Text> : null}
+        {detected.status === 'ok' && (
+          <View style={styles.detected}>
+            <Text style={styles.valid}>Detected: {detected.label}</Text>
+            {detected.addresses.map((row) => (
+              <View key={row.network} style={styles.addressRow}>
+                <Text style={styles.addressNetwork}>{row.network}</Text>
+                <Text style={styles.address} selectable>{row.address}</Text>
+              </View>
+            ))}
+            <Text style={styles.note}>Check this is the address you expect before importing.</Text>
+            {detected.kind !== 'mnemonic' && detected.generatesEvm ? (
+              <Text style={styles.note}>
+                Kivo profiles sign in with an EVM account, so Kivo will create a new EVM account for this wallet. Back it up
+                from Security › Export private keys.
+              </Text>
+            ) : null}
+            {detected.kind === 'evm' ? (
+              <Text style={styles.note}>This key has no Solana or NEAR account. Import a recovery phrase to use all networks.</Text>
+            ) : null}
+          </View>
+        )}
       </View>
-      <Pressable
-        disabled={!valid}
-        onPress={submit}
-        style={[styles.button, !valid && styles.disabled]}
-      >
+      <Pressable disabled={!ok} onPress={submit} style={[styles.button, !ok && styles.disabled]}>
         <Text style={styles.buttonText}>Import securely</Text>
       </Pressable>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: kivoTheme.colors.background, padding: 24 },
+  root: { flex: 1, backgroundColor: kivoTheme.colors.background },
+  content: { flexGrow: 1, padding: 24 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8 },
+  toggle: { color: kivoTheme.colors.cream, fontSize: 12, fontWeight: '800' },
+  inputHidden: { minHeight: 56 },
+  detected: { backgroundColor: kivoTheme.colors.surface, borderRadius: 14, padding: 12, marginTop: 4, gap: 6 },
+  addressRow: { gap: 2 },
+  addressNetwork: { color: kivoTheme.colors.textMuted, fontSize: 11, fontWeight: '700' },
+  address: { color: kivoTheme.colors.text, fontSize: 12 },
+  note: { color: kivoTheme.colors.textMuted, fontSize: 12, lineHeight: 17 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 28 },
   back: { color: kivoTheme.colors.cream, fontSize: 38, width: 35 },
   title: { color: kivoTheme.colors.text, fontSize: 22, fontWeight: '800' },
@@ -115,7 +143,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   chipText: { color: kivoTheme.colors.text, fontSize: 12, fontWeight: '700' },
-  meta: { minHeight: 40, paddingTop: 8 },
+  meta: { minHeight: 40, paddingTop: 8, marginBottom: 16 },
   count: { color: kivoTheme.colors.textMuted, fontSize: 11 },
   error: { color: kivoTheme.colors.danger, fontSize: 12, marginTop: 4 },
   valid: { color: kivoTheme.colors.success, fontSize: 12, marginTop: 4 },

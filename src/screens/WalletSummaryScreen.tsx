@@ -24,7 +24,7 @@ import { fundOneClickQuote } from '@kivo/trading/core/oneClickDeposits';
 import { oneClickSwapStore } from '@kivo/trading/wallet/oneClickSwapStore';
 import { nearView } from '@kivo/trading/core/nearRpc';
 
-import { getWalletSession, loadWalletSession, subscribeToWallet, withDeviceAccounts, type WalletSession } from '../state/walletStore';
+import { getWalletSession, loadWalletSession, requireNear, subscribeToWallet, withDeviceAccounts, type WalletSession } from '../state/walletStore';
 import { useSettings } from '../state/settingsStore';
 import { addNotification } from '../state/notificationStore';
 import { markOwnAction } from '../wallet/depositWatcher';
@@ -425,7 +425,7 @@ function WithdrawSheet({
         const response = await requestOneClickQuote(move.request);
         const record = await fundOneClickQuote({
           response, expected: move.expected, originChainKey: 'near', originSymbol: 'USDC', originDecimals: NEAR_USDC_DECIMALS,
-          fromAddress: accounts.near.address, store: oneClickSwapStore,
+          fromAddress: requireNear(accounts.near).address, store: oneClickSwapStore,
           submitDepositTx: (txHash, depositAddress) => submitOneClickDepositTx(txHash, depositAddress),
           send: async (depositAddress, sendAmount) => {
             const call = await nearUsdcDepositCall(depositAddress, parseUnits(sendAmount, NEAR_USDC_DECIMALS), nearView);

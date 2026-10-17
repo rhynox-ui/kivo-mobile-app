@@ -125,7 +125,8 @@ export async function requestKivoQuote(request: KivoTradeRequest): Promise<KivoQ
     fromChainKey: input.chainKey, toChainKey: output.chainKey, originCurrency: input.address, destinationCurrency: output.address,
     amountBaseUnits, userAddress: request.userAddress, recipientAddress: request.recipientAddress, originAmountUsd,
     ...(request.slippageBps ? {slippageTolerance: String(request.slippageBps)} : {}),
-    ...(request.execution === 'gasless' ? {originGasOverhead: '80000'} : {}),
+    // EVM/Calibur-only parameter; Solana-origin quotes must not carry it.
+    ...(request.execution === 'gasless' && input.chainKey !== 'solana' ? {originGasOverhead: '80000'} : {}),
   });
   return {request, quote, input, output, view: buildQuoteView(request, quote, input, output)};
 }

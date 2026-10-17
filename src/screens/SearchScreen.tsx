@@ -16,19 +16,22 @@ const TRENDING_FRESH_MS = 60_000;
 let trendingMemory: {tokens: KivoToken[]; at: number} | null = null;
 const chainTrendingMemory = new Map<string, {tokens: KivoToken[]; at: number}>();
 
-export function SearchScreen({ onSelectToken }: { onSelectToken?: (result: TokenSearchResult) => void }) {
+// Every chain Kivo trades on, popular ones first. Shared with the Trade tab's network picker.
+export const TRADE_CHAIN_ORDER: TradeChain[] = (['solana', 'base', 'ethereum', 'bnb', 'robinhood', 'arbitrum', 'avalanche', 'unichain', 'hyperevm', 'ink', 'abstract', 'plasma', 'stable', 'xlayer', 'arc'] as TradeChain[]).filter(key => key in CHAIN_LABEL).concat('near');
+
+export function SearchScreen({ onSelectToken, initialChain }: { onSelectToken?: (result: TokenSearchResult) => void; initialChain?: TradeChain | null }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<TokenSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [retry, setRetry] = useState(0);
-  const [chainFilter, setChainFilter] = useState<'All' | TradeChain>('All');
+  const [chainFilter, setChainFilter] = useState<'All' | TradeChain>(initialChain ?? 'All');
+  useEffect(() => { if (initialChain) setChainFilter(initialChain); }, [initialChain]);
   const [sort, setSort] = useState<TokenSortKey>('default');
   const [sortOpen, setSortOpen] = useState(false);
   const [menuTop, setMenuTop] = useState(0);
-  // Every chain Kivo trades on, popular ones first.
-  const chainFilters: Array<'All' | TradeChain> = ['All', 'solana', 'base', 'ethereum', 'bnb', 'robinhood', 'arbitrum', 'avalanche', 'unichain', 'hyperevm', 'ink', 'abstract', 'plasma', 'stable', 'xlayer', 'arc'].filter(key => key === 'All' || key in CHAIN_LABEL) as Array<'All' | TradeChain>;
+  const chainFilters: Array<'All' | TradeChain> = ['All', ...TRADE_CHAIN_ORDER];
   const [chainTrending, setChainTrending] = useState<{ chain: TradeChain; tokens: TokenSearchResult[]; error: string } | null>(null);
   const [trending, setTrending] = useState<TokenSearchResult[]>(() => trendingMemory?.tokens ?? []);
   const [trendingError, setTrendingError] = useState('');

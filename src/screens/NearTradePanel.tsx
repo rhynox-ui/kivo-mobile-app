@@ -11,16 +11,15 @@ import {withDeviceAccounts, type WalletSession} from '../state/walletStore';
 import {oneClickSwapStore} from '@kivo/trading/wallet/oneClickSwapStore';
 import {fundNearUsdcForTrade, NearSendError} from '@kivo/trading/core/nearTrade';
 import {recordTrade} from '@kivo/trading/kivo/history';
+import {MIN_TRADE_USD} from '@kivo/trading/core/fees';
 import {TokenChartPanel} from '../components/TokenChartPanel';
 import { KivoModal } from '../components/KivoModal';
 
-function sessionFromAccounts(accounts: {evm: any; solana: any; near: {address: string; privateKey: string}}): DerivedAccounts {
-  const evmKey = accounts.evm.getHdKey().privateKey;
-  if (!evmKey) throw new Error('The device wallet key is unavailable.');
+function sessionFromAccounts(accounts: {evm: {address: string}; evmPrivateKey: string; solana: {publicKey: {toBase58(): string}; secretKey: Uint8Array} | null; near: {address: string; privateKey: string} | null}): DerivedAccounts {
   return {
-    evm: {address: accounts.evm.address, privateKey: `0x${Buffer.from(evmKey).toString('hex')}`},
-    solana: {address: accounts.solana.publicKey.toBase58(), privateKey: bs58.encode(accounts.solana.secretKey)},
-    near: accounts.near,
+    evm: {address: accounts.evm.address, privateKey: accounts.evmPrivateKey},
+    solana: {address: accounts.solana ? accounts.solana.publicKey.toBase58() : '', privateKey: accounts.solana ? bs58.encode(accounts.solana.secretKey) : ''},
+    near: accounts.near ?? undefined,
     authMethod: 'seed',
   };
 }
@@ -63,9 +62,11 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
   const availableUnits=side==='buy'?usdcBalance:tokenBalance;
   const available=Number(availableUnits)/(10**(side==='buy'?NEAR_USDC_DECIMALS:decimals));
   const insufficient=valid&&inputUnits>availableUnits;
+  // $2 minimum: a buy is entered in USDC; a sell is checked on its quoted USDC output.
+  const buyBelowMin=side==='buy'&&valid&&numeric<MIN_TRADE_USD;
 
   useEffect(()=>{
-    if(!valid||inputUnits<=0n||insufficient||!wallet.nearAddress){setQuote(null);return;}
+    if(!valid||inputUnits<=0n||insufficient||buyBelowMin||!wallet.nearAddress){setQuote(null);return;}
     let cancelled=false;
     const timer=setTimeout(()=>{
       setLoading(true);setError('');
@@ -75,10 +76,11 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
         .finally(()=>{if(!cancelled)setLoading(false);});
     },450);
     return()=>{cancelled=true;clearTimeout(timer);};
-  },[amount,side,inputUnits,insufficient,token.tokenAddress,wallet.nearAddress,valid]);
+  },[amount,side,inputUnits,insufficient,buyBelowMin,token.tokenAddress,wallet.nearAddress,valid]);
 
   const receiveAmount=quote ? Number(quote.receiveUnits)/(10**(side==='buy'?decimals:NEAR_USDC_DECIMALS)) : null;
   const minimum=quote ? Number(quote.minReceiveUnits)/(10**(side==='buy'?decimals:NEAR_USDC_DECIMALS)) : null;
+  const belowMin=buyBelowMin||(side==='sell'&&receiveAmount!=null&&receiveAmount<MIN_TRADE_USD);
   const fee=quote ? Number(quote.fee)/10**NEAR_USDC_DECIMALS : 0;
 
   const choosePreset=(pct:number)=>{
@@ -88,7 +90,7 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
   };
 
   const execute=async()=>{
-    if(!quote||running||!wallet.nearAddress)return;
+    if(!quote||running||!wallet.nearAddress||belowMin)return;
     setRunning(true);setError('');setResult(null);
     try{
       await withDeviceAccounts(`Confirm NEAR ${side} ${token.symbol}`,async accounts=>{
@@ -158,8 +160,8 @@ export function NearTradePanel({token, wallet, initialSide, onOpenHistory}: {
     <View style={styles.feeRow}><View style={styles.dot}/><Text style={styles.fee}>Fee {fee?formatAvailable(fee)+' USDC':'—'}</Text><Text style={styles.muted}> · Gas free · NEAR</Text></View>
     {quote&&<View style={styles.details}><Row label="Minimum received" value={minimum==null?'—':formatAvailable(minimum)+' '+(side==='buy'?token.symbol:'USDC')}/><Row label="Route" value={quote.stages?'2-step route':'NEAR DEX'}/><Row label="Slippage" value={(quote.slippageBps/100)+'%'}/><Row label="You sign" value="Once"/></View>}
     {error?<Text style={styles.error}>{error}</Text>:null}
-    {insufficient?<Text style={styles.error}>Insufficient {side==='buy'?'USDC on NEAR':token.symbol}.</Text>:null}
-    <Pressable disabled={!quote||running||insufficient} onPress={execute} style={[styles.button,(!quote||running||insufficient)&&styles.disabled]}><Text style={styles.buttonText}>{running?(funding?'Moving USDC to NEAR…':'Processing…'):(side==='buy'?'Buy ':'Sell ')+token.symbol}</Text></Pressable>
+    {insufficient?<Text style={styles.error}>Insufficient {side==='buy'?'USDC on NEAR':token.symbol}.</Text>:belowMin?<Text style={styles.error}>The minimum trade is ${MIN_TRADE_USD}.</Text>:null}
+    <Pressable disabled={!quote||running||insufficient||belowMin} onPress={execute} style={[styles.button,(!quote||running||insufficient||belowMin)&&styles.disabled]}><Text style={styles.buttonText}>{running?(funding?'Moving USDC to NEAR…':'Processing…'):(side==='buy'?'Buy ':'Sell ')+token.symbol}</Text></Pressable>
 
     <KivoModal visible={!!result} transparent animationType="fade" onRequestClose={closeResult}>
       <View style={styles.backdrop}><View style={styles.resultCard}>

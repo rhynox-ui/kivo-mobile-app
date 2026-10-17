@@ -16,7 +16,7 @@ import type {ChainKey} from './chainData';
 
 // Kivo's own fee wallets (set by the Kivo owner).
 export const DEV_FEE_WALLET = '0x0b7736fd7b606d9958e9c2ec5fbc9347078264d5';
-export const DEV_FEE_WALLET_SOLANA = '2ApuoLHKmNhX13w6wnSfnP64sbBAgCABiqfHeFYAamki';
+export const DEV_FEE_WALLET_SOLANA = '2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki';
 /** Kivo's fee account on NEAR — the same one the site's NEAR swaps pay (mango-bridge.jsx). */
 export const DEV_FEE_WALLET_NEAR = 'widekingdom6862.near';
 
@@ -43,6 +43,13 @@ export const DEV_FEE_PCT = 0.005;
 export const DEV_FEE_MAX_USD = 50;
 /** Trades below this size pay SMALL_TRADE_MIN_FEE_USD instead of 0.5%... */
 export const SMALL_TRADE_BELOW_USD = 10;
+/**
+ * Smallest trade the mobile app accepts, in USD. At $2 the small-trade fee
+ * ($0.05) still covers sponsored gas and fee-payer costs, so no trade runs at
+ * a loss to Kivo; the server also drops sponsorship that would cost more than
+ * the fee.
+ */
+export const MIN_TRADE_USD = 2;
 export const SMALL_TRADE_MIN_FEE_USD = 0.05;
 /** ...capped at 5% of the trade (the server's maximum). */
 export const SMALL_TRADE_MAX_FEE_BPS = 500;
