@@ -9,7 +9,6 @@ import { CommunityScreen } from './CommunityScreen';
 import { CommunitySettingsScreen } from './CommunitySettingsScreen';
 import { PersonScreen } from './PersonScreen';
 import { TradeScreen } from './TradeScreen';
-import { TokenDetailScreen } from './TokenDetailScreen';
 import { WalletSummaryScreen } from './WalletSummaryScreen';
 import { EditProfileScreen } from './EditProfileScreen';
 import { SettingsScreen } from './SettingsScreen';
@@ -33,7 +32,6 @@ type View_ =
   | { name: 'communitySettings'; id: string }
   | { name: 'communities'; kind: CommunityKind }
   | { name: 'person'; userId: string }
-  | { name: 'token' }
   | { name: 'verification'; subjectType: 'profile' | 'channel'; subjectId: string; subjectName: string }
   | { name: 'wallet'; action?: 'deposit' | 'withdraw' } | { name: 'editProfile' } | { name: 'settings' } | { name: 'notifications' } | { name: 'activity' } | { name: 'security' };
 
@@ -86,7 +84,8 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
   }, [stack.length, back]);
   const openChat = (id: string) => push({ name: 'conversation', id });
   const openCommunity = (id: string) => push({ name: 'community', id });
-  const openToken = (token: KivoToken) => { setSelectedToken(token); push({ name: 'token' }); };
+  // Tokens open straight in Trade (chart, price, MC, links, holders, contract); the separate token page was retired.
+  const openToken = (token: KivoToken) => { setSelectedToken(token); setTradeSide('buy'); home('Trade'); };
 
   switch (view.name) {
     case 'verification': return <VerificationScreen subjectType={view.subjectType} subjectId={view.subjectId} subjectName={view.subjectName} onBack={back} />;
@@ -95,7 +94,6 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
     case 'communitySettings': return <CommunitySettingsScreen id={view.id} onBack={back} onDeleted={() => home('Chats')} onOpenPerson={userId => push({ name: 'person', userId })} />;
     case 'communities': return <CommunitiesScreen kind={view.kind} onBack={back} onOpenChat={openChat} onOpenInfo={openCommunity} onOpenVerification={subjectId => push({ name: 'verification', subjectType: 'profile', subjectId, subjectName: 'your profile' })} />;
     case 'person': return <PersonScreen userId={view.userId} onBack={back} onOpenChat={openChat} onOpenCommunity={openCommunity} />;
-    case 'token': return <TokenDetailScreen token={selectedToken} onMarket={setSelectedToken} onBack={back} onBuy={() => { setTradeSide('buy'); home('Trade'); }} onSell={() => { setTradeSide('sell'); home('Trade'); }} />;
     case 'wallet': return <WalletSummaryScreen onBack={back} onTrade={() => home('Trade')} initialAction={view.action} />;
     case 'editProfile': return <EditProfileScreen onBack={back} onOpenVerification={(subjectId, subjectName) => push({ name: 'verification', subjectType: 'profile', subjectId, subjectName })} />;
     case 'notifications': return <NotificationScreen onBack={back} onOpenPost={postId => { back(); setPendingFeedPostId(postId); changeTab('Feed'); }} />;
