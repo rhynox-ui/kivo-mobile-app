@@ -15,7 +15,7 @@ import { ProfileLinkChips } from '../components/ProfileLinks';
 import { CHAIN_LABEL, tradeChainLabel } from '@kivo/trading/core/chainData';
 import { subscribeToTradeHistory, type TradeRecord } from '@kivo/trading/kivo/history';
 import { chartTotal, closedPositions, computePortfolioChange, fetchPortfolio, filterHistoryByRange, getPortfolioHistory, missingSourceNames, openHoldings, recordPortfolioSnapshot, type ChartTotal, type Portfolio, type PortfolioRange, type PortfolioSnapshot } from '@kivo/trading/kivo/portfolio';
-import { formatAmount, formatUsd, type KivoToken } from '@kivo/trading/kivo/tokens';
+import { formatAmount, formatBalanceUsd, formatUsd, type KivoToken } from '@kivo/trading/kivo/tokens';
 import { ConvertCashSheet } from '../components/ConvertCashSheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -284,7 +284,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const verifiedOpen = open.filter(h => !isUnverifiedHolding(h));
   const visibleOpen = settings.hideSmallBalances ? verifiedOpen.filter(h => !shouldHideSmallHolding(h)) : verifiedOpen;
   const closed = portfolio ? closedPositions(portfolio, trades) : [];
-  const money = (value: number | null | undefined) => (hidden ? '••••' : formatUsd(value));
+  const money = (value: number | null | undefined) => (hidden ? '••••' : formatBalanceUsd(value));
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
   return (

@@ -17,7 +17,7 @@ import bs58 from 'bs58';
 import { recordTrade } from '@kivo/trading/kivo/history';
 import { markOwnAction } from '../wallet/depositWatcher';
 import { describeQuoteError, isQuoteExpired, parseAmountInput, requestKivoQuote, sellProceedsAsset } from '@kivo/trading/kivo/quote';
-import { chainLabel, formatAmount, formatUsd, isNativeToken, shortAddress, tradeSupportFor, type KivoToken, type TradeSide } from '@kivo/trading/kivo/tokens';
+import { chainLabel, formatAmount, formatBalanceUsd, formatUsd, isNativeToken, shortAddress, tradeSupportFor, type KivoToken, type TradeSide } from '@kivo/trading/kivo/tokens';
 import { getWalletSession, subscribeToWallet, walletKind, withDeviceAccounts, type WalletSession } from '../state/walletStore';
 import { addNotification } from '../state/notificationStore';
 import { updateSettings, useSettings } from '../state/settingsStore';
@@ -155,7 +155,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   // quote below re-checks it once the route's real output is known).
   const tradeUsd = parsed == null ? null : side === 'buy' ? parsed : token?.priceUsd != null && token.priceUsd > 0 ? parsed * token.priceUsd : null;
   const amountProblem = !amount.trim() ? null : parsed == null ? 'Enter a valid amount greater than zero.'
-    : available != null && parsed > available + 1e-12 ? (side === 'buy' ? `More than your available balance (${formatUsd(available)}).` : `More than your available ${formatAmount(available)} ${token?.symbol ?? ''}.`)
+    : available != null && parsed > available + 1e-12 ? (side === 'buy' ? `More than your available balance (${formatBalanceUsd(available)}).` : `More than your available ${formatAmount(available)} ${token?.symbol ?? ''}.`)
     : tradeUsd != null && tradeUsd < MIN_TRADE_USD ? `The minimum trade is ${formatUsd(MIN_TRADE_USD)}.` : null;
 
   const fetchQuote = useCallback(async () => {
@@ -411,7 +411,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Pressable style={styles.cashRow} onPress={() => { if (spendable) setChainOpen(true); }} accessibilityRole="button" accessibilityLabel="Balance by network">
         <Text style={styles.cashLabel}>Balance{spendable ? '  ›' : ''}</Text>
-        <Text style={styles.cashValue}>{!wallet ? '—' : cashTotal == null ? '…' : settings.hideBalances ? '••••' : formatUsd(cashTotal)}</Text>
+        <Text style={styles.cashValue}>{!wallet ? '—' : cashTotal == null ? '…' : settings.hideBalances ? '••••' : formatBalanceUsd(cashTotal)}</Text>
       </Pressable>
       <View style={styles.toolbar}>
         <Pressable onPress={() => setNetworkOpen(true)} style={[styles.pill, styles.grow]} accessibilityRole="button" accessibilityLabel="Choose network">
@@ -502,7 +502,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
                 <AssetChip symbol={side === 'buy' ? 'USD' : token!.symbol} uri={side === 'buy' ? null : token!.imageUrl} />
                 <TextInput ref={amountRef} editable={!disabledInput} value={amount} onChangeText={value => setAmount(normalizeAmountInput(value))} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.amountInput} accessibilityLabel={side === 'buy' ? 'Dollars to spend' : `${token!.symbol} to sell`} />
               </View>
-              <Text style={styles.avail}>{!wallet ? '' : available != null ? (side === 'buy' ? `${settings.hideBalances ? '••••' : formatUsd(available)} avail.` : `${formatAmount(available)} avail.`) : side === 'sell' && balanceError ? 'Balance unavailable' : 'Reading balance…'}</Text>
+              <Text style={styles.avail}>{!wallet ? '' : available != null ? (side === 'buy' ? `${settings.hideBalances ? '••••' : formatBalanceUsd(available)} avail.` : `${formatAmount(available)} avail.`) : side === 'sell' && balanceError ? 'Balance unavailable' : 'Reading balance…'}</Text>
             </View>
             <View style={styles.card}>
               <Text style={styles.cardLabel}>YOU RECEIVE</Text>
@@ -569,7 +569,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
                   <View key={`${asset.chainKey}:${asset.address}`} style={[styles.payRow, leg && styles.payRowSelected]}>
                     <NetworkIcon chainKey={asset.chainKey} size={18} />
                     <Text style={[styles.payName, styles.networkName]}>{asset.symbol} · {CHAIN_LABEL[asset.chainKey]}</Text>
-                    <Text style={styles.payAmount}>{settings.hideBalances ? '••••' : formatUsd(asset.valueUsd)}</Text>
+                    <Text style={styles.payAmount}>{settings.hideBalances ? '••••' : formatBalanceUsd(asset.valueUsd)}</Text>
                     {leg && <Text style={styles.check}>  uses {formatUsd(leg.amountUsd)}</Text>}
                   </View>
                 );

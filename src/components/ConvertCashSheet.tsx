@@ -14,7 +14,7 @@ import {clearSpendableBalanceCache, fetchSpendableBalance, type SpendableAsset, 
 import {convertQuoteParams, convertSources, convertTargets, sameAsset, type ConvertAsset} from '@kivo/trading/kivo/convert';
 import {recordTrade} from '@kivo/trading/kivo/history';
 import {markOwnAction} from '../wallet/depositWatcher';
-import {formatAmount, formatUsd, shortAddress} from '@kivo/trading/kivo/tokens';
+import {formatAmount, formatBalanceUsd, formatUsd, shortAddress} from '@kivo/trading/kivo/tokens';
 import {getWalletSession, withDeviceAccounts, type WalletSession} from '../state/walletStore';
 import type {DerivedAccounts} from '@kivo/trading/wallet/keys';
 import {fetchNearTokenBalance} from '@kivo/trading/core/nearTrade';
@@ -113,7 +113,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
  const fromChainId=from&&from.chain!=='near'?MAINNET_CHAIN_IDS[from.chain as ChainKey]:null;
  const txLinks=(list:string[])=>list.map(h=><Pressable key={h} hitSlop={6} onPress={()=>{Linking.openURL(transactionLink(h,fromChainId)).catch(()=>{});}}><Text style={[s.hash,s.hashLink]} numberOfLines={1}>{shortAddress(h,10,6)}  ↗ View transaction</Text></Pressable>);
  const pickList=picker==='from'?sources:targets.filter(t=>t.id!==from?.id);
- const usd=(v:number)=>v>0?formatUsd(v):'';
+ const usd=(v:number)=>v>0?formatBalanceUsd(v):'';
  const buttonLabel=nearSending?'Sending…':(nearRecord&&shouldPollOneClickSwap(nearRecord))?'Waiting for NEAR Intents…':execute?'Converting…':!from?(balance?'Nothing to convert yet':'Reading balances…'):!to?'Pick what to receive':same?'Pick two different assets':pairProblem?pairProblem:!amount?'Enter an amount':insufficient?`Insufficient ${from.symbol} balance`:loading?'Finding rate…':quote?'Convert':'Finding rate…';
  return <BottomSheet visible={visible} onClose={onClose}><View>
  {picker?<><View style={s.header}><Pressable onPress={()=>setPicker(null)}><Text style={s.back}>‹ Back</Text></Pressable><Text style={s.title}>Convert {picker==='from'?'from':'to'}</Text><View style={{width:40}}/></View><ScrollView style={s.list}>
