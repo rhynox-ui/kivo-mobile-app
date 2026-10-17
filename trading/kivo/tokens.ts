@@ -133,3 +133,38 @@ export function shortAddress(address: string | null | undefined, start = 6, end 
   if (!address) return '';
   return address.length <= start + end ? address : `${address.slice(0, start)}…${address.slice(-end)}`;
 }
+
+const SOLANA_NATIVE = '11111111111111111111111111111111';
+const EVM_NATIVE = new Set(['0x0000000000000000000000000000000000000000', '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee']);
+
+/** A network's own coin (ETH, BNB, SOL…) rather than a token contract. Relay trades it directly. */
+export function isNativeToken(token: Pick<KivoToken, 'chainKey' | 'tokenAddress'>): boolean {
+  return token.chainKey === 'solana' ? token.tokenAddress === SOLANA_NATIVE : EVM_NATIVE.has(token.tokenAddress.toLowerCase());
+}
+
+/**
+ * Native coins have no contract, so charts and market data use the wrapped
+ * coin's well-known address (WETH, WBNB, WAVAX, WSOL). Null where Kivo knows
+ * no wrapped address for that network.
+ */
+const WRAPPED_NATIVE: Partial<Record<TradeChain, string>> = {
+  ethereum: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+  base: '0x4200000000000000000000000000000000000006',
+  arbitrum: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
+  unichain: '0x4200000000000000000000000000000000000006',
+  ink: '0x4200000000000000000000000000000000000006',
+  bnb: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
+  avalanche: '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',
+  solana: 'So11111111111111111111111111111111111111112',
+};
+
+/** The address to look a token up by on market sites (the wrapped coin for a native coin). */
+export function marketAddressFor(token: Pick<KivoToken, 'chainKey' | 'tokenAddress'>): string | null {
+  return isNativeToken(token) ? WRAPPED_NATIVE[token.chainKey] ?? null : token.tokenAddress;
+}
+
+/** A network's own coin as a tradeable Kivo token (buy or sell ETH, BNB, SOL… like any token). */
+export function nativeKivoToken(chainKey: ChainKey, priceUsd: number | null = null): KivoToken {
+  const symbol = NATIVE_SYMBOL[chainKey];
+  return {chainKey, tokenAddress: chainKey === 'solana' ? SOLANA_NATIVE : '0x0000000000000000000000000000000000000000', symbol, name: `${symbol} · ${CHAIN_LABEL[chainKey]}`, imageUrl: null, priceUsd, change24h: null, marketCapUsd: null, liquidityUsd: null};
+}
