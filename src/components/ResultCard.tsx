@@ -60,7 +60,8 @@ export function ResultCard({
   const shake = useRef(new Animated.Value(0)).current;
   const spin = useRef(new Animated.Value(0)).current;
   const rise = useRef(new Animated.Value(0)).current;
-  const festive = tone === 'success';
+  // The mascot is the hero on every result: success, pending and failure.
+  const festive = true;
 
   useEffect(() => {
     pop.setValue(0); rise.setValue(0);
@@ -91,7 +92,7 @@ export function ResultCard({
       <View style={styles.hero}>
         {tone === 'success' ? <Animated.View style={[styles.ring, { opacity: ring.interpolate({ inputRange: [0, 1], outputRange: [0.8, 0] }), transform: [{ scale: ring.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1.35] }) }] }]} /> : null}
         {tone === 'pending' ? <Animated.View style={[styles.spinner, { transform: [{ rotate: spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }]} /> : null}
-        <Animated.View style={[{ transform: [{ translateX: shake }] }, tone === 'error' && styles.dim]}>
+        <Animated.View style={[{ transform: [{ translateX: shake }] }]}>
           {festive ? <Image source={SEASONAL_MASCOT} style={styles.mascot} /> : <Logo symbol={hero.symbol} uri={hero.imageUrl} size={92} />}
         </Animated.View>
         {tone !== 'pending' ? (
