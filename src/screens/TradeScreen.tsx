@@ -10,6 +10,8 @@ import { executeDirectPlan, planDirectTrade } from '@kivo/trading/kivo/direct';
 import { transactionLink, KivoExecutionError, preflightKivoQuote, relayRequestUrl, type ExecutionUpdate } from '@kivo/trading/kivo/execute';
 import { loadGaslessTradingEnabled } from '../settings/gaslessTradingPrefs';
 import { executeRelayQuote, getPartialTxHashes } from '@kivo/trading/core/executeRelayQuote';
+import { quoteSponsorshipStatus } from '@kivo/trading/core/relayQuote';
+import { haptic } from '../utils/haptics';
 import bs58 from 'bs58';
 import { recordTrade } from '@kivo/trading/kivo/history';
 import { markOwnAction } from '../wallet/depositWatcher';
@@ -28,7 +30,7 @@ import { KivoModal } from '../components/KivoModal';
 import Clipboard from '@react-native-clipboard/clipboard';
 
 type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
-type ExecResult = { tone: 'success' | 'pending' | 'error'; message: string; hashes: string[]; chainIds: number[]; requestId: string | null };
+type ExecResult = { tone: 'success' | 'pending' | 'error'; message: string; hashes: string[]; chainIds: number[]; requestId: string | null; receipt?: { paid: string; received: string; feesUsd: number | null } };
 
 // Gasless (Mango Pro model): one signature on the device, Relay submits and pays gas.
 const STAGES: Array<[ExecutionUpdate['stage'][], string]> = [
@@ -37,8 +39,10 @@ const STAGES: Array<[ExecutionUpdate['stage'][], string]> = [
   [['filling', 'success', 'pending', 'refunded'], 'Relay submits · Kivo pays gas'],
 ];
 
-export function TradeScreen({ onToken, onPickChain, selectedToken, initialSide = 'buy', onOpenHistory }: {
+export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken, initialSide = 'buy', onOpenHistory }: {
   onToken?: () => void;
+  /** Open the feed composer with the traded token attached and a drafted post. */
+  onShareToFeed?: (draft: { chain: string; address: string; text: string }) => void;
   /** Open token discovery filtered to one network (the "Trading on" picker). */
   onPickChain?: (chain: TradeChain) => void;
   selectedToken?: KivoToken | null;
@@ -60,6 +64,8 @@ export function TradeScreen({ onToken, onPickChain, selectedToken, initialSide =
   const [reviewOpen, setReviewOpen] = useState(false);
   const [update, setUpdate] = useState<ExecutionUpdate | null>(null);
   const [result, setResult] = useState<ExecResult | null>(null);
+  // One haptic per trade outcome (respects the Haptics setting).
+  useEffect(() => { if (result) haptic(result.tone === 'success' ? 'success' : result.tone === 'error' ? 'error' : 'warning'); }, [result]);
   const [running, setRunning] = useState(false);
   const executingRef = useRef(false);
   const [chainOpen, setChainOpen] = useState(false);
@@ -264,7 +270,8 @@ export function TradeScreen({ onToken, onPickChain, selectedToken, initialSide =
       const tone = outcome.status === 'success' ? 'success' : 'pending';
       const message = outcome.status === 'success' ? `${side === 'buy' ? 'Bought' : 'Sold'} ${token.symbol}.`
         : outcome.status === 'refunded' ? 'The route could not be filled and was refunded.' : 'Submitted — the route is still settling.';
-      setResult({ tone, message, hashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId });
+      setResult({ tone, message, hashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId,
+        receipt: { paid: `${view.pay.amount} ${cashLabel(view.pay.symbol)}`, received: `${view.receive.amount ? formatAmount(Number(view.receive.amount)) : '—'} ${cashLabel(view.receive.symbol)}`, feesUsd: view.totalFeeUsd ?? null } });
       // Bookkeeping must never turn a sent trade into an error.
       void markOwnAction(address!).catch(() => {});
       recordTrade({ side, token: tokenInfo, pay: { amount: view.pay.amount, symbol: view.pay.symbol, chainKey: view.pay.chainKey }, receive: { amount: view.receive.amount, symbol: view.receive.symbol, chainKey: view.receive.chainKey }, txHashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId, status: outcome.status });
@@ -296,6 +303,15 @@ export function TradeScreen({ onToken, onPickChain, selectedToken, initialSide =
   const quotedUsd = view ? (side === 'buy' ? view.pay.usd : view.receive.usd) : null;
   const belowMinimum = quotedUsd != null && quotedUsd < MIN_TRADE_USD;
   const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && !belowMinimum && !extremePriceImpact && walletKind(wallet) === 'evm-local';
+  // Honest gas line: only say Kivo pays when it really does. Solana trades
+  // are paid by Kivo's fee payer and direct swaps by Relay; Relay-routed EVM
+  // legs only when Kivo's server confirmed Relay accepted sponsorship.
+  const gasSponsored = !plan ? null
+    : plan.direct ? true
+    : plan.legs.every(leg => leg.chainKey === 'solana' || quoteSponsorshipStatus(leg.quote.quote) === 'on');
+  const gasLabel = gasSponsored === false
+    ? (view?.fees.gasUsd != null ? `${formatUsd(view.fees.gasUsd)} (in route fees)` : 'Included in route fees')
+    : 'Paid by Kivo';
   const tradeChain: ChainKey | null = token?.chainKey ?? (selectedToken?.chainKey !== 'near' ? selectedToken?.chainKey ?? null : null);
   const receiveSymbol = side === 'buy' ? token?.symbol ?? '' : token ? cashLabel(sellProceedsAsset(token.chainKey).symbol) : '';
   const hint = extremePriceImpact ? 'Trade blocked — route price impact is above 50%.'
@@ -424,7 +440,7 @@ export function TradeScreen({ onToken, onPickChain, selectedToken, initialSide =
             <View style={styles.feeRow}>
               <View style={[styles.dot, view && styles.dotLive]} />
               <Text style={styles.feeStrong}>{view ? `Fee ${feePct != null ? feePct.toFixed(1) + '%' : formatUsd(view.totalFeeUsd)}` : 'Fee —'}</Text>
-              <Text style={[styles.small, styles.flex]}>{gaslessTradingEnabled ? '  ·  Gas free' : '  ·  Network fee from your wallet'}{view?.etaSeconds != null ? `  ·  ETA ${view.etaSeconds < 60 ? `~${view.etaSeconds}s` : `~${Math.round(view.etaSeconds / 60)} min`}` : ''}</Text>
+              <Text style={[styles.small, styles.flex]}>{!gaslessTradingEnabled ? '  ·  Network fee from your wallet' : gasSponsored === false ? '  ·  Gas in route fees' : '  ·  Gas free'}{view?.etaSeconds != null ? `  ·  ETA ${view.etaSeconds < 60 ? `~${view.etaSeconds}s` : `~${Math.round(view.etaSeconds / 60)} min`}` : ''}</Text>
               {view ? <Pressable onPress={() => setShowDetails(value => !value)} hitSlop={8}><Text style={styles.detailsLink}>{showDetails ? 'Hide' : 'Details'}</Text></Pressable> : null}
             </View>
             {view && showDetails && (
@@ -432,7 +448,7 @@ export function TradeScreen({ onToken, onPickChain, selectedToken, initialSide =
                 <QuoteRow label="Minimum received" value={view.minimumReceived ? `${formatAmount(Number(view.minimumReceived))} ${cashLabel(view.receive.symbol)}` : 'Not provided by route'} />
                 <QuoteRow label="Price impact" value={view.priceImpactPct == null ? '—' : `${view.priceImpactPct.toFixed(2)}%`} danger={view.priceImpactPct != null && Math.abs(view.priceImpactPct) >= 5} />
                 <QuoteRow label="Route fees" value={formatUsd(view.totalFeeUsd)} />
-                <QuoteRow label="Network gas" value="Paid by Kivo" />
+                <QuoteRow label="Network gas" value={gasLabel} />
                 <QuoteRow label="Max slippage" value={view.slippagePct == null ? 'Auto' : `${view.slippagePct}%`} />
                 <QuoteRow label="Route" value={view.routeLabel} />
                 <QuoteRow label="You sign" value={view.transactionCount > 1 ? `Once (${view.transactionCount} steps batched)` : 'Once'} />
@@ -530,7 +546,7 @@ export function TradeScreen({ onToken, onPickChain, selectedToken, initialSide =
                 <View style={[styles.flex, styles.right]}><Text style={styles.small}>Minimum received</Text><Text style={styles.summaryValue}>{view.minimumReceived ? formatAmount(Number(view.minimumReceived)) : '—'} {cashLabel(view.receive.symbol)}</Text><Text style={styles.small}>{CHAIN_LABEL[view.receive.chainKey]}</Text></View>
               </View>
               <QuoteRow label="Route fees" value={formatUsd(view.totalFeeUsd)} />
-              <QuoteRow label="Network gas" value="Paid by Kivo" />
+              <QuoteRow label="Network gas" value={gasLabel} />
               <QuoteRow label="Signing wallet" value={shortAddress(token?.chainKey === 'solana' ? wallet?.solanaAddress ?? null : address)} />
             </>}
             {preflight && !preflight.ok
@@ -555,8 +571,16 @@ export function TradeScreen({ onToken, onPickChain, selectedToken, initialSide =
                 <ScrollView style={styles.resultMessageScroll} nestedScrollEnabled>
                   <Text style={result.tone === 'error' ? styles.error : styles.okText}>{result.message}</Text>
                 </ScrollView>
+                {result.tone === 'success' && result.receipt ? <View style={styles.details}>
+                  <QuoteRow label={side === 'buy' ? 'You paid' : 'You sold'} value={result.receipt.paid} />
+                  <QuoteRow label="You received" value={result.receipt.received} />
+                  <QuoteRow label="Fees" value={result.receipt.feesUsd == null ? '—' : formatUsd(result.receipt.feesUsd)} />
+                </View> : null}
               </View>
             )}
+            {result?.tone === 'success' && token && onShareToFeed ? (
+              <Pressable onPress={() => { const draft = { chain: token.chainKey, address: token.tokenAddress, text: `Just ${side === 'buy' ? 'bought' : 'sold'} $${token.symbol} on Kivo` }; closeReview(); onShareToFeed(draft); }} style={styles.secondaryButton}><Text style={styles.secondaryText}>Share to feed</Text></Pressable>
+            ) : null}
             {result?.hashes.map((hash, index) => {
               const url = transactionLink(hash, result.chainIds[index] ?? result.chainIds[0], token ? MAINNET_CHAIN_IDS[token.chainKey] : null);
               return <Pressable key={hash} hitSlop={8} onPress={() => { Linking.openURL(url).catch(() => {}); }}><Text style={styles.link}>Transaction {index + 1}: {shortAddress(hash, 10, 6)}  ↗ View on explorer</Text></Pressable>;
