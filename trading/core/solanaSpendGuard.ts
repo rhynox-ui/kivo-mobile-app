@@ -142,7 +142,8 @@ export function assertSolanaSystemTransfersWithinIntent(
   transaction: unknown,
   ownerAddress: string,
   intent: SolanaSpendIntent,
-): void {
+  {fundedByTrade = false}: {fundedByTrade?: boolean} = {},
+): bigint {
   const tx = transaction as {
     instructions?: {programId?: unknown; data?: Uint8Array; keys?: {pubkey?: unknown}[]}[];
     message?: {
@@ -162,10 +163,13 @@ export function assertSolanaSystemTransfersWithinIntent(
     // resolves to the user's exact Base58 key, this is their SOL transfer.
     if (source !== ownerAddress) return;
     const amount = readU64LE(data, 4);
+    transferTotal += amount;
     if (intent.spend !== SOLANA_NATIVE_SPEND) {
+      // A token trade's route may pay a fee in SOL the swap itself produces;
+      // the caller then requires the wallet to end with no less SOL.
+      if (fundedByTrade) return;
       throw new SolanaSpendGuardError('This token trade includes an extra SOL transfer from your wallet. It was stopped before signing; nothing was sent.');
     }
-    transferTotal += amount;
     if (transferTotal > intent.maxSpend) {
       throw new SolanaSpendGuardError('This transaction would transfer more SOL than the amount you entered. It was stopped before signing; nothing was sent.');
     }
@@ -179,14 +183,14 @@ export function assertSolanaSystemTransfersWithinIntent(
       const accountAddresses = (ix.accountKeyIndexes ?? []).map(index => addresses[index] ?? null);
       inspect(addresses[ix.programIdIndex] ?? null, accountAddresses, ix.data);
     }
-    return;
+    return transferTotal;
   }
 
   if (Array.isArray(tx.instructions)) {
     for (const ix of tx.instructions) {
       inspect(addressOf(ix.programId), (ix.keys ?? []).map(key => addressOf(key.pubkey)), ix.data);
     }
-    return;
+    return transferTotal;
   }
 
   throw new SolanaSpendGuardError('This transaction could not be inspected for unauthorized SOL transfers. Nothing was sent.');
@@ -225,7 +229,7 @@ export async function assertSolanaSpendWithinIntent(
     expectedOutputAccounts = [],
   }: {owner: unknown; ownerAddress: string; intent: SolanaSpendIntent; tokenProgramIds: [unknown, unknown]; tokenAccountConnection?: SpendGuardConnection; encodeBase58: (b: Uint8Array) => string; overheadLamports?: bigint; expectedOutputMint?: string; expectedOutputMinimum?: bigint; expectedOutputAccounts?: string[]},
 ): Promise<void> {
-  assertSolanaSystemTransfersWithinIntent(transaction, ownerAddress, intent);
+  const directSolOut = assertSolanaSystemTransfersWithinIntent(transaction, ownerAddress, intent, {fundedByTrade: true});
   const spendsSol = intent.spend === SOLANA_NATIVE_SPEND;
   const allowance = (mint: string): bigint =>
     (!spendsSol && eq(mint, intent.spend) ? intent.maxSpend : 0n) + (intent.extra ?? []).filter(e => eq(e.mint, mint)).reduce((s, e) => s + e.units, 0n);
@@ -326,6 +330,11 @@ export async function assertSolanaSpendWithinIntent(
   const lamportsAllowed = (spendsSol ? intent.maxSpend : 0n) + overheadLamports;
   if (lamportsOut > lamportsAllowed) {
     throw new SolanaSpendGuardError('This transaction would take more SOL than this trade needs. It was stopped before signing; nothing was sent.');
+  }
+  // A token trade that sends SOL straight from the wallet is allowed only
+  // when the trade itself paid for it: the wallet ends with no less SOL.
+  if (!spendsSol && directSolOut > 0n && lamportsOut > 0n) {
+    throw new SolanaSpendGuardError('This token trade includes an extra SOL transfer from your wallet. It was stopped before signing; nothing was sent.');
   }
 }
 
