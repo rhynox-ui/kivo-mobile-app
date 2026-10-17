@@ -35,10 +35,42 @@ export async function verifyTokenMarket(chain: string, rawAddress: string): Prom
   const same = (a: unknown) => typeof a === 'string' && (chain === 'solana' ? a === address : a.toLowerCase() === address.toLowerCase());
   const pair = pairs.filter(p => p.chainId === chainId && p.pairAddress && (same(p.baseToken?.address) || same(p.quoteToken?.address)))
     .sort((a, b) => (Number(b.liquidity?.usd) || 0) - (Number(a.liquidity?.usd) || 0))[0];
-  if (!pair) throw new Error(`No active market for this token on ${tradeChainLabel(chain as TradeChain)}. Check the network.`);
+  if (!pair) {
+    // Not on DexScreener yet (new launches, pump.fun tokens on their bonding curve).
+    const fallback = await fromGeckoTerminal(chain, address) ?? (chain === 'solana' ? await fromJupiter(address) : null);
+    if (fallback) return fallback;
+    throw new Error(`No market found for this token on ${tradeChainLabel(chain as TradeChain)}. Check the network and the address.`);
+  }
   const details = same(pair.baseToken?.address) ? pair.baseToken : pair.quoteToken;
   if (!details?.symbol) throw new Error('Market data did not include a token symbol.');
   return { chain, address, symbol: String(details.symbol).slice(0, 20), name: String(details.name || details.symbol).slice(0, 80), imageUrl: typeof pair.info?.imageUrl === 'string' && pair.info.imageUrl.startsWith('https://') ? pair.info.imageUrl : null };
+}
+
+const GECKO_NETWORK: Record<string, string> = { ethereum: 'eth', base: 'base', bnb: 'bsc', robinhood: 'robinhood', solana: 'solana', arbitrum: 'arbitrum', avalanche: 'avax', abstract: 'abstract', hyperevm: 'hyperevm', ink: 'ink', plasma: 'plasma', unichain: 'unichain', xlayer: 'x-layer', arc: 'arc' };
+const httpsOrNull = (value: unknown) => typeof value === 'string' && value.startsWith('https://') ? value : null;
+
+async function fromGeckoTerminal(chain: string, address: string): Promise<VerifiedToken | null> {
+  const network = GECKO_NETWORK[chain];
+  if (!network) return null;
+  try {
+    const response = await fetch(`https://kivo-web.pages.dev/api/market/geckoterminal/api/v2/networks/${network}/tokens/${encodeURIComponent(address)}`);
+    if (!response.ok) return null;
+    const body = await response.json();
+    const attributes = body?.data?.attributes;
+    if (!attributes?.symbol || !body?.data?.relationships?.top_pools?.data?.length) return null;
+    return { chain, address, symbol: String(attributes.symbol).slice(0, 20), name: String(attributes.name || attributes.symbol).slice(0, 80), imageUrl: httpsOrNull(attributes.image_url) };
+  } catch { return null; }
+}
+
+async function fromJupiter(address: string): Promise<VerifiedToken | null> {
+  try {
+    const response = await fetch(`https://kivo-web.pages.dev/api/market/jupiter/tokens/v2/search?query=${encodeURIComponent(address)}`);
+    if (!response.ok) return null;
+    const rows = await response.json();
+    const token = Array.isArray(rows) ? rows.find((row: { id?: string }) => row.id === address) : null;
+    if (!token?.symbol) return null;
+    return { chain: 'solana', address, symbol: String(token.symbol).slice(0, 20), name: String(token.name || token.symbol).slice(0, 80), imageUrl: httpsOrNull(token.icon) };
+  } catch { return null; }
 }
 
 export function TokenAttachmentPicker({ onChange, onClose, initialChain = 'solana' }: { onChange: (token: VerifiedToken | null) => void; onClose?: () => void; initialChain?: string }) {
