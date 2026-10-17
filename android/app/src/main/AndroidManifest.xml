@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Local trade/deposit/withdrawal alerts (LocalNotifyModule.kt); asked for at runtime on Android 13+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Saving chat photos to Pictures/Kivo on Android 9 and older; newer versions need no permission. -->

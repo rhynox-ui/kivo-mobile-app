@@ -219,6 +219,11 @@ const quoteIntents = new WeakMap<object, {intent: TransactionIntent; quotedAt: n
 /** Kivo's quote proxy reports whether Relay accepted sponsorship (x-kivo-sponsorship); kept per quote for diagnostics. */
 const quoteSponsorship = new WeakMap<object, string>();
 
+/** What Kivo's quote proxy said about sponsorship for this quote ('on', 'dropped: …', 'off: …'), or null if unknown. */
+export function quoteSponsorshipStatus(quote: object): string | null {
+  return quoteSponsorship.get(quote) ?? null;
+}
+
 const usd = (value: unknown): string | null => {
   const n = Number(value);
   return Number.isFinite(n) ? `$${Math.abs(n) < 0.01 && n !== 0 ? Math.abs(n).toFixed(4) : Math.abs(n).toFixed(2)}` : null;
