@@ -1,3 +1,4 @@
+import { ResultCard } from '../components/ResultCard';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -378,7 +379,7 @@ function WithdrawSheet({
   const [review, setReview] = useState(false);
   // Full result screen after a send (success or failure), instead of a small line of text.
   const [showOutcome, setShowOutcome] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; message: string; hash?: string; chainId?: number } | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; message: string; hash?: string; chainId?: number; amount?: string; symbol?: string; to?: string; network?: string; submitted?: boolean } | null>(null);
 
   // Mango parity: the withdrawal picker always shows every supported cash network, not only networks with a positive balance. The selected network then shows its live available balance (including 0), so users can still choose the network before funding it.
   const row = chain && chain !== 'near' ? rows?.find(r => r.chainKey === chain) : null;
@@ -450,6 +451,7 @@ function WithdrawSheet({
         message: chain === 'near' ? `Submitted: ${amount} USDC from NEAR to ${shortAddress(to.trim())} on ${CHAIN_LABEL[destination]}. NEAR Intents delivers it in a few minutes.` : `Sent ${amount} ${cashCoin(chain)} on ${CHAIN_LABEL[chain]}.`,
         hash: outcome.hash,
         chainId: chain === 'near' ? undefined : MAINNET_CHAIN_IDS[chain as ChainKey],
+        amount, symbol: cashCoin(chain), to: to.trim(), network: chain === 'near' ? CHAIN_LABEL[destination] : CHAIN_LABEL[chain as ChainKey], submitted: chain === 'near',
       });
       addNotification(chain === 'near' ? 'Withdrawal submitted' : 'Withdrawal sent', `${amount} ${cashCoin(chain)} to ${shortAddress(to.trim())}`);
       setAmount('');
@@ -478,20 +480,19 @@ function WithdrawSheet({
         <Pressable style={styles.backdrop} onPress={() => { if (!busy) onClose(); }}>
           <Pressable style={styles.sheet} onPress={() => {}}>
             {showOutcome && result ? (
-              <View style={styles.outcome}>
-                <View style={[styles.outcomeIcon, result.ok ? styles.outcomeIconOk : styles.outcomeIconFail]}>
-                  <Text style={styles.outcomeIconText}>{result.ok ? '✓' : '✕'}</Text>
-                </View>
-                <Text style={styles.outcomeTitle}>{result.ok ? (chain === 'near' ? 'Withdrawal submitted' : 'Withdrawal sent') : 'Withdrawal failed'}</Text>
-                <Text style={styles.outcomeBody}>{result.message}</Text>
-                {result.hash ? (
-                  <Pressable hitSlop={8} onPress={() => { Linking.openURL(transactionLink(result.hash!, result.chainId)).catch(() => {}); }}>
-                    <Text style={styles.outcomeLink}>{shortAddress(result.hash)}  ↗ View on explorer</Text>
-                  </Pressable>
-                ) : null}
-                <Pressable onPress={() => { setShowOutcome(false); setResult(null); onClose(); }} style={[styles.primary, styles.outcomeButton]}><Text style={styles.primaryText}>Done</Text></Pressable>
-                {!result.ok ? <Pressable onPress={() => { setShowOutcome(false); setResult(null); }} style={styles.ghost}><Text style={styles.ghostText}>Try again</Text></Pressable> : null}
-              </View>
+              <ResultCard
+                tone={result.ok ? (result.submitted ? 'pending' : 'success') : 'error'}
+                hero={{ symbol: result.symbol ?? 'USDC' }}
+                kicker={result.ok ? (result.submitted ? 'Withdrawal submitted' : 'Sent') : 'Withdrawal failed'}
+                headline={result.ok ? `${result.amount} ${result.symbol}` : result.message}
+                subline={result.ok ? (result.submitted ? 'NEAR Intents delivers it in a few minutes.' : `on ${result.network} · network fee paid by Kivo`) : undefined}
+                safeNote={result.ok ? undefined : result.hash ? { ok: false, text: 'A transaction was sent. Check it below before trying again.' } : { ok: true, text: 'Nothing was sent. Your balance is unchanged.' }}
+                steps={result.submitted ? [{ label: 'Sent from NEAR', state: 'done' }, { label: 'NEAR Intents is delivering', state: 'now' }, { label: `Arrives on ${result.network}`, state: 'todo' }] : undefined}
+                rows={result.ok && result.to ? [{ label: 'To', value: shortAddress(result.to) }] : undefined}
+                links={result.hash ? [{ label: shortAddress(result.hash), url: transactionLink(result.hash, result.chainId) }] : undefined}
+                primary={result.ok ? { label: 'Done', onPress: () => { setShowOutcome(false); setResult(null); onClose(); } } : { label: 'Try again', onPress: () => { setShowOutcome(false); setResult(null); } }}
+                secondary={result.ok ? undefined : { label: 'Close', onPress: () => { setShowOutcome(false); setResult(null); onClose(); } }}
+              />
             ) : !review ? (
               <>
                 <View style={styles.sheetHeader}>

@@ -29,6 +29,7 @@ import { NearTradePanel } from './NearTradePanel';
 import { normalizeAmountInput } from '../utils/amountInput';
 import { KivoModal } from '../components/KivoModal';
 import Clipboard from '@react-native-clipboard/clipboard';
+import { ResultCard } from '../components/ResultCard';
 import { ShareTradeSheet, type SharedTrade } from '../components/ShareTradeSheet';
 
 type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
@@ -40,7 +41,7 @@ type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
  */
 const directUnavailable = new Set<string>();
 const DIRECT_UNAVAILABLE = /isn't switched on for/;
-type ExecResult = { tone: 'success' | 'pending' | 'error'; message: string; hashes: string[]; chainIds: number[]; requestId: string | null; receipt?: { paid: string; received: string; feesUsd: number | null } };
+type ExecResult = { tone: 'success' | 'pending' | 'error'; message: string; hashes: string[]; chainIds: number[]; requestId: string | null; receipt?: { paid: string; received: string; feesUsd: number | null; paySymbol: string; receiveSymbol: string } };
 
 // Gasless (Mango Pro model): one signature on the device, Relay submits and pays gas.
 const STAGES: Array<[ExecutionUpdate['stage'][], string]> = [
@@ -347,7 +348,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
         : outcome.status === 'success' ? `${side === 'buy' ? 'Bought' : 'Sold'} ${token.symbol}.`
         : outcome.status === 'refunded' ? 'The route could not be filled and was refunded.' : 'Submitted — the route is still settling.';
       setResult({ tone, message, hashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId,
-        receipt: { paid: payLabel(done.pay), received: `${done.receive.amount ? formatAmount(Number(done.receive.amount)) : '—'} ${cashLabel(done.receive.symbol)}`, feesUsd: done.totalFeeUsd ?? null } });
+        receipt: { paid: payLabel(done.pay), received: `${done.receive.amount ? formatAmount(Number(done.receive.amount)) : '—'} ${cashLabel(done.receive.symbol)}`, feesUsd: done.totalFeeUsd ?? null, paySymbol: cashLabel(done.pay.symbol), receiveSymbol: cashLabel(done.receive.symbol) } });
       const receivedLabel = `${done.receive.amount ? formatAmount(Number(done.receive.amount)) : '—'} ${cashLabel(done.receive.symbol)}`;
       setShareTrade({ side, chain: token.chainKey, address: token.tokenAddress, symbol: token.symbol, imageUrl: token.imageUrl, paid: payLabel(done.pay), received: receivedLabel });
       // Bookkeeping must never turn a sent trade into an error.
@@ -647,30 +648,23 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
             <ScrollView style={styles.reviewScroll} contentContainerStyle={styles.reviewScrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             {result ? (
               // Finished: only the outcome, what was paid and received, and the transaction.
-              <View style={styles.outcome}>
-                <View style={[styles.outcomeBadge, result.tone === 'error' && styles.outcomeBadgeError, result.tone === 'pending' && styles.outcomeBadgePending]}>
-                  <Text style={[styles.outcomeGlyph, result.tone === 'error' && styles.outcomeGlyphError]}>{result.tone === 'success' ? '✓' : result.tone === 'error' ? '✕' : '…'}</Text>
-                </View>
-                <Text style={[styles.outcomeTitle, result.tone === 'error' && styles.resultTitleError]}>
-                  {result.tone === 'error' ? `${side === 'sell' ? 'Sell' : 'Buy'} failed` : result.tone === 'pending' ? 'Submitted' : `${side === 'sell' ? 'Sold' : 'Bought'} ${token?.symbol ?? ''}`}
-                </Text>
-                {result.tone !== 'success' ? <Text style={[styles.outcomeMessage, result.tone === 'error' && styles.error]}>{result.message}</Text> : null}
-                {result.tone !== 'error' && result.receipt ? (
-                  <View style={styles.outcomeRows}>
-                    <QuoteRow label={side === 'buy' ? 'Spent' : 'Sold'} value={result.receipt.paid} />
-                    <QuoteRow label="Received" value={result.receipt.received} />
-                  </View>
-                ) : null}
-                {result.hashes.map((hash, index) => {
-                  const url = transactionLink(hash, result.chainIds[index] ?? result.chainIds[0], token ? MAINNET_CHAIN_IDS[token.chainKey] : null);
-                  return <Pressable key={hash} hitSlop={8} onPress={() => { Linking.openURL(url).catch(() => {}); }}><Text style={styles.link}>{result.hashes.length > 1 ? `Transaction ${index + 1}` : 'View transaction'}  ↗</Text></Pressable>;
-                })}
-                {!result.hashes.length && result.requestId ? <Pressable onPress={() => Linking.openURL(relayRequestUrl(result.requestId!))}><Text style={styles.link}>View transaction  ↗</Text></Pressable> : null}
-                {result.tone !== 'error' && shareTrade ? (
-                  <Pressable onPress={() => setShareOpen(true)} style={styles.primaryButton}><Text style={styles.primaryText}>Share</Text></Pressable>
-                ) : null}
-                <Pressable onPress={closeReview} style={styles.secondaryButton}><Text style={styles.secondaryText}>Close</Text></Pressable>
-              </View>
+              <ResultCard
+                tone={result.tone}
+                hero={{ symbol: token?.symbol ?? '?', imageUrl: token?.imageUrl }}
+                kicker={result.tone === 'error' ? `${side === 'sell' ? 'Sell' : 'Buy'} didn't go through` : result.tone === 'pending' ? `${side === 'sell' ? 'Selling' : 'Buying'} ${token?.symbol ?? ''}` : `${side === 'sell' ? 'Sold' : 'Bought'} ${token?.symbol ?? ''}`}
+                headline={result.tone === 'success' && result.receipt ? `+${result.receipt.received}` : result.tone === 'pending' ? 'Confirming…' : result.message.replace(/ Some transactions were already sent; check them before trying again\.$/, '')}
+                subline={result.tone === 'success' && token ? `on ${CHAIN_LABEL[token.chainKey]} · in your wallet` : result.tone === 'pending' ? result.message : undefined}
+                safeNote={result.tone === 'error' ? (result.hashes.length ? { ok: false, text: 'Some transactions were already sent. Check them below before trying again.' } : { ok: true, text: side === 'sell' ? `Your ${token?.symbol ?? 'tokens'} are safe. Nothing left your wallet.` : 'Your money is safe. Nothing left your wallet.' }) : undefined}
+                from={result.tone !== 'error' && result.receipt ? { label: side === 'buy' ? 'You paid' : 'You sold', symbol: result.receipt.paySymbol, imageUrl: side === 'sell' ? token?.imageUrl : null, amount: result.receipt.paid } : undefined}
+                to={result.tone !== 'error' && result.receipt ? { label: 'You got', symbol: result.receipt.receiveSymbol, imageUrl: side === 'buy' ? token?.imageUrl : null, amount: result.receipt.received } : undefined}
+                steps={result.tone === 'pending' ? [{ label: 'Signed in your Kivo wallet', state: 'done' }, { label: `Settling on ${token ? CHAIN_LABEL[token.chainKey] : 'the network'}`, state: 'now' }, { label: `${side === 'sell' ? 'Cash' : token?.symbol ?? 'Tokens'} arrive in your wallet`, state: 'todo' }] : undefined}
+                rows={result.tone === 'success' && result.receipt?.feesUsd != null ? [{ label: 'Fees', value: formatUsd(result.receipt.feesUsd) }] : undefined}
+                links={result.hashes.length
+                  ? result.hashes.map((hash, index) => ({ label: result.hashes.length > 1 ? `View ${index + 1}` : 'View', url: transactionLink(hash, result.chainIds[index] ?? result.chainIds[0], token ? MAINNET_CHAIN_IDS[token.chainKey] : null) }))
+                  : result.requestId ? [{ label: 'View', url: relayRequestUrl(result.requestId) }] : undefined}
+                primary={result.tone === 'error' ? { label: 'Try again', onPress: () => { setResult(null); setUpdate(null); } } : shareTrade ? { label: 'Share', onPress: () => setShareOpen(true) } : undefined}
+                secondary={{ label: result.tone === 'error' ? 'Close' : 'Done', onPress: closeReview }}
+              />
             ) : (<>
             <Text style={styles.sheetTitle}>Confirm {side}</Text>
             {view && <>
