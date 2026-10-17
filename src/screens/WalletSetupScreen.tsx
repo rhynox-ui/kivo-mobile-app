@@ -4,11 +4,12 @@ import { KivoMark } from '../components/KivoMark';
 import { kivoTheme } from '../theme/kivoTheme';
 
 type Props = {
+  onGoogle: () => void;
   onCreate: () => void;
   onImport: () => void;
 };
 
-export function WalletSetupScreen({ onCreate, onImport }: Props) {
+export function WalletSetupScreen({ onGoogle, onCreate, onImport }: Props) {
   return (
     <View style={styles.container}>
       <Text style={styles.eyebrow}>KIVO WALLET</Text>
@@ -22,8 +23,13 @@ export function WalletSetupScreen({ onCreate, onImport }: Props) {
       </View>
 
       <View style={styles.options}>
-        <Option title="Create New Wallet" body="A new wallet secured on this device" onPress={onCreate} />
-        <Option title="Import Wallet" body="Use a recovery phrase or private key" onPress={onImport} />
+        <Pressable onPress={onGoogle} style={styles.google} accessibilityRole="button">
+          <Text style={styles.googleG}>G</Text>
+          <Text style={styles.googleText}>Continue with Google</Text>
+        </Pressable>
+        <Text style={styles.googleNote}>Fastest: no phrase to write down. Your wallet is encrypted with your Kivo password and backed up to your own Google Drive.</Text>
+        <Option title="Create New Wallet" body="Classic wallet with a 12-word recovery phrase" onPress={onCreate} />
+        <Option title="Import Wallet" body="Use your 12 or 24-word recovery phrase" onPress={onImport} />
       </View>
     </View>
   );
@@ -53,6 +59,10 @@ function Option({
 }
 
 const styles = StyleSheet.create({
+  google: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: kivoTheme.colors.cream, borderRadius: 999, paddingVertical: 16 },
+  googleG: { color: '#4285F4', fontSize: 20, fontWeight: '900' },
+  googleText: { color: kivoTheme.colors.backgroundDeep, fontSize: 16, fontWeight: '900' },
+  googleNote: { color: kivoTheme.colors.textMuted, fontSize: 12, lineHeight: 17, textAlign: 'center', marginTop: 8, marginBottom: 14 },
   container: {
     flex: 1,
     backgroundColor: kivoTheme.colors.background,
