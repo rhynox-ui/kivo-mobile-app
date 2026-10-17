@@ -84,6 +84,8 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   const [shareTrade, setShareTrade] = useState<SharedTrade | null>(null);
   // Shown above the ticket when Kivo re-routed a trade (e.g. direct gas-free swap unavailable).
   const [notice, setNotice] = useState('');
+  // Set when a trade was re-routed: open the confirm sheet again as soon as the new quote is ready.
+  const reopenReview = useRef(false);
   // One haptic per trade outcome (respects the Haptics setting).
   useEffect(() => { if (result) haptic(result.tone === 'success' ? 'success' : result.tone === 'error' ? 'error' : 'warning'); }, [result]);
   const [running, setRunning] = useState(false);
@@ -192,7 +194,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   }, [token, address, parsed, amountProblem, side, cash, spendable, tokenBalance, amount, settings.slippageBps, gaslessTradingEnabled]);
 
   // Debounced auto-quote while typing.
-  useEffect(() => { setNotice(''); }, [amount, selectedToken?.tokenAddress, side]);
+  useEffect(() => { setNotice(''); reopenReview.current = false; }, [amount, selectedToken?.tokenAddress, side]);
   useEffect(() => {
     quoteSeq.current++;
     setQuote(null); setQuoteState('idle');
@@ -201,6 +203,13 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amount, cash, spendable, tokenBalance?.decimals, settings.slippageBps]);
+
+  // Re-routed trade: show the new quote's confirm sheet without another tap.
+  useEffect(() => {
+    if (!reopenReview.current) return;
+    if (quoteState === 'ready' && plan) { reopenReview.current = false; setNotice(''); setReviewOpen(true); }
+    else if (quoteState === 'error') reopenReview.current = false;
+  }, [quoteState, plan]);
 
   useEffect(() => {
     if (quoteState !== 'ready') return;
@@ -343,7 +352,8 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       if (plan.direct && !hashes.length && DIRECT_UNAVAILABLE.test(message)) {
         directUnavailable.add(token.chainKey);
         setReviewOpen(false); setResult(null); setUpdate(null);
-        setNotice(`Nothing was sent. Kivo found another gas-free route on ${chainLabel(token.chainKey)}: review the new quote and confirm again.`);
+        setNotice(`Nothing was sent. Finding another gas-free route on ${chainLabel(token.chainKey)}…`);
+        reopenReview.current = true;
         void fetchQuote();
         return;
       }
