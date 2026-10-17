@@ -55,7 +55,8 @@ export type DexScreenerPair = {
   info?: {
     imageUrl?: string;
     websites?: { label?: string; url?: string }[];
-    socials?: { type?: string; url?: string }[];
+    // Older responses use {type, url}; newer ones {platform, handle}.
+    socials?: { type?: string; url?: string; platform?: string; handle?: string }[];
   };
 };
 
@@ -75,6 +76,14 @@ function socialKindFor(type: string | undefined): 'x' | 'telegram' | null {
   return null;
 }
 
+/** A full https link, or a bare handle turned into one. */
+export function socialUrl(kind: 'x' | 'telegram', value: string | undefined): string | undefined {
+  const text = value?.trim().replace(/^@/, '');
+  if (!text) return undefined;
+  if (/^https:\/\//i.test(text)) return text;
+  return /^[A-Za-z0-9_]{1,64}$/.test(text) ? (kind === 'x' ? `https://x.com/${text}` : `https://t.me/${text}`) : undefined;
+}
+
 function extractSocialLinks(pair: DexScreenerPair | undefined): TokenSocialLink[] {
   const links: TokenSocialLink[] = [];
   const seen = new Set<string>();
@@ -84,8 +93,8 @@ function extractSocialLinks(pair: DexScreenerPair | undefined): TokenSocialLink[
     links.push({ kind, url });
   };
   for (const social of pair?.info?.socials ?? []) {
-    const kind = socialKindFor(social?.type);
-    if (kind) add(kind, social?.url);
+    const kind = socialKindFor((social?.type ?? social?.platform)?.toLowerCase());
+    if (kind) add(kind, socialUrl(kind, social?.url ?? social?.handle));
   }
   const website = pair?.info?.websites?.find(w => typeof w?.url === 'string' && w.url);
   add('website', website?.url);

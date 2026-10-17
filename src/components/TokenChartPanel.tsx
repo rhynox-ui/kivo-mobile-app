@@ -10,6 +10,7 @@ import { isNativeToken, marketAddressFor, type KivoToken } from '@kivo/trading/k
 import { fetchSolanaTopHolders } from '@kivo/trading/kivo/solanaHolders';
 import type { TokenHolder } from '@kivo/trading/core/goplusTokenSecurity';
 import { openHttpsUrl } from '../utils/openExternal';
+import { withSocialFallback } from '../state/tokenSocials';
 import { KivoModal } from './KivoModal';
 
 const COLORS = {
@@ -79,7 +80,16 @@ export function TokenChartPanel({ token }: { token: KivoToken }) {
       .catch(() => setNetworkHolders({ status: 'error', holders: [] }));
   };
   const holderCount = security?.holderCount ?? null;
-  const socialLinks = pair?.socialLinks ?? [];
+  // DexScreener's links, with website / X / Telegram filled from GeckoTerminal or Jupiter when missing.
+  const [socialLinks, setSocialLinks] = useState<{ kind: string; url: string }[]>([]);
+  useEffect(() => {
+    let active = true;
+    const base = pair?.socialLinks ?? [];
+    setSocialLinks(base);
+    if (token.chainKey === "near") return () => { active = false; };
+    void withSocialFallback(token.chainKey, token.tokenAddress, base).then(links => { if (active) setSocialLinks(links); });
+    return () => { active = false; };
+  }, [pair, token.chainKey, token.tokenAddress]);
   const onShouldStartLoadWithRequest = (request: ShouldStartLoadRequest) =>
     /^https:\/\/([a-z0-9-]+\.)*dexscreener\.com\//i.test(request.url);
 
