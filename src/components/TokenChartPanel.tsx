@@ -7,6 +7,8 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { dexScreenerEmbedUrl, resolveDexScreenerPair, type ResolvedPair } from '@kivo/trading/core/dexScreener';
 import { checkSolanaTokenSecurity, checkTokenSecurity, type TokenSecuritySummary } from '@kivo/trading/core/goplusTokenSecurity';
 import { isNativeToken, marketAddressFor, type KivoToken } from '@kivo/trading/kivo/tokens';
+import { fetchSolanaTopHolders } from '@kivo/trading/kivo/solanaHolders';
+import type { TokenHolder } from '@kivo/trading/core/goplusTokenSecurity';
 import { openHttpsUrl } from '../utils/openExternal';
 import { KivoModal } from './KivoModal';
 
@@ -34,6 +36,9 @@ export function TokenChartPanel({ token }: { token: KivoToken }) {
   const [resolving, setResolving] = useState(true);
   const [security, setSecurity] = useState<TokenSecuritySummary | null>(null);
   const [holdersOpen, setHoldersOpen] = useState(false);
+  // Solana tokens GoPlus hasn't indexed yet: holders read from the network when the sheet opens.
+  const [networkHolders, setNetworkHolders] = useState<{ status: 'idle' | 'loading' | 'ok' | 'error'; holders: TokenHolder[] }>({ status: 'idle', holders: [] });
+  useEffect(() => { setNetworkHolders({ status: 'idle', holders: [] }); }, [token.chainKey, token.tokenAddress]);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +68,16 @@ export function TokenChartPanel({ token }: { token: KivoToken }) {
     theme: 'dark',
   }) : null;
 
-  const holders = security?.holders ?? null;
+  const useNetworkHolders = token.chainKey === 'solana' && !isNativeToken(token) && !security?.holders?.length;
+  const holders = useNetworkHolders ? networkHolders.holders : security?.holders ?? null;
+  const openHolders = () => {
+    setHoldersOpen(true);
+    if (!useNetworkHolders || networkHolders.status === 'loading' || networkHolders.status === 'ok') return;
+    setNetworkHolders({ status: 'loading', holders: [] });
+    fetchSolanaTopHolders(token.tokenAddress)
+      .then(list => setNetworkHolders({ status: 'ok', holders: list }))
+      .catch(() => setNetworkHolders({ status: 'error', holders: [] }));
+  };
   const holderCount = security?.holderCount ?? null;
   const socialLinks = pair?.socialLinks ?? [];
   const onShouldStartLoadWithRequest = (request: ShouldStartLoadRequest) =>
@@ -71,7 +85,7 @@ export function TokenChartPanel({ token }: { token: KivoToken }) {
 
   return (
     <View style={styles.wrap}>
-      {(holderCount != null || (holders?.length ?? 0) > 0 || socialLinks.length > 0) && (
+      {(holderCount != null || (holders?.length ?? 0) > 0 || useNetworkHolders || socialLinks.length > 0) && (
         <View style={styles.holdersRow}>
           <View style={styles.socialLinksRow}>
             {socialLinks.map(link => (
@@ -86,8 +100,8 @@ export function TokenChartPanel({ token }: { token: KivoToken }) {
               </Pressable>
             ))}
           </View>
-          {(holderCount != null || (holders?.length ?? 0) > 0) && (
-            <Pressable onPress={() => setHoldersOpen(true)} style={styles.holdersButton}>
+          {(holderCount != null || (holders?.length ?? 0) > 0 || useNetworkHolders) && (
+            <Pressable onPress={openHolders} style={styles.holdersButton}>
               <Text style={styles.holdersButtonText}>
                 {holderCount != null ? `Holders ${compact(holderCount)}` : 'Top holders'} ▾
               </Text>
@@ -129,8 +143,10 @@ export function TokenChartPanel({ token }: { token: KivoToken }) {
               </Pressable>
             </View>
             <ScrollView style={styles.holdersList}>
-              {!holders?.length ? (
-                <Text style={styles.holdersEmpty}>No holder data available for this token right now.</Text>
+              {useNetworkHolders && networkHolders.status === 'loading' ? (
+                <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginVertical: 24 }} />
+              ) : !holders?.length ? (
+                <Text style={styles.holdersEmpty}>{useNetworkHolders && networkHolders.status === 'error' ? 'Could not read holders from the Solana network. Try again in a moment.' : 'No holder data available for this token right now.'}</Text>
               ) : (
                 holders.map((holder, index) => (
                   <View key={holder.address} style={styles.holderRow}>
@@ -151,7 +167,7 @@ export function TokenChartPanel({ token }: { token: KivoToken }) {
               )}
             </ScrollView>
             <Text style={styles.source}>
-              Top 10 {token.chainKey === 'solana' ? 'token accounts' : 'holders'} only, via GoPlus Security.
+              {useNetworkHolders ? 'Top 10 holders only, read from the Solana network. Includes pools and launchpad accounts.' : `Top 10 ${token.chainKey === 'solana' ? 'token accounts' : 'holders'} only, via GoPlus Security.`}
             </Text>
           </Pressable>
         </Pressable>
