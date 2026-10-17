@@ -373,6 +373,8 @@ export function estimateSponsorshipLamportsCost(
   instructions: InstanceType<typeof import('@solana/web3.js').TransactionInstruction>[],
   numRequiredSignatures: number,
   tokenAccountRentExemptLamports: number,
+  /** New token accounts this transaction really creates (default: one when any ATA create is present). */
+  newTokenAccounts?: number,
 ): number {
   let rentCost = 0;
   let needsTokenAccountRent = false;
@@ -384,8 +386,32 @@ export function estimateSponsorshipLamportsCost(
       needsTokenAccountRent = true;
     }
   }
-  if (needsTokenAccountRent) rentCost += tokenAccountRentExemptLamports;
-  return Math.max(0, numRequiredSignatures) * LAMPORTS_PER_SIGNATURE + rentCost;
+  if (needsTokenAccountRent) rentCost += tokenAccountRentExemptLamports * (newTokenAccounts ?? 1);
+  return Math.max(0, numRequiredSignatures) * LAMPORTS_PER_SIGNATURE + rentCost + priorityFeeLamports(instructions);
+}
+
+// ComputeBudget SetComputeUnitPrice variant (u64 micro-lamports per unit).
+const COMPUTE_BUDGET_SET_UNIT_PRICE_DISCRIMINANT = 3;
+// The runtime's default compute budget when no SetComputeUnitLimit is given.
+const DEFAULT_UNITS_PER_INSTRUCTION = 200_000;
+const MAX_COMPUTE_UNITS = 1_400_000;
+
+/**
+ * The priority fee the fee payer is charged: SetComputeUnitPrice
+ * (micro-lamports per unit) x the unit limit. Routes often set a high
+ * price, so this can be most of a sponsored transaction's cost.
+ */
+export function priorityFeeLamports(instructions: InstanceType<typeof import('@solana/web3.js').TransactionInstruction>[]): number {
+  let price = 0n;
+  let limit: number | null = null;
+  let others = 0;
+  for (const ix of instructions) {
+    if (ix.programId.toBase58() !== COMPUTE_BUDGET_PROGRAM_ID) { others++; continue; }
+    if (ix.data[0] === COMPUTE_BUDGET_SET_UNIT_PRICE_DISCRIMINANT && ix.data.length >= 9) price = ix.data.readBigUInt64LE(1);
+    if (ix.data[0] === COMPUTE_BUDGET_SET_UNIT_LIMIT_DISCRIMINANT && ix.data.length >= 5) limit = ix.data.readUInt32LE(1);
+  }
+  const units = BigInt(Math.min(MAX_COMPUTE_UNITS, limit ?? others * DEFAULT_UNITS_PER_INSTRUCTION));
+  return Number((price * units + 999_999n) / 1_000_000n);
 }
 
 /**
@@ -531,6 +557,9 @@ export async function signAndSendSponsoredSolanaStep(
   // USDC this transaction's own cost recovery adds on top of the trade —
   // allowed by the spend guard below as Kivo's, not the route's.
   let recoveryUnitsIncluded = 0n;
+  // SOL this transaction repays to the sponsor when there is no USDC to repay with.
+  let recoveryLamportsIncluded = 0n;
+  let sponsoredLamportsCost = 0;
 
   // Cost recovery — strictly opportunistic, per this file's own header
   // above. Any failure anywhere in this block (no live price, no/not
@@ -546,7 +575,12 @@ export async function signAndSendSponsoredSolanaStep(
       const costedInstructions = instructions.filter(ix => !(ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID && ix.keys.length >= 2 && closedBackAtas.has(ix.keys[1].pubkey.toBase58())));
       const needsTokenAccountRent = costedInstructions.some(ix => ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID);
       const tokenAccountRentExemptLamports = needsTokenAccountRent ? await connection.getMinimumBalanceForRentExemption(SPL_TOKEN_ACCOUNT_SPACE) : 0;
-      const lamportsCost = estimateSponsorshipLamportsCost(costedInstructions, numRequiredSignatures, tokenAccountRentExemptLamports) + topUpLamports;
+      // Every token account this transaction really creates (each one's rent is Kivo's).
+      const ataTargets = [...new Set(costedInstructions.filter(ix => ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID && ix.keys.length >= 2).map(ix => ix.keys[1].pubkey.toBase58()))];
+      const ataInfos = ataTargets.length ? await connection.getMultipleAccountsInfo(ataTargets.map(a => new PublicKey(a)), 'confirmed').catch(() => null) : [];
+      const newTokenAccounts = ataInfos ? ataInfos.filter(info => !info).length : undefined;
+      const lamportsCost = estimateSponsorshipLamportsCost(costedInstructions, numRequiredSignatures, tokenAccountRentExemptLamports, newTokenAccounts) + topUpLamports;
+      sponsoredLamportsCost = lamportsCost;
 
       const prices = await fetchWalletPrices().catch(() => ({}) as Record<string, number>);
       const recoveryUnits = sponsorshipRecoveryUsdcUnits(lamportsCost, prices.SOL ?? 0);
@@ -592,6 +626,20 @@ export async function signAndSendSponsoredSolanaStep(
     void recordDiagnosticEvent('sponsorshipRecovery.skipped', err);
   }
 
+  // No USDC to repay with (e.g. a buy paid in SOL): repay the same cost in
+  // SOL instead, so sponsorship is never a loss for Kivo. Only if the wallet
+  // can afford it in this transaction (the simulation decides).
+  if (recoveryUnitsIncluded === 0n && sponsoredLamportsCost > 0) {
+    try {
+      const lamports = Math.ceil(sponsoredLamportsCost * (1 + SPONSORSHIP_RECOVERY_BUFFER_PCT));
+      const candidate = [...finalInstructions, SystemProgram.transfer({fromPubkey: signer.publicKey, toPubkey: feePayerPubkey, lamports})];
+      const simulation = await simulationConnection.simulateTransaction(new VersionedTransaction(new TransactionMessage({payerKey: feePayerPubkey, instructions: candidate, recentBlockhash: blockhash}).compileToV0Message(lookupTables)), {sigVerify: false, replaceRecentBlockhash: true});
+      if (!simulation.value.err) { finalInstructions = candidate; recoveryLamportsIncluded = BigInt(lamports); }
+    } catch (err) {
+      void recordDiagnosticEvent('sponsorshipRecovery.sol-skipped', err);
+    }
+  }
+
   const message = new TransactionMessage({payerKey: feePayerPubkey, instructions: finalInstructions, recentBlockhash: blockhash}).compileToV0Message(lookupTables);
   const unsignedTransaction = new VersionedTransaction(message);
   // The fee payer here is deliberately Kivo's own sponsor, not the
@@ -609,7 +657,9 @@ export async function signAndSendSponsoredSolanaStep(
   // not what the user may lose.
   if (spendIntent) {
     const usdcMintAddress = TOKEN_ADDRESSES.USDC?.solana;
-    const extra = recoveryUnitsIncluded > 0n && usdcMintAddress ? [...(spendIntent.extra ?? []), {mint: usdcMintAddress, units: recoveryUnitsIncluded}] : spendIntent.extra;
+    const extra = recoveryUnitsIncluded > 0n && usdcMintAddress ? [...(spendIntent.extra ?? []), {mint: usdcMintAddress, units: recoveryUnitsIncluded}]
+      : recoveryLamportsIncluded > 0n ? [...(spendIntent.extra ?? []), {mint: SOLANA_NATIVE_SPEND, units: recoveryLamportsIncluded}]
+      : spendIntent.extra;
     await assertSolanaSpendWithinIntentWeb3(simulationConnection, unsignedTransaction, signer.publicKey.toBase58(), {...spendIntent, extra}, tokenAccountReadConnection);
   }
 

@@ -78,3 +78,7 @@ console.log('Jupiter sell fee accounting and case-sensitive Solana address regre
 // when the trade funds it (checked against the simulated balance later).
 assert.equal(assertSolanaSystemTransfersWithinIntent(legacyTransfer(5n), user, tokenSpend, {fundedByTrade: true}), 5n);
 console.log('funded-by-trade SOL transfer: deferred to the balance check');
+// Kivo's own SOL cost recovery (intent.extra SOL) is allowed, nothing more.
+assert.doesNotThrow(() => assertSolanaSystemTransfersWithinIntent(legacyTransfer(5n), user, {...tokenSpend, extra: [{mint: SOLANA_NATIVE_SPEND, units: 5n}]}));
+assert.throws(() => assertSolanaSystemTransfersWithinIntent(legacyTransfer(6n), user, {...tokenSpend, extra: [{mint: SOLANA_NATIVE_SPEND, units: 5n}]}), /extra SOL transfer/);
+console.log('SOL cost recovery allowed exactly');
