@@ -30,7 +30,7 @@ import { NearTradePanel } from './NearTradePanel';
 import { normalizeAmountInput } from '../utils/amountInput';
 import { KivoModal } from '../components/KivoModal';
 import { ResultCard, splitError } from '../components/ResultCard';
-import { ConvertCashSheet } from '../components/ConvertCashSheet';
+import { runAutoSweep } from '../wallet/autoSweep';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { ShareTradeSheet, type SharedTrade } from '../components/ShareTradeSheet';
 
@@ -79,7 +79,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   // Funds on other networks / in other coins: not spent by trades (Kivo's
   // home is USDC on Solana), only pointed to so the user can Convert them.
   const [awayUsd, setAwayUsd] = useState(0);
-  const [moveHomeOpen, setMoveHomeOpen] = useState(false);
+  const [movingHome, setMovingHome] = useState(false);
   // Bumped after a trade so the balances are read again.
   const [balanceNonce, setBalanceNonce] = useState(0);
   // When the balance can only partly cover a buy: the amount that CAN be bought.
@@ -186,7 +186,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   // quote below re-checks it once the route's real output is known).
   const tradeUsd = parsed == null ? null : side === 'buy' ? parsed : token?.priceUsd != null && token.priceUsd > 0 ? parsed * token.priceUsd : null;
   const amountProblem = !amount.trim() ? null : parsed == null ? 'Enter a valid amount greater than zero.'
-    : available != null && parsed > available + 1e-12 ? (side === 'buy' ? (homeActive && awayUsd >= 0.5 ? `More than your USDC on Solana (${formatBalanceUsd(available)}). You have ${formatBalanceUsd(awayUsd)} elsewhere: tap Buy to move it to Solana first.` : `More than your available balance (${formatBalanceUsd(available)}).`) : `More than your available ${formatAmount(available)} ${token?.symbol ?? ''}.`)
+    : available != null && parsed > available + 1e-12 ? (side === 'buy' ? (homeActive && awayUsd >= 0.5 ? `More than your USDC on Solana (${formatBalanceUsd(available)}). You have ${formatBalanceUsd(awayUsd)} elsewhere: Kivo moves it to Solana when you tap Buy.` : `More than your available balance (${formatBalanceUsd(available)}).`) : `More than your available ${formatAmount(available)} ${token?.symbol ?? ''}.`)
     : tradeUsd != null && tradeUsd < MIN_TRADE_USD ? `The minimum trade is ${formatUsd(MIN_TRADE_USD)}.` : null;
 
   const fetchQuote = useCallback(async () => {
@@ -447,7 +447,23 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   const needsMoveHome = side === 'buy' && homeActive && awayUsd >= 0.5 && available != null && parsed != null && parsed > available + 1e-9;
   const pressSide = (target: TradeSide) => {
     if (target !== side) { setSide(target); return; }
-    if (needsMoveHome) { setMoveHomeOpen(true); return; }
+    if (needsMoveHome) {
+      // CEX-like: the buy pulls the funds home by itself, then opens its review.
+      if (movingHome) return;
+      setMovingHome(true);
+      setNotice('Moving your funds to Solana for this buy…');
+      void runAutoSweep({ upToUsd: (parsed ?? 0) - (available ?? 0) }).then(result => {
+        setMovingHome(false);
+        if (!result || result.movedUsd <= 0) { setNotice(result?.failed[0]?.error ? `Couldn't move your funds: ${result.failed[0].error}` : 'Unlock your wallet and try again.'); return; }
+        setNotice('');
+        reopenReview.current = true;
+        // Bridged USDC can take a few seconds to land: read the balance again until it has.
+        setBalanceNonce(n => n + 1);
+        setTimeout(() => setBalanceNonce(n => n + 1), 8000);
+        setTimeout(() => setBalanceNonce(n => n + 1), 20000);
+      });
+      return;
+    }
     if (ready) setReviewOpen(true);
     else if (expired) fetchQuote();
   };
@@ -498,7 +514,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
 
             <View style={styles.sides}>
               <Pressable onPress={() => pressSide('buy')} style={[styles.buy, side !== 'buy' && styles.inactive]}>
-                <Text style={styles.buyText}>{needsMoveHome ? '⇄  Move to Solana' : '↑  Buy'}</Text>
+                <Text style={styles.buyText}>{movingHome ? 'Moving funds…' : '↑  Buy'}</Text>
               </Pressable>
               <Pressable onPress={() => pressSide('sell')} style={[styles.sell, side === 'sell' && ready && styles.sellReady, side !== 'sell' && styles.inactive]}>
                 <Text style={[styles.sellText, side === 'sell' && ready && styles.sellTextReady]}>↓  {'Sell'}</Text>
@@ -733,7 +749,6 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
         </View>
       </KivoModal>
       <ShareTradeSheet trade={shareTrade} visible={shareOpen} onClose={() => setShareOpen(false)} onShareToFeed={onShareToFeed ? draft => { setShareOpen(false); closeReview(); onShareToFeed(draft); } : undefined} />
-      <ConvertCashSheet visible={moveHomeOpen} moveHome onClose={() => setMoveHomeOpen(false)} onConverted={() => { clearSpendableBalanceCache(); clearCashBalanceCache(); setBalanceNonce(n => n + 1); }} />
     </ScrollView>
   );
 }

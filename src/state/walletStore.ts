@@ -29,6 +29,8 @@ export async function loadWalletSession(){return getWalletSession();}
 export function getWalletSession(){return session?{...session}:null;}
 /** True while the wallet is unlocked in memory, so it can sign without asking for a fingerprint or password. */
 export function isWalletUnlocked(){return unlockedMnemonic!==null;}
+/** True while the device wallet is unlocked in this session: signing needs no prompt. */
+export function walletUnlockedOnDevice():boolean{return Boolean(unlockedMnemonic)&&session?.source==='local';}
 export function lockWalletSession(){session=null;unlockedMnemonic=null;emit();}
 export function subscribeToWallet(l:(v:WalletSession|null)=>void){listeners.add(l);l(getWalletSession());return()=>{listeners.delete(l);};}
 export async function unlockWalletWithPassword(password:string){const vault=await loadVault();if(!vault)throw new Error('No local wallet is available on this device.');return setUnlocked(await unlockVaultMnemonic(vault,password));}

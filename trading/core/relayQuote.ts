@@ -143,6 +143,13 @@ export type GetRelayQuoteParams = {
    * costs, capped) after checking the request really is one; no app fee.
    */
   fundingTransfer?: boolean;
+  /**
+   * Kivo moving the user's own funds home (USDC on Solana) automatically.
+   * Carries a 0.01% app fee only so Kivo's server can sponsor the gas and,
+   * when that costs more, raise this move's fee just enough to recover it
+   * (see web/server/relay.ts): Kivo pays, then gets it back.
+   */
+  sweepHome?: boolean;
 };
 
 /** One transaction Relay needs signed — EVM-shaped (to/data/value/chainId) or Solana-shaped (instructions), per executeRelayQuote.ts's own dispatch. */
@@ -276,7 +283,7 @@ function isBetterExactInputQuote(candidate: RelayQuote, current: RelayQuote): bo
 
 export async function getRelayQuote(params: GetRelayQuoteParams): Promise<RelayQuote> {
   await assertQuoteOriginGaslessCapability(params);
-  const {fromChainKey, toChainKey, fromAsset, toAsset, originCurrency, destinationCurrency, amountBaseUnits, userAddress, recipientAddress, originAmountUsd, slippageTolerance, originGasOverhead, waiveAppFee, fundingTransfer} = params;
+  const {fromChainKey, toChainKey, fromAsset, toAsset, originCurrency, destinationCurrency, amountBaseUnits, userAddress, recipientAddress, originAmountUsd, slippageTolerance, originGasOverhead, waiveAppFee, fundingTransfer, sweepHome} = params;
 
   const resolvedOriginCurrency = originCurrency ?? (fromAsset ? currencyAddress(fromChainKey, fromAsset) : undefined);
   const resolvedDestinationCurrency = destinationCurrency ?? (toAsset ? currencyAddress(toChainKey, toAsset) : undefined);
@@ -317,7 +324,7 @@ export async function getRelayQuote(params: GetRelayQuoteParams): Promise<RelayQ
     // toChainKey, not fromChainKey — Relay's sponsorship (and the fee
     // floor protecting it) is priced against the chain whose fees
     // actually get sponsored: the destination, per Relay's own docs.
-    appFees: [{recipient: feeRecipientForQuote(), fee: waiveAppFee || feeExempt || fundingTransfer ? '0' : appFeeBps(originAmountUsd)}],
+    appFees: [{recipient: feeRecipientForQuote(), fee: waiveAppFee || feeExempt || fundingTransfer ? '0' : sweepHome ? '1' : appFeeBps(originAmountUsd)}],
     ...(fundingTransfer && RELAY_SPONSORSHIP_ENABLED ? {subsidizeFees: true, kivoFunding: true} : {}),
     ...(sponsorshipActive && !fundingTransfer
       ? {

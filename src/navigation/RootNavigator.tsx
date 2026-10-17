@@ -37,6 +37,7 @@ import { isBiometricUnlockEnabled } from '../wallet/biometricAuth';
 import { loadAutoLockMs } from '../settings/autoLockPrefs';
 import { fetchCashBalances } from '@kivo/trading/kivo/balances';
 import { checkForDeposits } from '../wallet/depositWatcher';
+import { runAutoSweep } from '../wallet/autoSweep';
 import { CHAIN_LABEL } from '@kivo/trading/core/chainData';
 import { recordDiagnosticEvent } from '../debug/diagnosticLog';
 
@@ -185,6 +186,8 @@ export function RootNavigator() {
           }
         }
         await checkForDeposits(wallet.address, readings);
+        // Funds that landed on another network go home (USDC on Solana) by themselves.
+        void runAutoSweep({ background: true });
       } catch {
         void recordDiagnosticEvent(
           'depositWatcher.poll',
