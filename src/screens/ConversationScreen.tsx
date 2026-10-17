@@ -4,22 +4,42 @@ import { AppState, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platfo
 import { kivoAlert } from '../components/KivoAlert';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { API_LIMITS, messageCharLimit, messageLength, shortWallet } from '@kivo/shared/api/types';
-import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
+import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, getChatState, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useActiveConversation, useChatState } from '../state/useChat';
 import { Avatar } from './ChatListScreen';
 import { api } from '../state/session';
+import { useProfile } from '../state/profileStore';
 import { KivoModal } from '../components/KivoModal';
 import { BottomSheet } from '../components/BottomSheet';
 import { PhotoViewer } from '../components/PhotoViewer';
 import { TokenAttachmentCard } from '../components/TokenAttachmentCard';
 import { TokenAttachmentPicker, type VerifiedToken } from '../components/TokenAttachmentPicker';
 
-type Item = { type: 'day'; key: string; label: string } | { type: 'message'; key: string; message: LocalMessage; showName: boolean; showAvatar: boolean };
+type Item = { type: 'day'; key: string; label: string } | { type: 'unread'; key: string } | { type: 'message'; key: string; message: LocalMessage; showName: boolean; showAvatar: boolean };
 
-function renderLinkedText(text: string): React.ReactNode[] {
-  const nodes: React.ReactNode[]=[]; const pattern= /https?:\/\/[^\s<>"']+|www\.[^\s<>"']+|#[\p{L}\p{N}_]+|\$[A-Za-z][A-Za-z0-9_]*/gu; let cursor=0; let key=0;
-  for(const match of text.matchAll(pattern)){const raw=match[0];const start=match.index??0;if(start>cursor)nodes.push(text.slice(cursor,start));let url:string;let style:TextStyle=styles.messageLink;
+// Server-defined reactions: one per person per message, members only.
+const REACTIONS = ['👍', '❤️', '🔥', '🚀', '💎', '😂', '👀', '👎'];
+type ReactionState = { counts: { emoji: string; count: number }[]; mine: string | null };
+type Extras = { pinned: LocalMessage | null; reactions: Record<string, ReactionState>; unreadMentions: number };
+const EMPTY_EXTRAS: Extras = { pinned: null, reactions: {}, unreadMentions: 0 };
+/** Local guess shown until the server answers; the response replaces it. */
+function applyReaction(current: ReactionState | undefined, next: string | null): ReactionState {
+  const counts = (current?.counts ?? []).map(entry => ({ ...entry }));
+  const bump = (emoji: string, delta: number) => { const row = counts.find(entry => entry.emoji === emoji); if (row) row.count += delta; else if (delta > 0) counts.push({ emoji, count: delta }); };
+  if (current?.mine) bump(current.mine, -1); if (next) bump(next, 1);
+  return { counts: counts.filter(entry => entry.count > 0), mine: next };
+}
+function pinnedPreview(message: LocalMessage): string {
+  return message.deleted ? 'Message deleted' : message.text ? message.text.replace(/\s+/g, ' ') : message.token ? '🪙 ' + (message.token.symbol ?? message.token.name ?? 'Token') : message.media ? '📷 Photo' : 'Message';
+}
+
+function renderLinkedText(text: string, myUsername?: string | null): React.ReactNode[] {
+  const nodes: React.ReactNode[]=[]; const pattern= /https?:\/\/[^\s<>"']+|www\.[^\s<>"']+|#[\p{L}\p{N}_]+|\$[A-Za-z][A-Za-z0-9_]*|@[A-Za-z0-9_]+/gu; let cursor=0; let key=0; const mine=myUsername?.replace(/^@/,'').toLowerCase();
+  for(const match of text.matchAll(pattern)){const raw=match[0];const start=match.index??0;
+    // @mentions: only at a word start (so emails stay plain text); the viewer's own handle is stronger.
+    if(raw.startsWith('@')){if(start>0&&/[\w.]/.test(text[start-1]))continue;if(start>cursor)nodes.push(text.slice(cursor,start));nodes.push(<Text key={`mention-${key++}`} style={mine&&raw.slice(1).toLowerCase()===mine?styles.messageMentionMe:styles.messageMention}>{raw}</Text>);cursor=start+raw.length;continue;}
+    if(start>cursor)nodes.push(text.slice(cursor,start));let url:string;let style:TextStyle=styles.messageLink;
     if(raw.startsWith('#')){url='https://x.com/hashtag/'+encodeURIComponent(raw.slice(1));style=styles.messageHashtag;}
     else if(raw.startsWith('$')){url='https://dexscreener.com/search?q='+encodeURIComponent(raw.slice(1));style=styles.messageTicker;}
     else{const clean=raw.replace(/[),.!?;:]+$/,'');url=clean.startsWith('www.')?'https://'+clean:clean;nodes.push(<Text key={`link-${key++}`} accessibilityRole="link" onPress={()=>Linking.openURL(url).catch(()=>kivoAlert('Link','Could not open this link.'))} style={style}>{clean}</Text>);const tail=raw.slice(clean.length);if(tail)nodes.push(tail);cursor=start+raw.length;continue;}
@@ -72,6 +92,17 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const state = useChatState();
   const conversation = state.conversations.find(c => c.id === id);
   const messages = state.messages[id] ?? [];
+  // Read position from before this open (useActiveConversation marks the chat read
+  // after the first render), so the chat can open at the first unread message.
+  const initialRead = useMemo(() => getChatState().lastRead[id] ?? 0, [id]);
+  const findFirstUnread = (list: LocalMessage[]) => { const self = myUserId(); return list.find(m => m.seq > initialRead && m.senderId !== self && !m.deleted) ?? null; };
+  const [firstUnreadId, setFirstUnreadId] = useState<string | null>(() => findFirstUnread(messages)?.id ?? null);
+  const unreadDecided = useRef(messages.length > 0);
+  const pendingJump = useRef(firstUnreadId !== null);
+  const jumpRetries = useRef(0);
+  const [extras, setExtras] = useState<Extras | null>(null);
+  const [reactingTo, setReactingTo] = useState<LocalMessage | null>(null);
+  const profile = useProfile();
   const [draft, setDraft] = useState('');
   const [tokenAttachmentOpen, setTokenAttachmentOpen] = useState(false);
   // Set by the picker once the pasted token has a live market (null while checking or empty).
@@ -83,10 +114,38 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const [viewing, setViewing] = useState<LocalMessage | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<LocalMessage | null>(null);
   const list = useRef<FlatList<Item>>(null);
-  const atBottom = useRef(true);
+  const atBottom = useRef(firstUnreadId === null);
   const previousMessageCount = useRef(messages.length);
-  const [unseenMessages, setUnseenMessages] = useState(0);
+  const [unseenMessages, setUnseenMessages] = useState(() => { const self = myUserId(); return firstUnreadId ? messages.filter(m => m.seq > initialRead && m.senderId !== self && !m.deleted).length : 0; });
   const me = myUserId();
+  const myUsername = (me ? state.profiles[me]?.username : null) ?? profile.username ?? null;
+  // Messages may arrive after opening (empty cache): decide the unread jump once, on the first load.
+  useEffect(() => {
+    if (unreadDecided.current || !messages.length) return;
+    unreadDecided.current = true;
+    const first = findFirstUnread(messages);
+    if (!first) return;
+    setFirstUnreadId(first.id); pendingJump.current = true; atBottom.current = false;
+    setUnseenMessages(messages.filter(m => m.seq > initialRead && m.senderId !== me && !m.deleted).length);
+  }, [messages]);
+  // Pinned message, reactions and unread @mentions: polled while the chat is open and the app is in front.
+  useEffect(() => {
+    let active = true;
+    setExtras(null);
+    const load = () => {
+      if (AppState.currentState !== 'active') return;
+      api.conversationExtras(id).then(next => {
+        if (!active) return;
+        setExtras({ pinned: next.pinned ? { ...next.pinned, status: 'sent' } : null, reactions: next.reactions, unreadMentions: next.unreadMentions });
+        if (next.unreadMentions > 0) void api.markMentionsRead(id).catch(() => {});
+      }).catch(() => {});
+    };
+    void api.markMentionsRead(id).catch(() => {});
+    load();
+    const timer = setInterval(load, 15_000);
+    const subscription = AppState.addEventListener('change', next => { if (next === 'active') load(); });
+    return () => { active = false; clearInterval(timer); subscription.remove(); };
+  }, [id]);
   // Message length comes from the server's live Blue Star rules (GET /api/limits).
   // The server enforces this; the counter only helps before sending.
   const [verifiedSender, setVerifiedSender] = useState(false);
@@ -154,6 +213,21 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   // The server enforces both; this only avoids offering a composer that would fail.
   const adminsOnly = isChannel || (conversation?.kind === 'group' && conversation.onlyAdminsPost === true);
   const canPost = !conversation || !adminsOnly || canModerate;
+  // Server rules: members react; owner/admins pin in groups and channels, either person in a DM.
+  const canReact = conversation?.kind === 'dm' || Boolean(conversation?.myRole);
+  const canPin = conversation?.kind === 'dm' || canModerate;
+  const pinned = extras?.pinned ?? null;
+  const react = (messageId: string, emoji: string) => {
+    const current = extras?.reactions[messageId];
+    const next = current?.mine === emoji ? null : emoji;
+    const put = (value: ReactionState) => setExtras(prev => { const base = prev ?? EMPTY_EXTRAS; return { ...base, reactions: { ...base.reactions, [messageId]: value } }; });
+    put(applyReaction(current, next));
+    api.setMessageReaction(messageId, next).then(put).catch(error => { put(current ?? { counts: [], mine: null }); kivoAlert('Reaction', error instanceof Error ? error.message : 'Could not react.'); });
+  };
+  const setPin = (messageId: string | null) => {
+    api.setConversationPin(id, messageId).then(result => setExtras(prev => ({ ...(prev ?? EMPTY_EXTRAS), pinned: result.pinned ? { ...result.pinned, status: 'sent' } : null })))
+      .catch(error => kivoAlert(messageId ? 'Pin message' : 'Unpin message', error instanceof Error ? error.message : 'Action failed.'));
+  };
   // Synchronous guard: a double tap must never send (or save an edit) twice.
   const sendingRef = useRef(false);
   const [sending, setSending] = useState(false);
@@ -167,10 +241,17 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
         lastDay = day;
         out.push({ type: 'day', key: 'day-' + day, label: day === new Date().toDateString() ? 'Today' : new Date(message.createdAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) });
       }
+      if (message.id === firstUnreadId) out.push({ type: 'unread', key: 'unread-divider' });
       out.push({ type: 'message', key: message.id, message, showName: conversation?.kind !== 'dm' && message.senderId !== me && messages[index - 1]?.senderId !== message.senderId, showAvatar: conversation?.kind === 'group' && message.senderId !== me && messages[index + 1]?.senderId !== message.senderId });
     });
     return out;
-  }, [messages, conversation?.kind, me]);
+  }, [messages, conversation?.kind, me, firstUnreadId]);
+  const scrollToItem = (key: string, animated = true) => {
+    const index = items.findIndex(item => item.key === key);
+    if (index < 0) return false;
+    list.current?.scrollToIndex({ index, animated, viewPosition: 0.15 });
+    return true;
+  };
 
   const send = async () => {
     if (sendingRef.current) return;
@@ -219,6 +300,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     // Same options as the web app, in a Kivo-styled sheet instead of the system dialog.
     setOptionsMenu([
       ...(canPost ? [{ text: 'Reply', onPress: () => { setEditingMessageId(null); setReplyingTo(message); } }] : []),
+      ...(canReact ? [{ text: 'React', onPress: () => setReactingTo(message) }] : []),
+      ...(canPin ? [{ text: pinned?.id === message.id ? 'Unpin message' : 'Pin message', onPress: () => setPin(pinned?.id === message.id ? null : message.id) }] : []),
       ...(message.senderId === me ? [{ text: 'Edit message', onPress: () => { setReplyingTo(null); setEditingMessageId(message.id); setDraft(message.text); } }] : []),
       { text: 'Forward message', onPress: () => setForwardingMessage(message) },
       ...(message.senderId === me || canModerate ? [{ text: 'Delete message', style: 'destructive' as const, onPress: () => kivoAlert('Delete message', 'Delete this message for everyone?', [
@@ -276,16 +359,38 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
         }} hitSlop={10} accessibilityLabel="Privacy and blocking"><Text style={styles.info}>⊘</Text></Pressable>}
         {conversation && conversation.kind !== 'dm' && <Pressable onPress={() => onOpenInfo?.(id, conversation.kind as 'group' | 'channel')} hitSlop={10}><Text style={styles.info}>ⓘ</Text></Pressable>}
       </View>
+      {pinned ? (
+        <Pressable style={styles.pinnedBar} onPress={() => { if (scrollToItem(pinned.id)) atBottom.current = false; }} accessibilityRole="button" accessibilityLabel="Go to pinned message">
+          <View style={styles.pinnedAccent} />
+          <View style={styles.pinnedCopy}>
+            <Text style={styles.pinnedLabel}>📌 Pinned message</Text>
+            <Text style={styles.pinnedText} numberOfLines={1}>{pinnedPreview(pinned)}</Text>
+          </View>
+          {canPin ? <Pressable hitSlop={10} onPress={() => kivoAlert('Unpin message', 'Remove the pinned message for everyone?', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Unpin', style: 'destructive', onPress: () => setPin(null) },
+          ])} accessibilityLabel="Unpin message"><Text style={styles.pinnedClose}>×</Text></Pressable> : null}
+        </Pressable>
+      ) : null}
       <View style={styles.listWrap}>
       <FlatList
         ref={list}
         data={items}
         keyExtractor={item => item.key}
         contentContainerStyle={styles.messages}
+        extraData={extras}
+        onScrollToIndexFailed={info => {
+          // Rows far above are not rendered yet: move near them, then retry once they are.
+          list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+          if (jumpRetries.current++ < 6) setTimeout(() => list.current?.scrollToIndex({ index: info.index, animated: false, viewPosition: 0.15 }), 120);
+        }}
         onContentSizeChange={() => {
           const added = Math.max(0, messages.length - previousMessageCount.current);
           previousMessageCount.current = messages.length;
-          if (atBottom.current) {
+          if (pendingJump.current) {
+            // Open at the first unread message instead of the bottom.
+            if (scrollToItem('unread-divider', false)) { pendingJump.current = false; jumpRetries.current = 0; }
+          } else if (atBottom.current) {
             list.current?.scrollToEnd({ animated: false });
             setUnseenMessages(0);
           } else if (added > 0) {
@@ -302,6 +407,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
         ListEmptyComponent={<Text style={styles.emptyText}>{isChannel ? 'No posts yet.' : 'No messages yet. Say hello 👋'}</Text>}
         renderItem={({ item }) => {
           if (item.type === 'day') return <View style={styles.day}><Text style={styles.dayText}>{item.label}</Text></View>;
+          if (item.type === 'unread') return <View style={styles.unreadDivider} accessibilityRole="header"><View style={styles.unreadLine} /><Text style={styles.unreadText}>New messages</Text><View style={styles.unreadLine} /></View>;
           const { message } = item;
           const mine = message.senderId === me && !isChannel;
           return (
@@ -321,10 +427,19 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                   const long = messageLength(message.text) > 700 || message.text.split('\n').length > 12;
                   const open = expanded[message.id] === true;
                   return <View>
-                    <Text style={styles.text} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text)}</Text>
+                    <Text style={styles.text} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text, myUsername)}</Text>
                     {long ? <Pressable hitSlop={6} onPress={() => setExpanded(prev => ({ ...prev, [message.id]: !open }))}><Text style={styles.showMore}>{open ? 'Show less' : 'Show more'}</Text></Pressable> : null}
                   </View>;
                 })() : null}
+                {(() => {
+                  const reactions = extras?.reactions[message.id];
+                  if (!reactions?.counts.length || message.deleted) return null;
+                  return <View style={styles.reactions}>{reactions.counts.map(entry => (
+                    <Pressable key={entry.emoji} disabled={!canReact || message.status !== 'sent'} onPress={() => react(message.id, entry.emoji)} style={[styles.reactionChip, reactions.mine === entry.emoji && styles.reactionChipMine]} accessibilityRole="button" accessibilityState={{ selected: reactions.mine === entry.emoji }} accessibilityLabel={`${entry.emoji} ${entry.count}${reactions.mine === entry.emoji ? ', your reaction' : ''}`}>
+                      <Text style={[styles.reactionChipText, reactions.mine === entry.emoji && styles.reactionChipTextMine]}>{entry.emoji} {entry.count}</Text>
+                    </Pressable>
+                  ))}</View>;
+                })()}
                 <Text style={styles.meta}>
                   {message.editedAt ? 'edited · ' : ''}{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   {mine ? message.status === 'pending' ? '  ◷' : message.status === 'failed' ? '  ⚠ tap & hold' : '  ✓' : ''}
@@ -336,9 +451,9 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
       />
 
         {unseenMessages > 0 && (
-          <Pressable style={styles.jumpLatest} onPress={() => { list.current?.scrollToEnd({ animated: true }); atBottom.current = true; setUnseenMessages(0); }} accessibilityLabel="Jump to latest messages">
-            <View style={styles.jumpCount}><Text style={styles.jumpCountText}>{unseenMessages > 999 ? '999+' : unseenMessages}</Text></View>
-            <Text style={styles.jumpArrow}>⌄</Text>
+          <Pressable style={styles.jumpLatest} onPress={() => { pendingJump.current = false; list.current?.scrollToEnd({ animated: true }); atBottom.current = true; setUnseenMessages(0); }} accessibilityLabel={`Jump to ${unseenMessages} new messages`}>
+            <Text style={styles.jumpArrow}>↓</Text>
+            <Text style={styles.jumpCountText}>{unseenMessages > 999 ? '999+' : unseenMessages} new</Text>
           </Pressable>
         )}
       </View>
@@ -397,6 +512,16 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
         ))}
         <Pressable style={styles.sheetRow} accessibilityRole="button" onPress={() => setOptionsMenu(null)}><Text style={styles.sheetCancel}>Cancel</Text></Pressable>
       </BottomSheet>
+      <BottomSheet visible={!!reactingTo} onClose={() => setReactingTo(null)}>
+        <Text style={styles.sheetTitle}>React</Text>
+        <View style={styles.reactionPicker}>
+          {REACTIONS.map(emoji => {
+            const selected = reactingTo ? extras?.reactions[reactingTo.id]?.mine === emoji : false;
+            return <Pressable key={emoji} style={[styles.reactionOption, selected && styles.reactionOptionMine]} accessibilityRole="button" accessibilityState={{ selected }} accessibilityLabel={`React with ${emoji}`} onPress={() => { const target = reactingTo; setReactingTo(null); if (target) react(target.id, emoji); }}><Text style={styles.reactionOptionText}>{emoji}</Text></Pressable>;
+          })}
+        </View>
+        <Pressable style={styles.sheetRow} accessibilityRole="button" onPress={() => setReactingTo(null)}><Text style={styles.sheetCancel}>Cancel</Text></Pressable>
+      </BottomSheet>
       <PhotoViewer
         uri={viewing?.media?.url ?? null}
         title={viewing ? displayName(viewing.senderId) : undefined}
@@ -433,10 +558,27 @@ const styles = StyleSheet.create({
   sheetRowText: { color: c.text, fontSize: 16, fontWeight: '700' },
   sheetRowDanger: { color: '#E0443E' },
   sheetCancel: { color: c.textMuted, fontSize: 16, fontWeight: '600' },
-  jumpLatest: { position: 'absolute', right: 12, bottom: 18, minWidth: 44, height: 44, borderRadius: 22, paddingHorizontal: 5, backgroundColor: '#24394B', alignItems: 'center', justifyContent: 'center', elevation: 5, flexDirection: 'row', gap: 3 },
-  jumpCount: { minWidth: 25, height: 25, borderRadius: 13, paddingHorizontal: 5, backgroundColor: '#55B7F3', alignItems: 'center', justifyContent: 'center' },
-  jumpCountText: { color: '#FFFFFF', fontSize: 11.5, fontWeight: '900', fontVariant: ['tabular-nums'] },
-  jumpArrow: { color: '#EAF4FF', fontSize: 19, fontWeight: '900' },
+  jumpLatest: { position: 'absolute', right: 12, bottom: 18, minWidth: 44, height: 40, borderRadius: 20, paddingHorizontal: 14, backgroundColor: '#24394B', borderWidth: 1, borderColor: '#55B7F3', alignItems: 'center', justifyContent: 'center', elevation: 5, flexDirection: 'row', gap: 6 },
+  jumpCountText: { color: '#FFFFFF', fontSize: 13, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  jumpArrow: { color: '#55B7F3', fontSize: 16, fontWeight: '900' },
+  pinnedBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border },
+  pinnedAccent: { width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: c.accent },
+  pinnedCopy: { flex: 1, minWidth: 0 },
+  pinnedLabel: { color: c.accent, fontSize: 12, fontWeight: '800' },
+  pinnedText: { color: c.text, fontSize: 13, marginTop: 1 },
+  pinnedClose: { color: c.textMuted, fontSize: 22, fontWeight: '700', paddingHorizontal: 4 },
+  unreadDivider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 10 },
+  unreadLine: { flex: 1, height: 1, backgroundColor: 'rgba(85,183,243,0.45)' },
+  unreadText: { color: '#55B7F3', fontSize: 11.5, fontWeight: '800' },
+  reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 2 },
+  reactionChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.22)', borderWidth: 1, borderColor: 'transparent' },
+  reactionChipMine: { backgroundColor: 'rgba(37,137,245,0.28)', borderColor: '#2589F5' },
+  reactionChipText: { color: c.text, fontSize: 12.5, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  reactionChipTextMine: { color: '#FFFFFF' },
+  reactionPicker: { flexDirection: 'row', gap: 4, paddingVertical: 12 },
+  reactionOption: { flex: 1, aspectRatio: 1, maxWidth: 52, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface },
+  reactionOptionMine: { backgroundColor: 'rgba(37,137,245,0.28)', borderWidth: 1, borderColor: '#2589F5' },
+  reactionOptionText: { fontSize: 22 },
   emptyText: { color: c.textMuted, textAlign: 'center', marginTop: 40 },
   day: { alignItems: 'center', marginVertical: 10 },
   dayText: { color: c.textMuted, fontSize: 11.5, backgroundColor: c.surface, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999, overflow: 'hidden' },
@@ -476,6 +618,8 @@ const styles = StyleSheet.create({
   messageLink: { color: c.accent, textDecorationLine: 'underline', textDecorationColor: 'rgba(183,226,123,0.75)', backgroundColor: 'rgba(244,240,199,0.10)', borderRadius: 3 },
   messageHashtag: { color: '#9BC9FF', textDecorationLine: 'underline', backgroundColor: 'rgba(115,170,255,0.12)' },
   messageTicker: { color: c.accent, fontWeight: '800', backgroundColor: 'rgba(183,226,123,0.12)' },
+  messageMention: { color: '#9BC9FF', fontWeight: '800' },
+  messageMentionMe: { color: '#FFFFFF', fontWeight: '900', backgroundColor: 'rgba(37,137,245,0.45)', borderRadius: 3 },
   deletedText: { color: c.textMuted, fontStyle: 'italic', fontSize: 13 },
   meta: { color: 'rgba(247,245,223,0.6)', fontSize: 10.5, alignSelf: 'flex-end' },
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background },

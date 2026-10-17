@@ -103,6 +103,8 @@ export type ApiConversation = {
   lastPreview: string;
   lastSenderId: string | null;
   lastActivityAt: number;
+  /** Unread @mentions of the viewer in this conversation. */
+  unreadMentions?: number;
 };
 
 export type ApiMessage = {
