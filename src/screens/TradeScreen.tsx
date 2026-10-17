@@ -735,7 +735,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
             )}
             {(
               <>
-                <Pressable disabled={running || !preflight?.ok} onPress={execute} style={({ pressed }) => [styles.primaryButton, side === 'sell' && styles.sellButton, (running || !preflight?.ok) && styles.disabled, pressed && styles.pressed]}>
+                <Pressable disabled={running || !preflight?.ok} onPressIn={() => haptic('tap')} onPress={execute} android_ripple={{ color: 'rgba(0,0,0,0.18)', borderless: false }} style={({ pressed }) => [styles.primaryButton, side === 'sell' && styles.sellButton, (running || !preflight?.ok) && styles.disabled, (pressed || running) && styles.confirmPressed]}>
                   {/* Immediate feedback: the first tap is enough (the safety check and wallet unlock take a moment). */}
                   {running ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep} /> : null}
                   <Text style={styles.primaryText}>{running ? (update?.stage === 'awaiting-signature' ? 'Signing…' : update?.stage === 'filling' ? 'Submitting…' : 'Checking…') : 'Confirm and sign'}</Text>
@@ -892,9 +892,11 @@ const styles = StyleSheet.create({
   chipTextActive: { color: c.backgroundDeep },
   error: { color: c.danger, fontSize: 12, lineHeight: 18, marginTop: 6 },
   okText: { color: c.success, fontSize: 12, lineHeight: 18, marginTop: 10 },
-  primaryButton: { marginTop: 12, height: 48, borderRadius: 24, backgroundColor: c.success, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
+  primaryButton: { marginTop: 12, height: 48, borderRadius: 24, overflow: 'hidden', backgroundColor: c.success, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
   sellButton: { backgroundColor: c.danger },
   pressed: { opacity: 0.75 },
+  // Clear "I touched it" feedback on Confirm: darker, slightly smaller, and it stays that way while the trade runs.
+  confirmPressed: { opacity: 0.8, transform: [{ scale: 0.97 }] },
   primaryText: { color: c.backgroundDeep, fontWeight: '800', fontSize: 14.5, textTransform: 'capitalize' },
   secondaryButton: { marginTop: 12, height: 48, borderRadius: 24, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
   ghostButton: { marginTop: 8, height: 44, alignItems: 'center', justifyContent: 'center' },
