@@ -3,7 +3,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { AppState, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 import { kivoAlert } from '../components/KivoAlert';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { API_LIMITS, messageCharLimit, messageLength, shortWallet } from '@kivo/shared/api/types';
+import { API_LIMITS, messageCharLimit, messageLength, shortWallet, type ApiMessage } from '@kivo/shared/api/types';
 import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, getChatState, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useActiveConversation, useChatState } from '../state/useChat';
@@ -21,8 +21,16 @@ type Item = { type: 'day'; key: string; label: string } | { type: 'unread'; key:
 // Server-defined reactions: one per person per message, members only.
 const REACTIONS = ['👍', '❤️', '🔥', '🚀', '💎', '😂', '👀', '👎'];
 type ReactionState = { counts: { emoji: string; count: number }[]; mine: string | null };
-type Extras = { pinned: LocalMessage | null; reactions: Record<string, ReactionState>; unreadMentions: number };
-const EMPTY_EXTRAS: Extras = { pinned: null, reactions: {}, unreadMentions: 0 };
+// Several pins per chat (newest first, up to 100); `pinned` is the newest.
+type Extras = { pinned: LocalMessage | null; pins: LocalMessage[]; reactions: Record<string, ReactionState>; unreadMentions: number };
+const EMPTY_EXTRAS: Extras = { pinned: null, pins: [], reactions: {}, unreadMentions: 0 };
+const asPins = (pins: ApiMessage[] | undefined, pinned: ApiMessage | null): LocalMessage[] => (pins ?? (pinned ? [pinned] : [])).map(m => ({ ...m, status: 'sent' as const }));
+/** Telegram-style segmented bar: oldest at the top; shows at most 4 segments, windowed around the shown pin. */
+function PinIndicator({ count, position }: { count: number; position: number }) {
+  const visible = Math.min(count, 4);
+  const first = Math.max(0, Math.min(position - 1, count - visible));
+  return <View style={styles.pinIndicator}>{Array.from({ length: visible }, (_, i) => <View key={i} style={[styles.pinSegment, first + i === position && styles.pinSegmentActive]} />)}</View>;
+}
 /** Local guess shown until the server answers; the response replaces it. */
 function applyReaction(current: ReactionState | undefined, next: string | null): ReactionState {
   const counts = (current?.counts ?? []).map(entry => ({ ...entry }));
@@ -145,7 +153,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
       if (AppState.currentState !== 'active') return;
       api.conversationExtras(id).then(next => {
         if (!active) return;
-        setExtras({ pinned: next.pinned ? { ...next.pinned, status: 'sent' } : null, reactions: next.reactions, unreadMentions: next.unreadMentions });
+        setExtras({ pinned: next.pinned ? { ...next.pinned, status: 'sent' } : null, pins: asPins(next.pins, next.pinned), reactions: next.reactions, unreadMentions: next.unreadMentions });
         if (next.unreadMentions > 0) void api.markMentionsRead(id).catch(() => {});
       }).catch(() => {});
     };
@@ -225,7 +233,16 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   // Server rules: members react; only owner/admins pin, in groups and channels (no pinning in DMs).
   const canReact = conversation?.kind === 'dm' || Boolean(conversation?.myRole);
   const canPin = conversation?.kind !== 'dm' && canModerate;
-  const pinned = extras?.pinned ?? null;
+  const pins = extras?.pins ?? [];
+  // Which pin the bar shows (0 = newest); tapping the bar jumps to it, then moves to the next older one.
+  const [pinIndex, setPinIndex] = useState(0);
+  const [pinsOpen, setPinsOpen] = useState(false);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  useEffect(() => { if (!highlightedId) return; const timer = setTimeout(() => setHighlightedId(null), 1600); return () => clearTimeout(timer); }, [highlightedId]);
+  const shownPinIndex = pins.length ? Math.min(pinIndex, pins.length - 1) : 0;
+  const pinned = pins[shownPinIndex] ?? null;
+  useEffect(() => { if (!pins.length) setPinsOpen(false); }, [pins.length]);
+  const listExtra = useMemo(() => ({ extras, highlightedId }), [extras, highlightedId]);
   // @-mentions: groups, channels (admins post there) and DMs (the other person).
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [forcedSelection, setForcedSelection] = useState<{ start: number; end: number } | null>(null);
@@ -266,8 +283,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     put(applyReaction(current, next));
     api.setMessageReaction(messageId, next).then(put).catch(error => { put(current ?? { counts: [], mine: null }); kivoAlert('Reaction', error instanceof Error ? error.message : 'Could not react.'); });
   };
-  const setPin = (messageId: string | null) => {
-    api.setConversationPin(id, messageId).then(result => setExtras(prev => ({ ...(prev ?? EMPTY_EXTRAS), pinned: result.pinned ? { ...result.pinned, status: 'sent' } : null })))
+  const setPin = (messageId: string | null, pin = true) => {
+    api.setConversationPin(id, messageId, pin).then(result => { setPinIndex(0); setExtras(prev => ({ ...(prev ?? EMPTY_EXTRAS), pinned: result.pinned ? { ...result.pinned, status: 'sent' } : null, pins: asPins(result.pins, result.pinned) })); })
       .catch(error => kivoAlert(messageId ? 'Pin message' : 'Unpin message', error instanceof Error ? error.message : 'Action failed.'));
   };
   // Synchronous guard: a double tap must never send (or save an edit) twice.
@@ -288,6 +305,11 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     });
     return out;
   }, [messages, conversation?.kind, me, firstUnreadId]);
+  /** Scroll to a message and flash it; false when it isn't in the loaded history. */
+  const jumpToMessage = (messageId: string) => {
+    if (!scrollToItem(messageId)) { kivoAlert('Pinned message', 'This message is older than the history on this phone.'); return false; }
+    atBottom.current = false; setHighlightedId(messageId); return true;
+  };
   const scrollToItem = (key: string, animated = true) => {
     const index = items.findIndex(item => item.key === key);
     if (index < 0) return false;
@@ -343,7 +365,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     setOptionsMenu([
       ...(canPost ? [{ text: 'Reply', onPress: () => { setEditingMessageId(null); setReplyingTo(message); } }] : []),
       ...(canReact ? [{ text: 'React', onPress: () => setReactingTo(message) }] : []),
-      ...(canPin ? [{ text: pinned?.id === message.id ? 'Unpin message' : 'Pin message', onPress: () => setPin(pinned?.id === message.id ? null : message.id) }] : []),
+      ...(canPin ? (() => { const isPinned = pins.some(p => p.id === message.id); return [{ text: isPinned ? 'Unpin message' : 'Pin message', onPress: () => setPin(message.id, !isPinned) }]; })() : []),
       ...(message.senderId === me ? [{ text: 'Edit message', onPress: () => { setReplyingTo(null); setEditingMessageId(message.id); setDraft(message.text); } }] : []),
       { text: 'Forward message', onPress: () => setForwardingMessage(message) },
       ...(message.senderId === me || canModerate ? [{ text: 'Delete message', style: 'destructive' as const, onPress: () => kivoAlert('Delete message', 'Delete this message for everyone?', [
@@ -402,16 +424,14 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
         {conversation && conversation.kind !== 'dm' && <Pressable onPress={() => onOpenInfo?.(id, conversation.kind as 'group' | 'channel')} hitSlop={10}><Text style={styles.info}>ⓘ</Text></Pressable>}
       </View>
       {pinned ? (
-        <Pressable style={styles.pinnedBar} onPress={() => { if (scrollToItem(pinned.id)) atBottom.current = false; }} accessibilityRole="button" accessibilityLabel="Go to pinned message">
-          <View style={styles.pinnedAccent} />
+        <Pressable style={styles.pinnedBar} onPress={() => { jumpToMessage(pinned.id); setPinIndex((shownPinIndex + 1) % pins.length); }} accessibilityRole="button" accessibilityLabel="Go to pinned message">
+          {pins.length > 1 ? <PinIndicator count={pins.length} position={pins.length - 1 - shownPinIndex} /> : <View style={styles.pinnedAccent} />}
           <View style={styles.pinnedCopy}>
-            <Text style={styles.pinnedLabel}>📌 Pinned message</Text>
+            <Text style={styles.pinnedLabel}>{pins.length > 1 && shownPinIndex > 0 ? `Pinned Message #${pins.length - shownPinIndex}` : 'Pinned Message'}</Text>
             <Text style={styles.pinnedText} numberOfLines={1}>{pinnedPreview(pinned)}</Text>
           </View>
-          {canPin ? <Pressable hitSlop={10} onPress={() => kivoAlert('Unpin message', 'Remove the pinned message for everyone?', [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Unpin', style: 'destructive', onPress: () => setPin(null) },
-          ])} accessibilityLabel="Unpin message"><Text style={styles.pinnedClose}>×</Text></Pressable> : null}
+          {pinned.media && !pinned.deleted ? <Image source={{ uri: pinned.media.url.split('?')[0], headers: api.mediaHeaders(pinned.media.url.split('?')[0]) }} style={styles.pinnedThumb} resizeMode="cover" /> : null}
+          <Pressable hitSlop={10} onPress={() => setPinsOpen(true)} accessibilityRole="button" accessibilityLabel="All pinned messages"><Text style={styles.pinnedListIcon}>☰</Text></Pressable>
         </Pressable>
       ) : null}
       <View style={styles.listWrap}>
@@ -420,7 +440,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
         data={items}
         keyExtractor={item => item.key}
         contentContainerStyle={styles.messages}
-        extraData={extras}
+        extraData={listExtra}
         onScrollToIndexFailed={info => {
           // Rows far above are not rendered yet: move near them, then retry once they are.
           list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
@@ -455,7 +475,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           return (
             <View style={[styles.bubbleRow, mine && styles.bubbleRowMine, conversation?.kind === 'group' && !mine && styles.bubbleRowGroupIncoming]}>
               {conversation?.kind === 'group' && !mine ? <View style={styles.avatarColumn}>{item.showAvatar ? <Avatar name={displayName(message.senderId)} uri={state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /> : null}</View> : null}
-              <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted]}>
+              <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted, message.id === highlightedId && styles.bubbleHighlight]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
                 {message.token && <TokenAttachmentCard token={message.token} compact onPress={onOpenToken ? () => onOpenToken(message.token!) : undefined} />}
@@ -525,6 +545,35 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
       ) : (
         <View style={styles.readonly}><Text style={styles.readonlyText}>{conversation?.kind === 'group' ? '📢 Only admins can send messages.' : '📢 Only the channel owner and admins can post.'}</Text></View>
       )}
+      <KivoModal visible={pinsOpen} animationType="slide" onRequestClose={() => setPinsOpen(false)}>
+        <View style={styles.pinsScreen}>
+          <View style={styles.pinsHeader}>
+            <Pressable onPress={() => setPinsOpen(false)} hitSlop={10} accessibilityLabel="Close"><Text style={styles.pinsBack}>‹</Text></Pressable>
+            <Text style={styles.pinsTitle}>{pins.length} Pinned {pins.length === 1 ? 'Message' : 'Messages'}</Text>
+            {canPin && pins.length ? <Pressable hitSlop={8} onPress={() => kivoAlert('Unpin all messages', `Remove all ${pins.length} pinned messages for everyone?`, [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Unpin all', style: 'destructive', onPress: () => { setPinsOpen(false); setPin(null); } },
+            ])}><Text style={styles.pinsUnpinAll}>Unpin all</Text></Pressable> : null}
+          </View>
+          <ScrollView contentContainerStyle={styles.pinsList}>
+            {pins.map(p => (
+              <Pressable key={p.id} style={({ pressed }) => [styles.pinItem, pressed && styles.pinItemPressed]} onPress={() => { setPinsOpen(false); setTimeout(() => jumpToMessage(p.id), 250); }} accessibilityRole="button">
+                <View style={styles.pinItemHead}>
+                  <Text style={styles.sender} numberOfLines={1}>{displayName(p.senderId)}</Text>
+                  <Text style={styles.meta}>{new Date(p.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</Text>
+                </View>
+                {p.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : <>
+                  {p.token ? <TokenAttachmentCard token={p.token} compact /> : null}
+                  {p.media ? <MessagePhoto uri={p.media.url} width={p.media.width} height={p.media.height} /> : null}
+                  {p.text ? <Text style={styles.text} numberOfLines={8}>{renderLinkedText(p.text, myUsername)}</Text> : null}
+                </>}
+                {canPin ? <Pressable hitSlop={8} onPress={() => setPin(p.id, false)} style={styles.pinItemUnpin} accessibilityRole="button" accessibilityLabel="Unpin message"><Text style={styles.pinsUnpinAll}>Unpin</Text></Pressable> : null}
+              </Pressable>
+            ))}
+          </ScrollView>
+          <Pressable onPress={() => setPinsOpen(false)} style={styles.pinsHide} accessibilityRole="button"><Text style={styles.pinsHideText}>Hide pinned messages</Text></Pressable>
+        </View>
+      </KivoModal>
       <KivoModal transparent visible={!!forwardingMessage} animationType="fade" onRequestClose={() => setForwardingMessage(null)}>
         <View style={styles.forwardOverlay}>
           <View style={styles.forwardSheet}>
@@ -613,6 +662,24 @@ const styles = StyleSheet.create({
   pinnedCopy: { flex: 1, minWidth: 0 },
   pinnedLabel: { color: c.accent, fontSize: 12, fontWeight: '800' },
   pinnedText: { color: c.text, fontSize: 13, marginTop: 1 },
+  pinnedThumb: { width: 34, height: 34, borderRadius: 6, backgroundColor: c.surfaceRaised },
+  pinnedListIcon: { color: c.textMuted, fontSize: 20, fontWeight: '700', paddingHorizontal: 4 },
+  pinIndicator: { width: 3, alignSelf: 'stretch', gap: 2 },
+  pinSegment: { flex: 1, borderRadius: 2, backgroundColor: c.border },
+  pinSegmentActive: { backgroundColor: c.accent },
+  bubbleHighlight: { borderWidth: 2, borderColor: c.accent },
+  pinsScreen: { flex: 1, backgroundColor: c.background },
+  pinsHeader: { minHeight: 60, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: 1, borderBottomColor: c.border },
+  pinsBack: { color: c.cream, fontSize: 36, width: 24 },
+  pinsTitle: { flex: 1, color: c.text, fontSize: 17, fontWeight: '800' },
+  pinsUnpinAll: { color: c.danger, fontWeight: '800', fontSize: 13 },
+  pinsList: { padding: 14, gap: 10, paddingBottom: 24 },
+  pinItem: { padding: 12, borderRadius: 16, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, gap: 4 },
+  pinItemPressed: { opacity: 0.85 },
+  pinItemHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  pinItemUnpin: { alignSelf: 'flex-end', paddingTop: 4 },
+  pinsHide: { margin: 14, height: 48, borderRadius: 24, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
+  pinsHideText: { color: c.cream, fontWeight: '800' },
   pinnedClose: { color: c.textMuted, fontSize: 22, fontWeight: '700', paddingHorizontal: 4 },
   unreadDivider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 10 },
   unreadLine: { flex: 1, height: 1, backgroundColor: 'rgba(85,183,243,0.45)' },

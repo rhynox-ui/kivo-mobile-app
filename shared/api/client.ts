@@ -269,10 +269,10 @@ export class KivoApi {
   unblockUser(userId: string) { return this.request<{ok: true}>('DELETE', `/api/blocks/${encodeURIComponent(userId)}`); }
   setMemberRestricted(communityId: string, userId: string, restricted: boolean) { return this.request<{community: ApiCommunity; members: ApiMember[]}>(restricted ? 'POST' : 'DELETE', `/api/communities/${encodeURIComponent(communityId)}/restrictions/${encodeURIComponent(userId)}`, {}); }
   deleteMessage(id: string) { return this.request<{ok: true}>('DELETE', `/api/messages/${encodeURIComponent(id)}`); }
-  conversationExtras(conversationId: string) { return this.request<{pinned: ApiMessage | null; reactions: Record<string, {counts: {emoji: string; count: number}[]; mine: string | null}>; unreadMentions: number}>('GET', `/api/conversations/${encodeURIComponent(conversationId)}/extras`); }
+  conversationExtras(conversationId: string) { return this.request<{pinned: ApiMessage | null; pins: ApiMessage[]; reactions: Record<string, {counts: {emoji: string; count: number}[]; mine: string | null}>; unreadMentions: number}>('GET', `/api/conversations/${encodeURIComponent(conversationId)}/extras`); }
   setMessageReaction(messageId: string, emoji: string | null) { return this.request<{counts: {emoji: string; count: number}[]; mine: string | null}>('POST', `/api/messages/${encodeURIComponent(messageId)}/reaction`, {emoji}); }
-  /** Owner and admins of a group or channel only. null unpins. */
-  setConversationPin(conversationId: string, messageId: string | null) { return this.request<{pinned: ApiMessage | null}>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/pin`, {messageId}); }
+  /** Owner and admins of a group or channel only. Pins (or with pinned=false unpins) one message; messageId null unpins all. Up to 100. */
+  setConversationPin(conversationId: string, messageId: string | null, pinned = true) { return this.request<{pinned: ApiMessage | null; pins: ApiMessage[]}>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/pin`, {messageId, pinned}); }
   markMentionsRead(conversationId: string) { return this.request<{ok: true}>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/mentions/read`, {}); }
   userCalls(userId: string) { return this.request<CallStats>('GET', `/api/users/${encodeURIComponent(userId)}/calls`); }
   communityCalls(communityId: string) { return this.request<CallStats>('GET', `/api/communities/${encodeURIComponent(communityId)}/calls`); }
