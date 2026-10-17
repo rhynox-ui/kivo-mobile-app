@@ -269,7 +269,11 @@ function DepositSheet({
     }
   }, [visible]);
 
-  const selected = network;
+  // Kivo's home balance is USDC on Solana, so that is the only deposit
+  // option (no network to choose, nothing to move later). Wallets without
+  // a Solana account keep the network list.
+  const solanaOnly = Boolean(wallet.solanaAddress);
+  const selected: DepositNetwork | null = solanaOnly ? 'solana' : network;
   const address = selected ? networkAddress(wallet, selected) : '';
 
 
@@ -309,11 +313,13 @@ function DepositSheet({
           ) : (
             <>
               <View style={styles.sheetHeader}>
-                <Pressable onPress={() => setNetwork(null)} hitSlop={10}>
-                  <Text style={styles.backText}>‹ Back</Text>
-                </Pressable>
-                <Text style={styles.sheetTitle}>{networkLabel(selected)}</Text>
-                <View style={styles.headerSpacer} />
+                {solanaOnly ? <View style={styles.headerSpacer} /> : (
+                  <Pressable onPress={() => setNetwork(null)} hitSlop={10}>
+                    <Text style={styles.backText}>‹ Back</Text>
+                  </Pressable>
+                )}
+                <Text style={styles.sheetTitle}>{solanaOnly ? 'Deposit USDC' : networkLabel(selected)}</Text>
+                {solanaOnly ? <Pressable onPress={onClose} hitSlop={10}><Text style={styles.ghostText}>Close</Text></Pressable> : <View style={styles.headerSpacer} />}
               </View>
 
               <Text style={styles.addressSectionTitle}>Your {networkLabel(selected)} address</Text>
@@ -335,7 +341,9 @@ function DepositSheet({
               </View>
 
               <Text style={styles.note}>
-                {selected === 'solana'
+                {solanaOnly
+                  ? 'Send USDC on the Solana network only. When withdrawing from an exchange (Binance, Coinbase, Bybit, OKX…), choose USDC and the Solana network. It arrives in seconds.'
+                  : selected === 'solana'
                   ? "A separate address — Solana isn't an EVM chain, so it can't share the address other networks use."
                   : selected === 'near'
                     ? 'Your NEAR account, from the same recovery phrase — it also works in compatible NEAR wallets.'
@@ -343,7 +351,7 @@ function DepositSheet({
               </Text>
 
               <Text style={styles.warn}>
-                Send {depositCoins(selected)} on {networkLabel(selected)} only. Assets sent on another network may be lost.
+                {solanaOnly ? 'Send only USDC on the Solana network to this address.' : `Send ${depositCoins(selected)} on ${networkLabel(selected)} only. Assets sent on another network may be lost.`}
               </Text>
 
             </>
