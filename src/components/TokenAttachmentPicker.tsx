@@ -20,9 +20,34 @@ function validAddress(chain: string, address: string): boolean {
   return chain === 'solana' ? /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address) : /^0x[0-9a-fA-F]{40}$/.test(address);
 }
 
+/**
+ * The address inside whatever was pasted: a bare address, or a link from
+ * DexScreener, GeckoTerminal, pump.fun, Birdeye, Solscan, Etherscan…
+ */
+export function addressFromInput(chain: string, input: string): string {
+  const value = input.trim();
+  const match = /^https?:\/\/[^/]+(\/[^?#]*)?(\?[^#]*)?/i.exec(value);
+  if (!match) return value;
+  const parts = `${match[1] ?? ''}/${(match[2] ?? '').replace(/^\?/, '').replace(/[&=]/g, '/')}`.split('/').map(part => { try { return decodeURIComponent(part).trim(); } catch { return part; } }).filter(Boolean).reverse();
+  return parts.find(part => validAddress(chain, part)) ?? value;
+}
+
+/** A pasted pair (pool) address: the pair's base token. */
+async function fromPair(chain: string, address: string): Promise<VerifiedToken | null> {
+  try {
+    const response = await fetch(`${MARKET}/latest/dex/pairs/${encodeURIComponent(DEX_CHAIN[chain])}/${encodeURIComponent(address)}`);
+    if (!response.ok) return null;
+    const body = await response.json();
+    const pair = body?.pair ?? body?.pairs?.[0];
+    const base = pair?.baseToken;
+    if (!pair || pair.chainId !== DEX_CHAIN[chain] || typeof base?.address !== 'string' || !validAddress(chain, base.address) || !base.symbol) return null;
+    return { chain, address: base.address, symbol: String(base.symbol).slice(0, 20), name: String(base.name || base.symbol).slice(0, 80), imageUrl: typeof pair.info?.imageUrl === 'string' && pair.info.imageUrl.startsWith('https://') ? pair.info.imageUrl : null };
+  } catch { return null; }
+}
+
 /** Finds the token's most liquid market on that network; throws a readable reason when there is none. */
 export async function verifyTokenMarket(chain: string, rawAddress: string): Promise<VerifiedToken> {
-  const address = rawAddress.trim();
+  const address = addressFromInput(chain, rawAddress);
   if (!validAddress(chain, address)) throw new Error(`That isn't a valid ${tradeChainLabel(chain as TradeChain)} token address.`);
   const chainId = DEX_CHAIN[chain];
   let pairs: any[] = [];
@@ -37,7 +62,7 @@ export async function verifyTokenMarket(chain: string, rawAddress: string): Prom
     .sort((a, b) => (Number(b.liquidity?.usd) || 0) - (Number(a.liquidity?.usd) || 0))[0];
   if (!pair) {
     // Not on DexScreener yet (new launches, pump.fun tokens on their bonding curve).
-    const fallback = await fromGeckoTerminal(chain, address) ?? (chain === 'solana' ? await fromJupiter(address) : null);
+    const fallback = await fromPair(chain, address) ?? await fromGeckoTerminal(chain, address) ?? (chain === 'solana' ? await fromJupiter(address) : null);
     if (fallback) return fallback;
     throw new Error(`No market found for this token on ${tradeChainLabel(chain as TradeChain)}. Check the network and the address.`);
   }
@@ -82,7 +107,7 @@ export function TokenAttachmentPicker({ onChange, onClose, initialChain = 'solan
 
   // Check the market as soon as a valid-looking address is there (debounced).
   useEffect(() => {
-    const value = address.trim();
+    const value = addressFromInput(chain, address);
     const id = ++seq.current;
     onChange(null);
     if (!value) { setState({ status: 'idle' }); return; }
@@ -115,7 +140,7 @@ export function TokenAttachmentPicker({ onChange, onClose, initialChain = 'solan
         <Text style={styles.chevron}>›</Text>
       </Pressable>
       <View style={styles.inputRow}>
-        <TextInput value={address} onChangeText={setAddress} autoCapitalize="none" autoCorrect={false} placeholder="Paste token contract / mint address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.input} />
+        <TextInput value={address} onChangeText={setAddress} autoCapitalize="none" autoCorrect={false} placeholder="Paste token address or market link" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.input} />
         {address ? <Pressable onPress={() => setAddress('')} hitSlop={8}><Text style={styles.paste}>Clear</Text></Pressable> : <Pressable onPress={() => void paste()} hitSlop={8}><Text style={styles.paste}>Paste</Text></Pressable>}
       </View>
       {state.status === 'checking' ? <View style={styles.statusRow}><ActivityIndicator size="small" color={kivoTheme.colors.accent} /><Text style={styles.muted}>Checking market…</Text></View> : null}
