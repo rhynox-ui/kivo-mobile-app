@@ -6,7 +6,8 @@
 
 import {encodeFunctionData, isAddress, parseUnits, type Address} from 'viem';
 import bs58 from 'bs58';
-import {signAndSendSponsoredSolanaStep, type SolanaTransactionSigner} from '../core/executeRelayQuote';
+import {signAndSendSponsoredSolanaStep, sponsorshipRecoveryUsdcUnits, type SolanaTransactionSigner} from '../core/executeRelayQuote';
+import {fetchWalletPrices} from '../core/walletPrices';
 import type {LocalAccount} from 'viem/accounts';
 import {TOKEN_ADDRESSES, assetDecimalsForChain, type ChainKey} from '../core/chainData';
 import {getViemChain} from '../core/chainRegistry';
@@ -77,7 +78,25 @@ async function sendSolanaUsdc(
     },
   };
   const sponsoredSend = async () => {
-    const sponsored = await signAndSendSponsoredSolanaStep(instructions, [], signer, connection, {spend: mintAddress, maxSpend: amountRaw});
+    let sendRaw = amountRaw;
+    let sponsoredInstructions = instructions;
+    if (!toAtaInfo) {
+      // Kivo pays the recipient's one-time USDC account rent and recovers it
+      // (plus its margin) from this wallet's USDC in the same transaction. A
+      // "send everything" leaves exactly that much behind so it is never lost.
+      const [rent, prices, held] = await Promise.all([
+        connection.getMinimumBalanceForRentExemption(165),
+        fetchWalletPrices().catch(() => ({}) as Record<string, number>),
+        connection.getTokenAccountBalance(fromAta, 'confirmed').then(r => BigInt(r.value.amount)).catch(() => null),
+      ]);
+      const recovery = BigInt(sponsorshipRecoveryUsdcUnits(rent + 10_000, prices.SOL ?? 0));
+      if (held !== null && recovery > 0n && held < sendRaw + recovery) {
+        sendRaw = held - recovery;
+        if (sendRaw <= 0n) throw new Error('Not enough USDC to cover this new address\'s one-time account fee. Nothing was sent.');
+        sponsoredInstructions = [instructions[0], splToken.createTransferInstruction(fromAta, toAta, from, sendRaw)];
+      }
+    }
+    const sponsored = await signAndSendSponsoredSolanaStep(sponsoredInstructions, [], signer, connection, {spend: mintAddress, maxSpend: sendRaw}, {allowedAtaOwners: [to.toBase58()]});
     return {hash: sponsored.signature};
   };
   // A USDC-only wallet (the normal Kivo case) holds no SOL at all. Solana

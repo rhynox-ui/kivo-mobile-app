@@ -6,6 +6,7 @@ import { NetworkIcon } from '../wallet/NetworkIcon';
 import { TRADE_CHAIN_ORDER } from './SearchScreen';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, readTokenBalance, type CashBalanceRow, type TokenBalance } from '@kivo/trading/kivo/balances';
 import { PartialRouteError, combinedView, planUnifiedBuy, runLegsByNetwork, type UnifiedLeg, type UnifiedPlan } from '@kivo/trading/kivo/unified';
+import { HOME_CHAIN, awayFromHome, homeCashAsset, onlyHomeCash } from '@kivo/trading/kivo/home';
 import { assetLabel, clearSpendableBalanceCache, fetchSpendableBalance, nativeSpendable, spendOrder, spendableFor, totalSpendableUsd, type SpendableBalance } from '@kivo/trading/kivo/spendable';
 import { executeDirectPlan, planDirectTrade } from '@kivo/trading/kivo/direct';
 import { transactionLink, KivoExecutionError, preflightKivoQuote, relayRequestUrl, type ExecutionUpdate } from '@kivo/trading/kivo/execute';
@@ -29,6 +30,7 @@ import { NearTradePanel } from './NearTradePanel';
 import { normalizeAmountInput } from '../utils/amountInput';
 import { KivoModal } from '../components/KivoModal';
 import { ResultCard, splitError } from '../components/ResultCard';
+import { ConvertCashSheet } from '../components/ConvertCashSheet';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { ShareTradeSheet, type SharedTrade } from '../components/ShareTradeSheet';
 
@@ -74,6 +76,10 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   const [cash, setCash] = useState<CashBalanceRow[] | null>(null);
   // Everything a buy can spend: cash, dollar coins and native coins on every network.
   const [spendable, setSpendable] = useState<SpendableBalance | null>(null);
+  // Funds on other networks / in other coins: not spent by trades (Kivo's
+  // home is USDC on Solana), only pointed to so the user can Convert them.
+  const [awayUsd, setAwayUsd] = useState(0);
+  const [moveHomeOpen, setMoveHomeOpen] = useState(false);
   // Bumped after a trade so the balances are read again.
   const [balanceNonce, setBalanceNonce] = useState(0);
   // When the balance can only partly cover a buy: the amount that CAN be bought.
@@ -126,6 +132,8 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     : null;
   const tokenDecimals: number | null = side === 'sell' ? tokenBalance?.decimals ?? null : token && isNativeToken(token) ? (token.chainKey === 'solana' ? 9 : 18) : buyDecimals;
   const address = wallet?.address ?? null;
+  // Kivo's home balance needs a Solana wallet on this device.
+  const homeActive = wallet?.source === 'local' && Boolean(wallet.solanaAddress);
   const nearToken = selectedToken?.chainKey === 'near' && wallet?.source === 'local' && wallet?.nearAddress
     ? (selectedToken as KivoToken & { chainKey: 'near' })
     : null;
@@ -148,7 +156,10 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     }).catch(() => {});
     // Only a wallet on this device can sign the Solana part of a buy.
     fetchSpendableBalance(address, wallet?.source === 'local' ? wallet.solanaAddress : undefined).then(balance => {
-      if (!cancelled) setSpendable(balance);
+      if (cancelled) return;
+      // One home balance (USDC on Solana): every buy is a single route from it.
+      if (homeActive) { setSpendable(onlyHomeCash(balance)); setAwayUsd(awayFromHome(balance).reduce((sum, asset) => sum + asset.valueUsd, 0)); }
+      else setSpendable(balance);
     }).catch(() => { if (!cancelled) setSpendable({ assets: [], errors: [] }); });
     if (side === 'buy' && !isNativeToken(token)) {
       const owner = token.chainKey === 'solana' ? wallet?.solanaAddress : address;
@@ -175,7 +186,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   // quote below re-checks it once the route's real output is known).
   const tradeUsd = parsed == null ? null : side === 'buy' ? parsed : token?.priceUsd != null && token.priceUsd > 0 ? parsed * token.priceUsd : null;
   const amountProblem = !amount.trim() ? null : parsed == null ? 'Enter a valid amount greater than zero.'
-    : available != null && parsed > available + 1e-12 ? (side === 'buy' ? `More than your available balance (${formatBalanceUsd(available)}).` : `More than your available ${formatAmount(available)} ${token?.symbol ?? ''}.`)
+    : available != null && parsed > available + 1e-12 ? (side === 'buy' ? (homeActive && awayUsd >= 0.5 ? `More than your USDC on Solana (${formatBalanceUsd(available)}). You have ${formatBalanceUsd(awayUsd)} elsewhere: tap Buy to move it to Solana first.` : `More than your available balance (${formatBalanceUsd(available)}).`) : `More than your available ${formatAmount(available)} ${token?.symbol ?? ''}.`)
     : tradeUsd != null && tradeUsd < MIN_TRADE_USD ? `The minimum trade is ${formatUsd(MIN_TRADE_USD)}.` : null;
 
   const fetchQuote = useCallback(async () => {
@@ -188,7 +199,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     try {
       // Same network as the user's cash: straight to Uniswap, Relay pays the gas.
       // Native coins (ETH, SOL…) always route through Relay, which trades them directly.
-      const direct = gaslessTradingEnabled && !isNativeToken(token) && !directUnavailable.has(token.chainKey) && !directUnavailable.has(`${token.chainKey}:${token.tokenAddress}`)
+      const direct = gaslessTradingEnabled && !isNativeToken(token) && (!homeActive || token.chainKey === HOME_CHAIN) && !directUnavailable.has(token.chainKey) && !directUnavailable.has(`${token.chainKey}:${token.tokenAddress}`)
         ? await planDirectTrade({ side, token, amount: parsed, userAddress: address, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined, cash, tokenBalance, tokenDecimals, slippageBps: settings.slippageBps ?? undefined }).catch(() => null)
         : null;
       if (seq !== quoteSeq.current) return;
@@ -198,7 +209,8 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
         : await (async () => {
             const solanaOwner = token.chainKey === 'solana' ? wallet?.solanaAddress : undefined;
             if (token.chainKey === 'solana' && !solanaOwner) throw new Error('This wallet has no Solana address.');
-            const single = await requestKivoQuote({ side, token, amount, userAddress: solanaOwner ?? address, recipientAddress: solanaOwner ?? address, payChain: token.chainKey, tokenDecimals, slippageBps: settings.slippageBps ?? undefined, execution: gaslessTradingEnabled ? 'gasless' : 'wallet' });
+            // Sell proceeds land home: USDC on Solana (one route, cross-network when the token isn't on Solana).
+            const single = await requestKivoQuote({ side, token, amount, userAddress: solanaOwner ?? address, recipientAddress: homeActive ? wallet!.solanaAddress! : solanaOwner ?? address, ...(homeActive ? { receiveAsset: homeCashAsset() } : {}), payChain: token.chainKey, tokenDecimals, slippageBps: settings.slippageBps ?? undefined, execution: gaslessTradingEnabled ? 'gasless' : 'wallet' });
             return { legs: [{ chainKey: token.chainKey, amountUsd: single.view.pay.usd ?? 0, quote: single, asset: { symbol: token.symbol, address: token.tokenAddress, kind: 'token' as const } }], view: single.view };
           })();
       if (seq !== quoteSeq.current) return;
@@ -431,8 +443,11 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       : belowMinimum ? `The minimum trade is ${formatUsd(MIN_TRADE_USD)}.`
       : quoteState === 'ready' ? `Review and ${side} ${token?.symbol ?? ''}` : '');
   const hintIsError = Boolean(amountProblem) || quoteState === 'error' || Boolean(view?.unsupportedReason) || belowMinimum;
+  // Funds that arrived on another network are moved home only when a buy needs them.
+  const needsMoveHome = side === 'buy' && homeActive && awayUsd >= 0.5 && available != null && parsed != null && parsed > available + 1e-9;
   const pressSide = (target: TradeSide) => {
     if (target !== side) { setSide(target); return; }
+    if (needsMoveHome) { setMoveHomeOpen(true); return; }
     if (ready) setReviewOpen(true);
     else if (expired) fetchQuote();
   };
@@ -442,7 +457,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Pressable style={styles.cashRow} onPress={() => { if (spendable) setChainOpen(true); }} accessibilityRole="button" accessibilityLabel="Balance by network">
-        <Text style={styles.cashLabel}>Balance{spendable ? '  ›' : ''}</Text>
+        <Text style={styles.cashLabel}>{homeActive ? 'USDC · Solana' : 'Balance'}{spendable ? '  ›' : ''}</Text>
         <Text style={styles.cashValue}>{!wallet ? '—' : cashTotal == null ? '…' : settings.hideBalances ? '••••' : formatBalanceUsd(cashTotal)}</Text>
       </Pressable>
       <View style={styles.toolbar}>
@@ -483,7 +498,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
 
             <View style={styles.sides}>
               <Pressable onPress={() => pressSide('buy')} style={[styles.buy, side !== 'buy' && styles.inactive]}>
-                <Text style={styles.buyText}>↑  {'Buy'}</Text>
+                <Text style={styles.buyText}>{needsMoveHome ? '⇄  Move to Solana' : '↑  Buy'}</Text>
               </Pressable>
               <Pressable onPress={() => pressSide('sell')} style={[styles.sell, side === 'sell' && ready && styles.sellReady, side !== 'sell' && styles.inactive]}>
                 <Text style={[styles.sellText, side === 'sell' && ready && styles.sellTextReady]}>↓  {'Sell'}</Text>
@@ -718,6 +733,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
         </View>
       </KivoModal>
       <ShareTradeSheet trade={shareTrade} visible={shareOpen} onClose={() => setShareOpen(false)} onShareToFeed={onShareToFeed ? draft => { setShareOpen(false); closeReview(); onShareToFeed(draft); } : undefined} />
+      <ConvertCashSheet visible={moveHomeOpen} moveHome onClose={() => setMoveHomeOpen(false)} onConverted={() => { clearSpendableBalanceCache(); clearCashBalanceCache(); setBalanceNonce(n => n + 1); }} />
     </ScrollView>
   );
 }

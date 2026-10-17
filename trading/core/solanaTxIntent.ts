@@ -203,10 +203,12 @@ export function describeSolanaTransaction(
  */
 export function assertSolanaTransactionMatchesIntent(
   transaction: SolanaLikeTransaction | null | undefined,
-  {expectedSigner, expectedFeePayer, addressLookupTableAccounts}: {
+  {expectedSigner, expectedFeePayer, addressLookupTableAccounts, allowedAtaOwners = []}: {
     expectedSigner?: string | null;
     expectedFeePayer?: string | null;
     addressLookupTableAccounts?: unknown[];
+    /** Other wallets whose token account may be created (a withdrawal's recipient). */
+    allowedAtaOwners?: string[];
   },
 ): string[] {
   const described = describeSolanaTransaction(transaction, {addressLookupTableAccounts});
@@ -273,7 +275,7 @@ export function assertSolanaTransactionMatchesIntent(
       ix.programId === ASSOCIATED_TOKEN_PROGRAM_ID &&
       (ix.firstDataByte === null || ix.firstDataByte === 1)
     ) {
-      if (!expectedSigner || ix.accounts[2] !== expectedSigner) {
+      if (!expectedSigner || (ix.accounts[2] !== expectedSigner && !allowedAtaOwners.includes(ix.accounts[2] ?? ''))) {
         throw new SolanaIntentError(
           "This route would pay rent to create a token account for another wallet. " +
             "It was stopped before signing; nothing was sent and nothing was spent.",
