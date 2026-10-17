@@ -30,6 +30,15 @@ function applyReaction(current: ReactionState | undefined, next: string | null):
   if (current?.mine) bump(current.mine, -1); if (next) bump(next, 1);
   return { counts: counts.filter(entry => entry.count > 0), mine: next };
 }
+// @-mention picker: community members with a username (the server only resolves @username), cached per chat.
+type MentionCandidate = { userId: string; username: string; avatarUrl: string | null };
+const MENTION_TTL_MS = 5 * 60_000;
+const mentionCache = new Map<string, { at: number; members: MentionCandidate[] }>();
+/** The "@partial" right before the cursor (at the start or after a space), or null. */
+function mentionAt(text: string, cursor: number): { query: string; start: number } | null {
+  const match = /(^|\s)@([A-Za-z0-9_]*)$/.exec(text.slice(0, cursor));
+  return match ? { query: match[2], start: cursor - match[2].length - 1 } : null;
+}
 function pinnedPreview(message: LocalMessage): string {
   return message.deleted ? 'Message deleted' : message.text ? message.text.replace(/\s+/g, ' ') : message.token ? '🪙 ' + (message.token.symbol ?? message.token.name ?? 'Token') : message.media ? '📷 Photo' : 'Message';
 }
@@ -213,10 +222,43 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   // The server enforces both; this only avoids offering a composer that would fail.
   const adminsOnly = isChannel || (conversation?.kind === 'group' && conversation.onlyAdminsPost === true);
   const canPost = !conversation || !adminsOnly || canModerate;
-  // Server rules: members react; owner/admins pin in groups and channels, either person in a DM.
+  // Server rules: members react; only owner/admins pin, in groups and channels (no pinning in DMs).
   const canReact = conversation?.kind === 'dm' || Boolean(conversation?.myRole);
-  const canPin = conversation?.kind === 'dm' || canModerate;
+  const canPin = conversation?.kind !== 'dm' && canModerate;
   const pinned = extras?.pinned ?? null;
+  // @-mentions: groups, channels (admins post there) and DMs (the other person).
+  const [selection, setSelection] = useState({ start: 0, end: 0 });
+  const [forcedSelection, setForcedSelection] = useState<{ start: number; end: number } | null>(null);
+  const [mentionPool, setMentionPool] = useState<MentionCandidate[] | null>(() => mentionCache.get(id)?.members ?? null);
+  const mentionsAllowed = conversation?.kind === 'dm' || conversation?.kind === 'group' || (conversation?.kind === 'channel' && canModerate);
+  const mention = mentionsAllowed && selection.start === selection.end ? mentionAt(draft, selection.start) : null;
+  const mentionActive = mention !== null;
+  useEffect(() => { setMentionPool(mentionCache.get(id)?.members ?? null); }, [id]);
+  useEffect(() => {
+    if (!mentionActive || !conversation) return;
+    if (conversation.kind === 'dm') { const peer = conversation.peer; setMentionPool(peer?.username ? [{ userId: peer.userId, username: peer.username, avatarUrl: peer.avatarUrl }] : []); return; }
+    const cached = mentionCache.get(id);
+    if (cached && Date.now() - cached.at < MENTION_TTL_MS) { setMentionPool(cached.members); return; }
+    let active = true;
+    api.community(id).then(detail => {
+      const members = detail.members.filter(m => m.profile?.username).map(m => ({ userId: m.userId, username: m.profile!.username!, avatarUrl: m.profile!.avatarUrl }));
+      mentionCache.set(id, { at: Date.now(), members });
+      if (active) setMentionPool(members);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [mentionActive, id, conversation?.kind, conversation?.peer?.userId]);
+  const mentionMatches = mention && mentionPool ? mentionPool.filter(m => m.userId !== me && m.username.toLowerCase().startsWith(mention.query.toLowerCase())).slice(0, 8) : [];
+  const insertMention = (username: string) => {
+    if (!mention) return;
+    const insert = '@' + username + ' ';
+    const rest = draft.slice(selection.start).replace(/^[A-Za-z0-9_]*\s?/, '');
+    const cursor = mention.start + insert.length;
+    setDraft(draft.slice(0, mention.start) + insert + rest);
+    setSelection({ start: cursor, end: cursor });
+    setForcedSelection({ start: cursor, end: cursor });
+  };
+  // Apply the cursor after an insert once, then hand it back to the keyboard.
+  useEffect(() => { if (!forcedSelection) return; const timer = setTimeout(() => setForcedSelection(null), 50); return () => clearTimeout(timer); }, [forcedSelection]);
   const react = (messageId: string, emoji: string) => {
     const current = extras?.reactions[messageId];
     const next = current?.mine === emoji ? null : emoji;
@@ -467,11 +509,16 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
             {overLimit && !verifiedSender ? <Text style={styles.limitHint}>★ Get Verified for up to {messageCharLimit(true).toLocaleString()} characters</Text> : null}
           </View>
         ) : null}
+        {mentionMatches.length > 0 && <ScrollView style={styles.mentionList} keyboardShouldPersistTaps="always" accessibilityLabel="Mention someone">
+          {mentionMatches.map(m => <Pressable key={m.userId} onPress={() => insertMention(m.username)} style={({ pressed }) => [styles.mentionRow, pressed && styles.mentionRowPressed]} accessibilityRole="button" accessibilityLabel={`Mention @${m.username}`}>
+            <Avatar name={m.username} uri={m.avatarUrl} size={30} /><Text style={styles.mentionName} numberOfLines={1}>@{m.username}</Text>
+          </Pressable>)}
+        </ScrollView>}
         {tokenAttachmentOpen && <TokenAttachmentPicker onChange={setVerifiedTokenAttachment} onClose={() => setTokenAttachmentOpen(false)} />}
         <View style={styles.composer}>
           <Pressable onPress={() => setTokenAttachmentOpen(value => !value)} hitSlop={8} style={styles.attach} accessibilityLabel="Attach token"><Text style={styles.attachText}>◇</Text></Pressable>
           <Pressable onPress={attach} hitSlop={8} style={styles.attach} accessibilityLabel="Attach photo"><Text style={styles.attachText}>＋</Text></Pressable>
-          <TextInput value={draft} onChangeText={setDraft} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={messageCharLimit(true) * 2} style={styles.input} />
+          <TextInput value={draft} onChangeText={setDraft} selection={forcedSelection ?? undefined} onSelectionChange={event => setSelection(event.nativeEvent.selection)} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={messageCharLimit(true) * 2} style={styles.input} />
           <Pressable disabled={(!draft.trim() && !verifiedTokenAttachment) || sending} onPress={send} style={[styles.send, ((!draft.trim() && !verifiedTokenAttachment) || overLimit || sending) && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
         </View>
         </View>
@@ -622,6 +669,10 @@ const styles = StyleSheet.create({
   messageMentionMe: { color: '#FFFFFF', fontWeight: '900', backgroundColor: 'rgba(37,137,245,0.45)', borderRadius: 3 },
   deletedText: { color: c.textMuted, fontStyle: 'italic', fontSize: 13 },
   meta: { color: 'rgba(247,245,223,0.6)', fontSize: 10.5, alignSelf: 'flex-end' },
+  mentionList: { maxHeight: 220, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.surface },
+  mentionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  mentionRowPressed: { backgroundColor: c.surfaceRaised },
+  mentionName: { flex: 1, color: c.text, fontWeight: '700', fontSize: 14 },
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background },
   attach: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
   attachText: { color: c.cream, fontSize: 26 },

@@ -80,7 +80,13 @@ export type ApiCommunity = {
   onlyAdminsPost?: boolean;
   /** Invite code for the join link. Only sent to the owner and admins. */
   inviteCode?: string | null;
+  gate?: CommunityGate | null;
 };
+
+export type CommunityGate = {chain: string; address: string; symbol: string; decimals: number; minAmount: string};
+export type GateCheck = {eligible: boolean; wallet: string | null; balance: string | null; gate: CommunityGate};
+export type TokenCall = {chain: string; address: string; symbol: string; imageUrl: string | null; calledAt: number; entryMarketCapUsd: number; marketCapUsd: number | null; returnPct: number | null};
+export type CallStats = {calls: number; tracked: number; avgReturnPct: number | null; winRate: number | null; best: TokenCall | null; recent: TokenCall[]};
 
 export type ApiMember = {userId: string; role: CommunityRole; joinedAt: number; profile: ApiProfile | null; restricted?: boolean};
 export type ApiBan = {userId: string; bannedAt: number; profile: ApiProfile | null};

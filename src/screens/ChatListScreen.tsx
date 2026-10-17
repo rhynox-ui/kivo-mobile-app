@@ -5,7 +5,7 @@ import { normalizeWalletAddress, shortWallet, type ApiCommunity, type ApiConvers
 import { displayName, myUserId, openDirectMessage, rememberProfiles, unreadCount } from '@kivo/shared/chat/store';
 import { KivoMark } from '../components/KivoMark';
 import { kivoTheme } from '../theme/kivoTheme';
-import { api, enableSocial, useSocialReady } from '../state/session';
+import { api, enableSocial, ensureSolanaLinked, useSocialReady } from '../state/session';
 import { useChatState } from '../state/useChat';
 import { getWalletSession } from '../state/walletStore';
 import { refreshConversations } from '@kivo/shared/chat/store';
@@ -96,7 +96,8 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
         ListFooterComponent={publicCommunities.length ? <View style={styles.discoverSection}>
           <Text style={styles.discoverTitle}>{filter === 'channel' ? 'Public channels' : filter === 'group' ? 'Public groups' : 'Discover groups and channels'}</Text>
           {publicCommunities.map(c => <Pressable key={c.id} style={({ pressed }) => [styles.row, pressed && styles.pressed]} onPress={async () => {
-            try { await api.join(c.id); await refreshConversations().catch(() => {}); onOpenChat(c.id); }
+            // Solana holder gates read the linked Solana wallet: link it first (the server explains any shortfall).
+            try { if (c.gate?.chain === 'solana') await ensureSolanaLinked({ interactive: true }).catch(() => false); await api.join(c.id); await refreshConversations().catch(() => {}); onOpenChat(c.id); }
             catch (e) { kivoAlert(c.name, e instanceof Error ? e.message : c.kind === 'channel' ? 'Unable to subscribe to channel.' : 'Unable to join group.'); }
           }}>
             <Avatar name={c.name} uri={c.avatarUrl} size={52} verified={c.isVerified === true} />

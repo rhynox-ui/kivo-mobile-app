@@ -37,7 +37,8 @@ async function fromJupiter(address: string): Promise<Snapshot | null> {
   } catch { return null; }
 }
 
-function loadSnapshot(chain: string, address: string): Promise<Snapshot> {
+/** Live market cap and 24h change, shared (one request per token) by every card. */
+export function loadSnapshot(chain: string, address: string): Promise<Snapshot> {
   const key = chain.toLowerCase() + ':' + address.toLowerCase();
   const cached = cache.get(key); if (cached) return cached;
   const request = (async (): Promise<Snapshot> => {

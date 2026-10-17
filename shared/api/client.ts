@@ -1,7 +1,7 @@
 // Typed client for the Kivo social API, shared by web and mobile.
 import type {KeyValueStorage} from '../storage';
 import type {ProfileSocial, PublicCommunityCard} from './types';
-import type {ApiBan, ApiCommunity, ApiConversation, ApiMember, ApiMessage, ApiProfile, AuthChallenge, AuthSession, CommunityKind, CommunitySettingsInput, ProfileApprovalChallenge, ProfileLinks, SyncResponse} from './types';
+import type {ApiBan, CallStats, CommunityGate, GateCheck, ApiCommunity, ApiConversation, ApiMember, ApiMessage, ApiProfile, AuthChallenge, AuthSession, CommunityKind, CommunitySettingsInput, ProfileApprovalChallenge, ProfileLinks, SyncResponse} from './types';
 import {kivoUserIdForWallet, normalizeWalletAddress} from './types';
 
 export type FeedPost = {
@@ -271,7 +271,14 @@ export class KivoApi {
   deleteMessage(id: string) { return this.request<{ok: true}>('DELETE', `/api/messages/${encodeURIComponent(id)}`); }
   conversationExtras(conversationId: string) { return this.request<{pinned: ApiMessage | null; reactions: Record<string, {counts: {emoji: string; count: number}[]; mine: string | null}>; unreadMentions: number}>('GET', `/api/conversations/${encodeURIComponent(conversationId)}/extras`); }
   setMessageReaction(messageId: string, emoji: string | null) { return this.request<{counts: {emoji: string; count: number}[]; mine: string | null}>('POST', `/api/messages/${encodeURIComponent(messageId)}/reaction`, {emoji}); }
+  /** Owner and admins of a group or channel only. null unpins. */
   setConversationPin(conversationId: string, messageId: string | null) { return this.request<{pinned: ApiMessage | null}>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/pin`, {messageId}); }
   markMentionsRead(conversationId: string) { return this.request<{ok: true}>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/mentions/read`, {}); }
+  userCalls(userId: string) { return this.request<CallStats>('GET', `/api/users/${encodeURIComponent(userId)}/calls`); }
+  communityCalls(communityId: string) { return this.request<CallStats>('GET', `/api/communities/${encodeURIComponent(communityId)}/calls`); }
+  /** Holder gate (hold ≥ minAmount to join and post). Owner or admin with an active Blue Star only; null removes it. */
+  setCommunityGate(communityId: string, gate: {chain: string; address: string; minAmount: string} | null) { return this.request<{gate: CommunityGate | null}>('PUT', `/api/communities/${encodeURIComponent(communityId)}/gate`, gate ?? {gate: null}); }
+  checkCommunityGate(communityId: string, fresh = false) { return this.request<GateCheck | null>('GET', `/api/communities/${encodeURIComponent(communityId)}/gate/check${fresh ? '?fresh=1' : ''}`); }
+  linkSolanaWallet(address: string, signature: string) { return this.request<{address: string}>('POST', '/api/wallet/link-solana', {address, signature}); }
   sync(since: number) { return this.request<SyncResponse>('GET', `/api/sync?since=${since}`); }
 }
