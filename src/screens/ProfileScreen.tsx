@@ -144,6 +144,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const [range, setRange] = useState<PortfolioRange>('24h');
   const [positionTab, setPositionTab] = useState<PositionTab>('open');
   const [convertOpen, setConvertOpen] = useState(false);
+  const [moveHome, setMoveHome] = useState(false);
   // Tokens and native coins (ETH, BNB, SOL…) open their page to buy or sell; cash opens Convert.
   const positionPress = (h: Holding): (() => void) | undefined =>
     h.kind === 'cash' ? () => setConvertOpen(true)
@@ -285,6 +286,8 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const visibleOpen = settings.hideSmallBalances ? verifiedOpen.filter(h => !shouldHideSmallHolding(h)) : verifiedOpen;
   const closed = portfolio ? closedPositions(portfolio, trades) : [];
   const money = (value: number | null | undefined) => (hidden ? '••••' : formatBalanceUsd(value));
+  // Cash and network coins outside Kivo's home (USDC on Solana) that Convert can move home.
+  const awayUsd = (portfolio?.holdings ?? []).filter(h => (h.kind === 'cash' || h.kind === 'native') && !(h.kind === 'cash' && h.chainKey === 'solana')).reduce((sum, h) => sum + (h.valueUsd ?? 0), 0);
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
   return (
@@ -368,9 +371,16 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
         <View style={styles.cashActions}>
           <Square label="Deposit" glyph="↓" onPress={() => onOpenWallet('deposit')} />
           <Square label="Withdraw" glyph="↑" onPress={() => onOpenWallet('withdraw')} />
-          <Square label="Convert" glyph="⇄" onPress={() => setConvertOpen(true)} />
+          <Square label="Convert" glyph="⇄" onPress={() => { setMoveHome(false); setConvertOpen(true); }} />
         </View>
       </View>
+      {awayUsd >= 0.5 ? (
+        // Kivo's home balance is USDC on Solana: point at funds parked elsewhere.
+        <Pressable onPress={() => { setMoveHome(true); setConvertOpen(true); }} style={styles.moveHome} accessibilityRole="button">
+          <Text style={styles.moveHomeText}>{money(awayUsd)} is on other networks or in other coins</Text>
+          <Text style={styles.moveHomeAction}>Move to Solana ›</Text>
+        </Pressable>
+      ) : null}
 
       <View style={styles.positionsHead}>
         <Text style={styles.sectionTitle}>Positions</Text>
@@ -435,7 +445,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
           })}
       </ScrollView>
       ) : <Empty title="No groups yet" body={socialReady ? 'Join communities to make your profile social, not just financial.' : 'Turn on chats to join groups and channels.'} />}
-      <ConvertCashSheet visible={convertOpen} onClose={() => setConvertOpen(false)} onConverted={() => { void load(true); }} />
+      <ConvertCashSheet visible={convertOpen} moveHome={moveHome} onClose={() => setConvertOpen(false)} onConverted={() => { void load(true); }} />
     </ScrollView>
   );
 }
@@ -523,6 +533,9 @@ const styles = StyleSheet.create({
   showHiddenPill: { alignSelf: 'center', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, marginTop: 2 },
   showHiddenText: { color: c.accent, fontSize: 11.5, fontWeight: '800' },
   padded: { paddingHorizontal: 20, marginTop: 8 },
+  moveHome: { marginHorizontal: 18, marginTop: 8, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 14, backgroundColor: 'rgba(183, 226, 123, 0.10)', borderWidth: 1, borderColor: 'rgba(183, 226, 123, 0.25)', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  moveHomeText: { color: c.text, fontSize: 12.5, flex: 1 },
+  moveHomeAction: { color: c.accent, fontSize: 13, fontWeight: '900' },
   cashCard: { margin: 18, marginBottom: 0, padding: 14, borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cashLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   cashIcon: { width: 46, height: 46, borderRadius: 23, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center' },

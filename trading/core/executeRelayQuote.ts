@@ -483,6 +483,7 @@ export async function signAndSendSponsoredSolanaStep(
   signer: SolanaTransactionSigner,
   connection: InstanceType<typeof import('@solana/web3.js').Connection>,
   spendIntent?: SolanaSpendIntent,
+  options: {allowedAtaOwners?: string[]} = {},
 ): Promise<{signature: string; warnings: string[]}> {
   const [{Connection, PublicKey, SystemProgram, TransactionInstruction, TransactionMessage, VersionedTransaction, ComputeBudgetProgram}, bs58Module, splToken] = await Promise.all([
     import('@solana/web3.js'),
@@ -650,6 +651,7 @@ export async function signAndSendSponsoredSolanaStep(
     expectedSigner: signer.publicKey.toBase58(),
     expectedFeePayer: feePayerPubkey.toBase58(),
     addressLookupTableAccounts: lookupTables,
+    allowedAtaOwners: options.allowedAtaOwners,
   });
   // The semantic check (solanaSpendGuard.ts): the wallet's balances may
   // only change as the trade allows. Sponsorship moves who pays the fee,

@@ -34,6 +34,8 @@ export type KivoTradeRequest = {
    * small-trade minimum) and shared across the legs, not once per leg.
    */
   feeBasisUsd?: number;
+  /** Sell: where the proceeds land (Kivo's home: USDC on Solana). Defaults to cash on the token's network. */
+  receiveAsset?: QuoteAsset;
 };
 
 export type KivoQuoteView = {
@@ -80,7 +82,7 @@ export function quoteAssets(request: KivoTradeRequest): {input: QuoteAsset; outp
   const tokenAsset: QuoteAsset = {chainKey: request.token.chainKey, address: request.token.tokenAddress, symbol: request.token.symbol, decimals: request.tokenDecimals};
   return request.side === 'buy'
     ? {input: request.payAsset ?? usdcAsset(request.payChain), output: tokenAsset}
-    : {input: tokenAsset, output: sellProceedsAsset(request.token.chainKey)};
+    : {input: tokenAsset, output: request.receiveAsset ?? sellProceedsAsset(request.token.chainKey)};
 }
 
 function toBaseUnits(amount: string, decimals: number): string {
