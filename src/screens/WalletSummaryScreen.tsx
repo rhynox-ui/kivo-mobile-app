@@ -1,4 +1,4 @@
-import { ResultCard } from '../components/ResultCard';
+import { ResultCard, splitError } from '../components/ResultCard';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -484,7 +484,8 @@ function WithdrawSheet({
                 tone={result.ok ? (result.submitted ? 'pending' : 'success') : 'error'}
                 hero={{ symbol: result.symbol ?? 'USDC' }}
                 kicker={result.ok ? (result.submitted ? 'Withdrawal submitted' : 'Sent') : 'Withdrawal failed'}
-                headline={result.ok ? `${result.amount} ${result.symbol}` : result.message}
+                headline={result.ok ? `${result.amount} ${result.symbol}` : splitError(result.message).headline}
+                reason={result.ok ? undefined : splitError(result.message).reason}
                 subline={result.ok ? (result.submitted ? 'NEAR Intents delivers it in a few minutes.' : `on ${result.network} · network fee paid by Kivo`) : undefined}
                 safeNote={result.ok ? undefined : result.hash ? { ok: false, text: 'A transaction was sent. Check it below before trying again.' } : { ok: true, text: 'Nothing was sent. Your balance is unchanged.' }}
                 steps={result.submitted ? [{ label: 'Sent from NEAR', state: 'done' }, { label: 'NEAR Intents is delivering', state: 'now' }, { label: `Arrives on ${result.network}`, state: 'todo' }] : undefined}

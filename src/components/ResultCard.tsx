@@ -13,6 +13,18 @@ export type ResultLink = { label: string; url: string };
 export type ResultAction = { label: string; onPress: () => void };
 
 const c = kivoTheme.colors;
+
+/**
+ * A failure message as a short headline plus readable reason; raw program
+ * logs ("Simulation details: …") are kept apart for "Copy error details".
+ */
+export function splitError(message: string): { headline: string; reason?: string; details?: string } {
+  const at = message.search(/ ?Simulation details:/);
+  const details = at >= 0 ? message : undefined;
+  const text = (at >= 0 ? message.slice(0, at) + (/Nothing was sent\.\s*$/.test(message) ? ' Nothing was sent.' : '') : message).replace(/\s*\(\{.*?\}\)/, '').trim();
+  if (text.length <= 60) return { headline: text, details };
+  return { headline: "Couldn't complete this", reason: text, details };
+}
 const isDecember = () => new Date().getMonth() === 11;
 
 function Logo({ symbol, uri, size }: { symbol: string; uri?: string | null; size: number }) {
