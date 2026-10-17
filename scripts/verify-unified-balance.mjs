@@ -39,13 +39,14 @@ assert.equal(legUnits(eth, 1), '0.000500');
 assert.ok(Number(legUnits(eth, 2)) <= eth.spendableAmount);
 assert.equal(legUnits(balance.assets[1], 1.239), '1.239000');
 
-// One fee per order: every leg uses the order's bps, so the legs' fees add up to the order fee.
+// One fee per order: a flat 0.5% (capped at $50) of the whole order, shared across the legs.
 const order = 10;
 const bps = Number(appFeeBps(order));
+assert.equal(bps, 50);
 const legFees = [4, 3, 2, 1].reduce((sum, leg) => sum + leg * bps / 10_000, 0);
-assert.ok(Math.abs(legFees - Math.max(order * 0.005, 0.05)) < 1e-9);
-// Before: each leg under $10 paid the $0.05 minimum on its own.
-assert.ok([4, 3, 2, 1].reduce((sum, leg) => sum + leg * Number(appFeeBps(leg)) / 10_000, 0) > 0.19);
+assert.ok(Math.abs(legFees - order * 0.005) < 1e-9);
+assert.equal(Number(appFeeBps(2)), 50, 'no small-trade minimum');
+assert.equal(Number(appFeeBps(20_000)), 25, 'capped at $50');
 
 // Networks run in parallel, legs on one network one after another.
 async function checkParallel() {
