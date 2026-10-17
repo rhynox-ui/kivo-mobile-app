@@ -114,7 +114,15 @@ export function formatUsd(value: number | null | undefined, options: {compact?: 
   }
   if (Math.abs(value) >= 1) return '$' + value.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
   if (value === 0) return '$0.00';
-  return '$' + value.toPrecision(4);
+  // Four significant digits as plain decimals: $0.0000004438, never "4.438e-7".
+  const decimals = Math.min(20, Math.max(2, 3 - Math.floor(Math.log10(Math.abs(value)))));
+  return (value < 0 ? '-$' : '$') + Math.abs(value).toFixed(decimals).replace(/(\.\d*?[1-9])0+$/, '$1');
+}
+
+/** A wallet balance in dollars: dust below one cent reads "<$0.01" (prices keep using formatUsd). */
+export function formatBalanceUsd(value: number | null | undefined): string {
+  if (value != null && Number.isFinite(value) && value > 0 && value < 0.01) return '<$0.01';
+  return formatUsd(value);
 }
 
 export function formatPercent(value: number | null | undefined): string {
@@ -125,7 +133,8 @@ export function formatPercent(value: number | null | undefined): string {
 export function formatAmount(value: number | null | undefined, maxFractionDigits = 6): string {
   if (value == null || !Number.isFinite(value)) return '—';
   if (value === 0) return '0';
-  if (Math.abs(value) < 10 ** -maxFractionDigits) return value.toPrecision(3);
+  // Three significant digits as plain decimals, never "4.43e-7".
+  if (Math.abs(value) < 10 ** -maxFractionDigits) return value.toFixed(Math.min(20, 2 - Math.floor(Math.log10(Math.abs(value))))).replace(/(\.\d*?[1-9])0+$/, '$1');
   return value.toLocaleString('en-US', {maximumFractionDigits: Math.abs(value) >= 1000 ? 2 : maxFractionDigits});
 }
 

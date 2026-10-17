@@ -33,7 +33,7 @@ import { transactionLink } from '@kivo/trading/kivo/execute';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, CASH_CHAINS, cashAssetSymbol, type CashBalanceRow } from '@kivo/trading/kivo/balances';
 import { isValidRecipientAddress, withdrawUsdc } from '@kivo/trading/kivo/cash';
 import { fetchGaslessStatus, type GaslessStatus } from '@kivo/trading/kivo/gasless';
-import { formatAmount, formatUsd, shortAddress } from '@kivo/trading/kivo/tokens';
+import { formatAmount, formatBalanceUsd, formatUsd, shortAddress } from '@kivo/trading/kivo/tokens';
 import { NetworkIcon } from '../wallet/NetworkIcon';
 import QRCode from 'react-native-qrcode-svg';
 import { normalizeAmountInput } from '../utils/amountInput';
@@ -157,7 +157,7 @@ export function WalletSummaryScreen({
         </View>
       ) : (
         <>
-          <Text style={styles.balance}>{displayTotal == null ? '…' : mask(formatUsd(displayTotal))}</Text>
+          <Text style={styles.balance}>{displayTotal == null ? '…' : mask(formatBalanceUsd(displayTotal))}</Text>
           <Text style={styles.sub}>
             {totalWithNear == null
               ? 'Reading USDC on supported networks…'
@@ -513,7 +513,7 @@ function WithdrawSheet({
                             <NetworkBadge network={chainKey} />
                             <Text style={styles.networkRowText}>{networkLabel(chainKey)}</Text>
                           </View>
-                          <Text style={styles.networkRowBalance}>{formatUsd(balance)}</Text>
+                          <Text style={styles.networkRowBalance}>{formatBalanceUsd(balance)}</Text>
                         </Pressable>
                       );
                     })}
@@ -525,7 +525,7 @@ function WithdrawSheet({
                         <NetworkBadge network={chain} />
                         <View style={{flex:1}}>
                           <Text style={styles.selectedNetworkTitle}>{chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}</Text>
-                          <Text style={styles.selectedNetworkBalance}>Available · {formatUsd(available)}</Text>
+                          <Text style={styles.selectedNetworkBalance}>Available · {formatBalanceUsd(available)}</Text>
                         </View>
                         <Pressable onPress={() => {setChain(null);setTo('');setAmount('');setResult(null);}} hitSlop={10}>
                           <Text style={styles.changeText}>Change</Text>
@@ -564,7 +564,7 @@ function WithdrawSheet({
                       </Pressable>
                     </View>
 
-                    <Text style={styles.available}>Available on {chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}: {formatUsd(maxWithdrawable)}</Text>
+                    <Text style={styles.available}>Available on {chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}: {formatBalanceUsd(maxWithdrawable)}</Text>
                     {problem && <Text style={styles.warn}>{problem}</Text>}
                     {chain === 'near'
                       ? <Text style={styles.note}>NEAR withdrawals use NEAR Intents. Kivo pays NEAR transaction gas through the existing sponsored call path.</Text>

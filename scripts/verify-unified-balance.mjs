@@ -77,3 +77,16 @@ assert.ok(!looksLikeSpamToken('BIO', 'Bio Protocol'));
 assert.ok(!looksLikeSpamToken('PEPE', 'Pepe'));
 
 checkParallel().then(() => console.log('unified balance checks passed'), error => { console.error(error); process.exit(1); });
+
+// Money formatting: no scientific notation; dust balances read "<$0.01".
+{
+  const {formatUsd, formatBalanceUsd} = await import('../trading/kivo/tokens.ts');
+  assert.equal(formatUsd(4.438e-7), '$0.0000004438');
+  assert.equal(formatBalanceUsd(4.438e-7), '<$0.01');
+  assert.equal(formatBalanceUsd(0), '$0.00');
+  assert.equal(formatBalanceUsd(1.02), '$1.02');
+}
+{
+  const {formatAmount} = await import('../trading/kivo/tokens.ts');
+  assert.equal(formatAmount(4.43e-7), '0.000000443');
+}
