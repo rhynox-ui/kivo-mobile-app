@@ -20,6 +20,7 @@ import { addNotification } from '../state/notificationStore';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { TokenChartPanel } from '../components/TokenChartPanel';
 import { MAINNET_CHAIN_IDS } from '@kivo/trading/core/chainData';
+import { MIN_TRADE_USD } from '@kivo/trading/core/fees';
 import { checkSolanaTokenSecurity, checkTokenSecurity } from '@kivo/trading/core/goplusTokenSecurity';
 import { NearTradePanel } from './NearTradePanel';
 import { normalizeAmountInput } from '../utils/amountInput';
@@ -120,8 +121,12 @@ export function TradeScreen({ onToken, onPickChain, selectedToken, initialSide =
     ? (cash && token ? totalSpendableCash(cash, token.chainKey) : null)
     : tokenBalance?.amount ?? null;
   const parsed = parseAmountInput(amount);
+  // Buys are entered in USD; a sell is valued at the token's live price (the
+  // quote below re-checks it once the route's real output is known).
+  const tradeUsd = parsed == null ? null : side === 'buy' ? parsed : token?.priceUsd != null && token.priceUsd > 0 ? parsed * token.priceUsd : null;
   const amountProblem = !amount.trim() ? null : parsed == null ? 'Enter a valid amount greater than zero.'
-    : available != null && parsed > available + 1e-12 ? `More than your available ${formatAmount(available)} ${side === 'buy' ? 'USDC' : token?.symbol ?? ''}.` : null;
+    : available != null && parsed > available + 1e-12 ? `More than your available ${formatAmount(available)} ${side === 'buy' ? 'USDC' : token?.symbol ?? ''}.`
+    : tradeUsd != null && tradeUsd < MIN_TRADE_USD ? `The minimum trade is ${formatUsd(MIN_TRADE_USD)}.` : null;
 
   const fetchQuote = useCallback(async () => {
     if (!token || !address || parsed == null || amountProblem) return;
@@ -287,7 +292,10 @@ export function TradeScreen({ onToken, onPickChain, selectedToken, initialSide =
 
   const feePct = view && view.fees.appUsd != null && view.pay.usd ? (view.fees.appUsd / view.pay.usd) * 100 : null;
   const cashTotal = cash ? totalCashUsd(cash).total : null;
-  const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && !extremePriceImpact && walletKind(wallet) === 'evm-local';
+  // The route's own USD value decides the minimum when the token had no live price.
+  const quotedUsd = view ? (side === 'buy' ? view.pay.usd : view.receive.usd) : null;
+  const belowMinimum = quotedUsd != null && quotedUsd < MIN_TRADE_USD;
+  const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && !belowMinimum && !extremePriceImpact && walletKind(wallet) === 'evm-local';
   const tradeChain: ChainKey | null = token?.chainKey ?? (selectedToken?.chainKey !== 'near' ? selectedToken?.chainKey ?? null : null);
   const receiveSymbol = side === 'buy' ? token?.symbol ?? '' : token ? cashLabel(sellProceedsAsset(token.chainKey).symbol) : '';
   const hint = extremePriceImpact ? 'Trade blocked — route price impact is above 50%.'
@@ -297,8 +305,9 @@ export function TradeScreen({ onToken, onPickChain, selectedToken, initialSide =
       : quoteState === 'error' ? quoteError
       : expired ? 'Quote expired — tap Refresh.'
       : view?.unsupportedReason ? view.unsupportedReason
+      : belowMinimum ? `The minimum trade is ${formatUsd(MIN_TRADE_USD)}.`
       : quoteState === 'ready' ? `Review and ${side} ${token?.symbol ?? ''}` : '');
-  const hintIsError = Boolean(amountProblem) || quoteState === 'error' || Boolean(view?.unsupportedReason);
+  const hintIsError = Boolean(amountProblem) || quoteState === 'error' || Boolean(view?.unsupportedReason) || belowMinimum;
   const pressSide = (target: TradeSide) => {
     if (target !== side) { setSide(target); return; }
     if (ready) setReviewOpen(true);

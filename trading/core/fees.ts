@@ -43,6 +43,13 @@ export const DEV_FEE_PCT = 0.005;
 export const DEV_FEE_MAX_USD = 50;
 /** Trades below this size pay SMALL_TRADE_MIN_FEE_USD instead of 0.5%... */
 export const SMALL_TRADE_BELOW_USD = 10;
+/**
+ * Smallest trade the mobile app accepts, in USD. At $2 the small-trade fee
+ * ($0.05) still covers sponsored gas and fee-payer costs, so no trade runs at
+ * a loss to Kivo; the server also drops sponsorship that would cost more than
+ * the fee.
+ */
+export const MIN_TRADE_USD = 2;
 export const SMALL_TRADE_MIN_FEE_USD = 0.05;
 /** ...capped at 5% of the trade (the server's maximum). */
 export const SMALL_TRADE_MAX_FEE_BPS = 500;
