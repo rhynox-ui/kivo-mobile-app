@@ -156,6 +156,8 @@ export function assertSolanaSystemTransfersWithinIntent(
   }
 
   let transferTotal = 0n;
+  // Kivo's own cost recovery in SOL (intent.extra SOL), allowed on top of the trade.
+  const solExtra = (intent.extra ?? []).filter(e => e.mint === SOLANA_NATIVE_SPEND).reduce((sum, e) => sum + e.units, 0n);
   const inspect = (programId: string | null, accounts: (string | null)[], data?: Uint8Array) => {
     if (programId !== SYSTEM_PROGRAM_ID || !data || data.length < 12 || readU32LE(data, 0) !== 2) return;
     const source = accounts[0];
@@ -166,11 +168,12 @@ export function assertSolanaSystemTransfersWithinIntent(
     transferTotal += amount;
     if (intent.spend !== SOLANA_NATIVE_SPEND) {
       // A token trade's route may pay a fee in SOL the swap itself produces;
-      // the caller then requires the wallet to end with no less SOL.
-      if (fundedByTrade) return;
+      // the caller then requires the wallet to end with no less SOL (minus
+      // Kivo's own SOL cost recovery).
+      if (fundedByTrade || transferTotal <= solExtra) return;
       throw new SolanaSpendGuardError('This token trade includes an extra SOL transfer from your wallet. It was stopped before signing; nothing was sent.');
     }
-    if (transferTotal > intent.maxSpend) {
+    if (transferTotal > intent.maxSpend + solExtra) {
       throw new SolanaSpendGuardError('This transaction would transfer more SOL than the amount you entered. It was stopped before signing; nothing was sent.');
     }
   };
@@ -327,13 +330,14 @@ export async function assertSolanaSpendWithinIntent(
 
   const postLamports = BigInt(post[0]?.lamports ?? 0);
   const lamportsOut = BigInt(preLamports) - postLamports;
-  const lamportsAllowed = (spendsSol ? intent.maxSpend : 0n) + overheadLamports;
+  const solExtra = (intent.extra ?? []).filter(e => e.mint === SOLANA_NATIVE_SPEND).reduce((sum, e) => sum + e.units, 0n);
+  const lamportsAllowed = (spendsSol ? intent.maxSpend : 0n) + overheadLamports + solExtra;
   if (lamportsOut > lamportsAllowed) {
     throw new SolanaSpendGuardError('This transaction would take more SOL than this trade needs. It was stopped before signing; nothing was sent.');
   }
   // A token trade that sends SOL straight from the wallet is allowed only
   // when the trade itself paid for it: the wallet ends with no less SOL.
-  if (!spendsSol && directSolOut > 0n && lamportsOut > 0n) {
+  if (!spendsSol && directSolOut > 0n && lamportsOut > solExtra) {
     throw new SolanaSpendGuardError('This token trade includes an extra SOL transfer from your wallet. It was stopped before signing; nothing was sent.');
   }
 }

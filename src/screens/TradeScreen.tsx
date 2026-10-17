@@ -314,7 +314,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
           // re-run this leg's exact quote request once.
           const requote = () => requestKivoQuote(leg.quote.request).then(next => next.quote);
           const hasSolanaStep = (leg.quote.quote.steps ?? []).some(step => (step.items ?? []).some(item => Boolean(item.data?.instructions)));
-          const legResult = await executeRelayQuote(leg.quote.quote, session, progress, hasSolanaStep ? {requote} : {useGaslessTrading: gaslessTradingEnabled, requote});
+          const legResult = await executeRelayQuote(leg.quote.quote, session, progress, hasSolanaStep ? {requote} : {useGaslessTrading: gaslessTradingEnabled && leg.asset.kind !== 'native', requote});
           finished++;
           return legResult;
         });

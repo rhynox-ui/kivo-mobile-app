@@ -77,7 +77,9 @@ export async function planUnifiedBuy(params: {
       side: 'buy', token, amount: legUnits(asset, legUsd), userAddress: asset.chainKey === 'solana' ? solanaAddress! : userAddress, payChain: asset.chainKey,
       payAsset: {chainKey: asset.chainKey, address: asset.address, symbol: asset.symbol, decimals: asset.decimals},
       recipientAddress: token.chainKey === 'solana' ? solanaAddress : userAddress,
-      tokenDecimals, slippageBps, execution: 'gasless', amountUsd: legUsd, feeBasisUsd: amountUsd,
+      // Kivo's sponsored EVM calls can't carry native value, so a leg spending
+      // ETH/BNB/… is sent by the wallet itself, paying gas from that coin's reserve.
+      tokenDecimals, slippageBps, execution: asset.kind === 'native' && asset.chainKey !== 'solana' ? 'wallet' : 'gasless', amountUsd: legUsd, feeBasisUsd: amountUsd,
     });
     const impact = quote.view.priceImpactPct;
     if (impact != null && Math.abs(impact) > EXTREME_PRICE_IMPACT_PCT) {
