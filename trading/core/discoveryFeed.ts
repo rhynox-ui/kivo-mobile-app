@@ -74,7 +74,7 @@
 import {chainKeyForDexScreenerChainId, type DexScreenerPair} from './dexScreener';
 import {geckoTerminalNetworkForChainOrNull} from './geckoTerminalNetworks';
 import {CHAIN_LABEL, type ChainKey} from './chainData';
-import {marketUrl} from './marketHosts';
+import {marketFetch, marketUrl} from './marketHosts';
 
 // Every ChainKey this app has — CHAIN_LABEL's own type (Record<ChainKey,
 // string>) guarantees Object.keys covers all of them, same derivation
@@ -230,11 +230,13 @@ async function fetchDexScreenerBoostedTrending(): Promise<DiscoveryResult> {
 // the one source in this file with a real, live-confirmed rate limit.
 const GECKOTERMINAL_POOLS_PER_CHAIN = 4;
 
-async function fetchGeckoTerminalWithRetry(url: string): Promise<Response> {
-  const res = await fetch(url);
-  if (res.status !== 429) return res;
+// Straight from the phone first; on a 429 or a block, Kivo's caching proxy
+// (when configured), then one last retry after a short pause.
+async function fetchGeckoTerminalWithRetry(path: string): Promise<Response> {
+  const res = await marketFetch('geckoterminal', path);
+  if (res.status !== 429 && res.status < 500) return res;
   await new Promise<void>(resolve => setTimeout(() => resolve(), 1500));
-  return fetch(url);
+  return marketFetch('geckoterminal', path);
 }
 
 type GeckoTerminalTokenAttrs = {address?: string; symbol?: string; name?: string; image_url?: string};
@@ -243,7 +245,7 @@ async function fetchTrendingPoolsForChain(chainKey: ChainKey, limit = GECKOTERMI
   const network = geckoTerminalNetworkForChainOrNull(chainKey);
   if (!network) return [];
   try {
-    const res = await fetchGeckoTerminalWithRetry(marketUrl('geckoterminal', `/api/v2/networks/${network}/trending_pools?include=base_token`));
+    const res = await fetchGeckoTerminalWithRetry(`/api/v2/networks/${network}/trending_pools?include=base_token`);
     if (!res.ok) return [];
     const body = (await res.json()) as {
       data?: {
@@ -325,7 +327,10 @@ async function fetchTrendingPoolsForChain(chainKey: ChainKey, limit = GECKOTERMI
  */
 /** Trending tokens on one chain (GeckoTerminal's trending pools), for a chain filter. */
 export async function fetchTrendingTokensForChain(chainKey: ChainKey, limit = 20): Promise<DiscoveryResult> {
-  const tokens = await fetchTrendingPoolsForChain(chainKey, limit);
+  let tokens = await fetchTrendingPoolsForChain(chainKey, limit);
+  // GeckoTerminal empty or rate limited: fall back to DexScreener's boosted
+  // tokens on this chain rather than showing an empty network.
+  if (!tokens.length) tokens = (await fetchDexScreenerBoostedTrending()).tokens.filter(token => token.chainKey === chainKey);
   const seen = new Set<string>();
   const unique = tokens.filter(token => {
     const key = token.tokenAddress.toLowerCase();
