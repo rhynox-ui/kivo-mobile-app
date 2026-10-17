@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { kivoTheme } from '../theme/kivoTheme';
 
 // One look for every finished action (trade, convert, withdraw): the asset is
@@ -25,7 +24,8 @@ export function splitError(message: string): { headline: string; reason?: string
   if (text.length <= 60) return { headline: text, details };
   return { headline: "Couldn't complete this", reason: text, details };
 }
-const isDecember = () => new Date().getMonth() === 11;
+// Success mascot, shown on every successful result. Swap this one file to change it.
+const SEASONAL_MASCOT = require('../assets/seasonal-mascot.jpg');
 
 function Logo({ symbol, uri, size }: { symbol: string; uri?: string | null; size: number }) {
   const [failed, setFailed] = useState(false);
@@ -33,17 +33,6 @@ function Logo({ symbol, uri, size }: { symbol: string; uri?: string | null; size
   if (uri && !failed) return <Image source={{ uri }} style={[styles.logo, style]} onError={() => setFailed(true)} />;
   const usd = /^USD/i.test(symbol);
   return <View style={[styles.logo, style, usd && styles.logoUsd]}><Text style={[styles.logoLetter, { fontSize: size * 0.42 }]}>{usd ? '$' : symbol.slice(0, 1).toUpperCase()}</Text></View>;
-}
-
-/** Small Santa hat for December, drawn here so no outside artwork is needed. */
-function SantaHat() {
-  return (
-    <Svg width={58} height={44} viewBox="0 0 64 48">
-      <Path d="M6 40 C14 10 36 2 52 12 C46 18 44 28 46 40 Z" fill="#E53935" />
-      <Rect x={2} y={36} width={50} height={11} rx={5.5} fill="#F7F5DF" />
-      <Circle cx={54} cy={12} r={7} fill="#F7F5DF" />
-    </Svg>
-  );
 }
 
 export function ResultCard({
@@ -71,7 +60,7 @@ export function ResultCard({
   const shake = useRef(new Animated.Value(0)).current;
   const spin = useRef(new Animated.Value(0)).current;
   const rise = useRef(new Animated.Value(0)).current;
-  const festive = tone === 'success' && isDecember();
+  const festive = tone === 'success';
 
   useEffect(() => {
     pop.setValue(0); rise.setValue(0);
@@ -103,21 +92,19 @@ export function ResultCard({
         {tone === 'success' ? <Animated.View style={[styles.ring, { opacity: ring.interpolate({ inputRange: [0, 1], outputRange: [0.8, 0] }), transform: [{ scale: ring.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1.35] }) }] }]} /> : null}
         {tone === 'pending' ? <Animated.View style={[styles.spinner, { transform: [{ rotate: spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }]} /> : null}
         <Animated.View style={[{ transform: [{ translateX: shake }] }, tone === 'error' && styles.dim]}>
-          <Logo symbol={hero.symbol} uri={hero.imageUrl} size={92} />
+          {festive ? <Image source={SEASONAL_MASCOT} style={styles.mascot} /> : <Logo symbol={hero.symbol} uri={hero.imageUrl} size={92} />}
         </Animated.View>
-        {festive ? <Animated.View style={[styles.hat, { transform: [{ scale: pop }, { rotate: '14deg' }] }]}><SantaHat /></Animated.View> : null}
         {tone !== 'pending' ? (
           <Animated.View style={[styles.badge, tone === 'success' ? styles.badgeOk : styles.badgeBad, { transform: [{ scale: pop }] }]}>
             <Text style={styles.badgeText}>{tone === 'success' ? '✓' : '✕'}</Text>
           </Animated.View>
         ) : null}
-        {festive ? <Animated.Text style={[styles.thumb, { transform: [{ scale: pop }] }]}>👍</Animated.Text> : null}
       </View>
 
       <Animated.View style={riseStyle}>
         <Text style={styles.kicker}>{kicker}</Text>
         <Text style={[styles.headline, tone === 'success' && styles.headlineOk, tone !== 'success' && styles.headlinePlain]} numberOfLines={2} adjustsFontSizeToFit>{headline}</Text>
-        {subline || festive ? <Text style={styles.subline}>{festive ? 'Happy holidays from Kivo 🎄' : subline}</Text> : null}
+        {subline ? <Text style={styles.subline}>{subline}</Text> : null}
 
         {safeNote ? <View style={[styles.note, safeNote.ok ? styles.noteSafe : styles.noteWait]}><Text style={[styles.noteText, { color: safeNote.ok ? c.success : c.cream }]}>{safeNote.ok ? '✓ ' : ''}{safeNote.text}</Text></View> : null}
         {reason ? <View style={[styles.note, styles.noteWhy]}><Text style={[styles.noteText, styles.noteWhyText]}>{reason}</Text></View> : null}
@@ -184,8 +171,7 @@ const styles = StyleSheet.create({
   badgeOk: { backgroundColor: c.success },
   badgeBad: { backgroundColor: c.danger },
   badgeText: { color: c.backgroundDeep, fontWeight: '900', fontSize: 17 },
-  hat: { position: 'absolute', top: -30, left: 28 },
-  thumb: { position: 'absolute', left: -34, bottom: -2, fontSize: 30 },
+  mascot: { width: 92, height: 92, borderRadius: 46, backgroundColor: c.surfaceRaised },
   kicker: { textAlign: 'center', color: c.textMuted, fontSize: 13, fontWeight: '800' },
   headline: { textAlign: 'center', fontWeight: '900', marginTop: 4, marginBottom: 2 },
   headlineOk: { color: c.success, fontSize: 32 },
