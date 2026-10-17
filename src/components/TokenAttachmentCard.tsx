@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { kivoTheme } from '../theme/kivoTheme';
@@ -17,12 +17,15 @@ function compactUsd(value: number): string {
 }
 
 export function TokenAttachmentCard({ token, onPress, compact = false }: { token: AttachedToken; onPress?: () => void; compact?: boolean }) {
+  // A logo that fails to load (dead IPFS link, hotlink block) falls back to the mark.
+  const [logoFailed, setLogoFailed] = useState(false);
+  useEffect(() => { setLogoFailed(false); }, [token.imageUrl]);
   const entry = token.entryMarketCapUsd != null && Number.isFinite(token.entryMarketCapUsd) && token.entryMarketCapUsd > 0 ? compactUsd(token.entryMarketCapUsd) : '—';
   const short = token.address.length > 12 ? token.address.slice(0, compact ? 5 : 7) + '…' + token.address.slice(-5) : token.address;
   return (
     <Pressable onPress={onPress} disabled={!onPress} accessibilityRole="button" accessibilityLabel={`Open ${token.symbol ? '$' + token.symbol : 'token'} in Trade`} style={({ pressed }) => [styles.card, compact && styles.compact, pressed && styles.pressed]}>
       <View style={styles.top}>
-        {token.imageUrl ? <Image source={{ uri: token.imageUrl }} style={[styles.icon, compact && styles.iconCompact]} resizeMode="cover" /> : <View style={[styles.icon, compact && styles.iconCompact, styles.iconFallback]}><Text style={styles.iconGlyph}>◈</Text></View>}
+        {token.imageUrl && !logoFailed ? <Image source={{ uri: token.imageUrl }} onError={() => setLogoFailed(true)} style={[styles.icon, compact && styles.iconCompact]} resizeMode="cover" /> : <View style={[styles.icon, compact && styles.iconCompact, styles.iconFallback]}><Text style={styles.iconGlyph}>{token.symbol ? token.symbol.slice(0, 1).toUpperCase() : '◈'}</Text></View>}
         <View style={styles.title}>
           <Text style={styles.symbol} numberOfLines={1}>{token.symbol ? '$' + token.symbol : 'Token'}</Text>
           {token.name ? <Text style={styles.name} numberOfLines={1}>{token.name}</Text> : null}

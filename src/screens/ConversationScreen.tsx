@@ -190,7 +190,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
         setEditingMessageId(null);
         setDraft('');
       } else {
-        await sendText(id, text, replyingTo?.id, verifiedTokenAttachment ? {chain: verifiedTokenAttachment.chain, address: verifiedTokenAttachment.address} : undefined);
+        await sendText(id, text, replyingTo?.id, verifiedTokenAttachment ?? undefined);
         setDraft('');
         setReplyingTo(null);
         setVerifiedTokenAttachment(null);
