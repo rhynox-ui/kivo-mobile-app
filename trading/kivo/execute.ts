@@ -124,7 +124,11 @@ export function preflightKivoQuote(kq: KivoQuote, signerAddress: string, now = D
   if (!tagged) throw new KivoExecutionError('This quote has no recorded intent to check against — refusing to sign.');
   if (now - tagged.quotedAt > QUOTE_MAX_AGE_MS) throw new KivoExecutionError('This quote has expired. Refresh it before signing.');
   if (kq.view.unsupportedReason) throw new KivoExecutionError(kq.view.unsupportedReason);
-  if (!tagged.intent.userAddress || tagged.intent.userAddress !== signerAddress.trim().toLowerCase()) {
+  // EVM addresses compare case-insensitively; Solana (base58) keeps its case,
+  // exactly as the intent firewall recorded it.
+  const signer = signerAddress.trim();
+  const expected = /^0x[0-9a-fA-F]{40}$/.test(signer) ? signer.toLowerCase() : signer;
+  if (!tagged.intent.userAddress || tagged.intent.userAddress !== expected) {
     throw new KivoExecutionError('The connected wallet changed since this quote was requested. Refresh the quote.');
   }
   const pending: RelayTransactionStepItem[] = [];

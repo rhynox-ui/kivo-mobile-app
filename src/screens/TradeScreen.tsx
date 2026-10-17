@@ -70,7 +70,9 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   // When the balance can only partly cover a buy: the amount that CAN be bought.
   const [partialUsd, setPartialUsd] = useState<number | null>(null);
   const [tokenBalance, setTokenBalance] = useState<TokenBalance | null>(null);
-  const tokenDecimals = tokenBalance?.decimals ?? 18;
+  // Decimals of the token being bought, read on-chain (a 6- or 9-decimal
+  // Solana token quoted as 18 shows a buy of 951 tokens as 0.000000000951).
+  const [buyDecimals, setBuyDecimals] = useState<number | null>(null);
   const [balanceError, setBalanceError] = useState('');
   // Buy: a unified-cash plan (one or more legs). Sell: a single-leg plan.
   const [plan, setQuote] = useState<UnifiedPlan | null>(null);
@@ -113,6 +115,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   const token = support?.ok && selectedToken && selectedToken.chainKey !== 'near'
     ? { ...selectedToken, chainKey: support.chainKey as ChainKey }
     : null;
+  const tokenDecimals: number | null = side === 'sell' ? tokenBalance?.decimals ?? null : token && isNativeToken(token) ? (token.chainKey === 'solana' ? 9 : 18) : buyDecimals;
   const address = wallet?.address ?? null;
   const nearToken = selectedToken?.chainKey === 'near' && wallet?.source === 'local' && wallet?.nearAddress
     ? (selectedToken as KivoToken & { chainKey: 'near' })
@@ -121,7 +124,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   // Reset the ticket whenever the token, side or wallet changes.
   useEffect(() => {
     setAmount(''); setQuote(null); setQuoteState('idle'); setQuoteError(''); setResult(null);
-    setCash(null); setSpendable(null); setPartialUsd(null); setTokenBalance(null); setBalanceError('');
+    setCash(null); setSpendable(null); setPartialUsd(null); setTokenBalance(null); setBuyDecimals(null); setBalanceError('');
     quoteSeq.current++;
   }, [selectedToken?.chainKey, selectedToken?.tokenAddress, side, address]);
 
@@ -138,6 +141,12 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     fetchSpendableBalance(address, wallet?.source === 'local' ? wallet.solanaAddress : undefined).then(balance => {
       if (!cancelled) setSpendable(balance);
     }).catch(() => { if (!cancelled) setSpendable({ assets: [], errors: [] }); });
+    if (side === 'buy' && !isNativeToken(token)) {
+      const owner = token.chainKey === 'solana' ? wallet?.solanaAddress : address;
+      if (owner) readTokenBalance(token.chainKey, token.tokenAddress, owner, token.symbol)
+        .then(balance => { if (!cancelled) setBuyDecimals(balance.decimals); })
+        .catch(error => { if (!cancelled) setBalanceError(error instanceof Error ? error.message : 'Could not read this token.'); });
+    }
     if (side === 'sell') {
       const owner = token.chainKey === 'solana' ? wallet?.solanaAddress : address;
       if (!owner) { setBalanceError('This wallet has no Solana address.'); return () => { cancelled = true; }; }
@@ -164,13 +173,14 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     if (!token || !address || parsed == null || amountProblem) return;
     if (side === 'buy' && (!cash || !spendable)) return;
     if (side === 'sell' && !tokenBalance) return;
+    if (tokenDecimals == null) return;
     const seq = ++quoteSeq.current;
     setQuoteState('loading'); setQuote(null); setQuoteError(''); setPartialUsd(null);
     try {
       // Same network as the user's cash: straight to Uniswap, Relay pays the gas.
       // Native coins (ETH, SOL…) always route through Relay, which trades them directly.
       const direct = gaslessTradingEnabled && !isNativeToken(token) && !directUnavailable.has(token.chainKey)
-        ? await planDirectTrade({ side, token, amount: parsed, userAddress: address, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined, cash, tokenBalance, tokenDecimals: side === 'buy' ? tokenDecimals : tokenBalance?.decimals ?? 18, slippageBps: settings.slippageBps ?? undefined }).catch(() => null)
+        ? await planDirectTrade({ side, token, amount: parsed, userAddress: address, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined, cash, tokenBalance, tokenDecimals, slippageBps: settings.slippageBps ?? undefined }).catch(() => null)
         : null;
       if (seq !== quoteSeq.current) return;
       if (direct) { setQuote({ legs: [], view: direct.view, direct }); setQuoteState('ready'); return; }
@@ -179,7 +189,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
         : await (async () => {
             const solanaOwner = token.chainKey === 'solana' ? wallet?.solanaAddress : undefined;
             if (token.chainKey === 'solana' && !solanaOwner) throw new Error('This wallet has no Solana address.');
-            const single = await requestKivoQuote({ side, token, amount, userAddress: solanaOwner ?? address, recipientAddress: solanaOwner ?? address, payChain: token.chainKey, tokenDecimals: tokenBalance?.decimals ?? 18, slippageBps: settings.slippageBps ?? undefined, execution: gaslessTradingEnabled ? 'gasless' : 'wallet' });
+            const single = await requestKivoQuote({ side, token, amount, userAddress: solanaOwner ?? address, recipientAddress: solanaOwner ?? address, payChain: token.chainKey, tokenDecimals, slippageBps: settings.slippageBps ?? undefined, execution: gaslessTradingEnabled ? 'gasless' : 'wallet' });
             return { legs: [{ chainKey: token.chainKey, amountUsd: single.view.pay.usd ?? 0, quote: single, asset: { symbol: token.symbol, address: token.tokenAddress, kind: 'token' as const } }], view: single.view };
           })();
       if (seq !== quoteSeq.current) return;
@@ -191,7 +201,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       const covered = error instanceof PartialRouteError ? Math.floor(error.coveredUsd * 100) / 100 : 0;
       setPartialUsd(covered >= MIN_TRADE_USD ? covered : null);
     }
-  }, [token, address, parsed, amountProblem, side, cash, spendable, tokenBalance, amount, settings.slippageBps, gaslessTradingEnabled]);
+  }, [token, address, parsed, amountProblem, side, cash, spendable, tokenBalance, tokenDecimals, amount, settings.slippageBps, gaslessTradingEnabled]);
 
   // Debounced auto-quote while typing.
   useEffect(() => { setNotice(''); reopenReview.current = false; }, [amount, selectedToken?.tokenAddress, side]);
@@ -202,7 +212,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     const timer = setTimeout(fetchQuote, 650);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [amount, cash, spendable, tokenBalance?.decimals, settings.slippageBps]);
+  }, [amount, cash, spendable, tokenDecimals, settings.slippageBps]);
 
   // Re-routed trade: show the new quote's confirm sheet without another tap.
   useEffect(() => {

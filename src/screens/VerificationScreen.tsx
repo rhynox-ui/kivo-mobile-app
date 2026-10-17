@@ -17,6 +17,7 @@ import { kivoTheme } from '../theme/kivoTheme';
 import Svg, { Path, Polygon, Circle } from 'react-native-svg';
 import { KivoModal } from '../components/KivoModal';
 import { UsdcLogo } from '../components/TokenIcon';
+import { fetchCashBalances } from '@kivo/trading/kivo/balances';
 
 type Chain = 'ethereum' | 'base' | 'arbitrum' | 'solana';
 type Plan = 'monthly' | 'annual';
@@ -118,6 +119,9 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   const [stage, setStage] = useState<Stage>('loading');
   const [plan, setPlan] = useState<Plan>('monthly');
   const [chain, setChain] = useState<Chain>('base');
+  // USDC per network, like the rest of the app: show it, and start on a network that can pay.
+  const [usdc, setUsdc] = useState<Partial<Record<Chain, number>> | null>(null);
+  const chainPicked = useRef(false);
   const [networkPickerOpen, setNetworkPickerOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -252,6 +256,26 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
     return () => sub.remove();
   }, [storageKey]);
 
+  useEffect(() => {
+    const session = getWalletSession();
+    if (!session) return;
+    let active = true;
+    fetchCashBalances(session.address, CHAINS, session.solanaAddress).then(rows => {
+      if (!active) return;
+      const next: Partial<Record<Chain, number>> = {};
+      for (const row of rows) if (row.status === 'ok') next[row.chainKey as Chain] = row.balance.amount;
+      setUsdc(next);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!usdc || chainPicked.current) return;
+    const price = plan === 'annual' ? 5 : 1;
+    if ((usdc[chain] ?? 0) >= price) return;
+    const best = CHAINS.filter(item => (usdc[item] ?? 0) >= price).sort((a, b) => (usdc[b] ?? 0) - (usdc[a] ?? 0))[0];
+    if (best) setChain(best);
+  }, [usdc, plan]);
+
   // Elapsed-time ticker while confirming.
   useEffect(() => {
     if (stage !== 'confirming') return;
@@ -354,6 +378,9 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
   const openTx = (p: PendingPayment) => Linking.openURL(explorerTx(p.chain, p.txHash)).catch(() => kivoAlert('Kivo', 'Could not open the block explorer.'));
   const receiptPayer = receipt?.payer ?? receipt?.payer_address ?? 'Shown on verified payment record';
   const connected = Boolean(getWalletSession());
+  const price = plan === 'annual' ? 5 : 1;
+  // Only block when the balance was actually read; an unread network can still pay.
+  const short = usdc != null && usdc[chain] != null && usdc[chain]! < price;
 
   return (
     <View style={styles.root}>
@@ -424,7 +451,7 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
             <Text style={styles.label}>Pay on</Text>
             <Pressable accessibilityRole="button" accessibilityLabel={`Choose network. Selected: ${CHAIN_META[chain].label}`} onPress={() => setNetworkPickerOpen(true)} style={styles.networkSelector}>
               <NetworkLogo chain={chain} />
-              <View style={styles.networkCopy}><Text style={styles.networkName}>{CHAIN_META[chain].label}</Text><Text style={styles.networkSubtitle}>{CHAIN_META[chain].subtitle}</Text></View>
+              <View style={styles.networkCopy}><Text style={styles.networkName}>{CHAIN_META[chain].label}</Text><Text style={styles.networkSubtitle}>{usdc ? `${(usdc[chain] ?? 0).toFixed(2)} USDC available` : CHAIN_META[chain].subtitle}</Text></View>
               <Text style={styles.networkChevron}>⌄</Text>
             </Pressable>
             <KivoModal visible={networkPickerOpen} transparent animationType="fade" onRequestClose={() => setNetworkPickerOpen(false)}>
@@ -432,9 +459,9 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
                 <Pressable style={styles.pickerSheet} onPress={() => {}}>
                   <View style={styles.pickerHandle} />
                   <View style={styles.pickerHeader}><View><Text style={styles.pickerTitle}>Choose network</Text><Text style={styles.pickerSubtitle}>Pay with USDC on your selected network</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Close network picker" onPress={() => setNetworkPickerOpen(false)} style={styles.pickerClose}><Text style={styles.pickerCloseText}>×</Text></Pressable></View>
-                  {CHAINS.map(item => <Pressable key={item} accessibilityRole="button" onPress={() => { setChain(item); setNetworkPickerOpen(false); }} style={[styles.networkOption, chain === item && styles.networkOptionActive]}>
+                  {CHAINS.map(item => <Pressable key={item} accessibilityRole="button" onPress={() => { chainPicked.current = true; setChain(item); setNetworkPickerOpen(false); }} style={[styles.networkOption, chain === item && styles.networkOptionActive]}>
                     <NetworkLogo chain={item} />
-                    <View style={styles.networkCopy}><Text style={styles.networkName}>{CHAIN_META[item].label}</Text><Text style={styles.networkSubtitle}>{CHAIN_META[item].subtitle}</Text></View>
+                    <View style={styles.networkCopy}><Text style={styles.networkName}>{CHAIN_META[item].label}</Text><Text style={styles.networkSubtitle}>{usdc ? `${(usdc[item] ?? 0).toFixed(2)} USDC` : CHAIN_META[item].subtitle}</Text></View>
                     {chain === item ? <Text style={styles.selectedMark}>✓</Text> : <Text style={styles.networkChevron}>›</Text>}
                   </Pressable>)}
                   <Text style={styles.pickerFootnote}>Make sure your wallet has USDC on the selected network.</Text>
@@ -442,7 +469,8 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
               </Pressable>
             </KivoModal>
             <View style={styles.walletState}><View style={styles.dot}/><Text style={styles.walletText}>{connected ? 'Kivo wallet ready' : 'Unlock your Kivo wallet to continue'}</Text></View>
-            <Pressable disabled={!connected || !socialReady} onPress={() => setConfirmOpen(true)} style={[styles.payButton, (!connected || !socialReady) && styles.buttonDisabled]}>
+            {short ? <Text style={styles.noteText}>Not enough USDC on {CHAIN_META[chain].label}. Pick a network with at least {price} USDC, or move USDC there with Convert.</Text> : null}
+            <Pressable disabled={!connected || !socialReady || short} onPress={() => setConfirmOpen(true)} style={[styles.payButton, (!connected || !socialReady || short) && styles.buttonDisabled]}>
               <Text style={styles.payText}>Pay {plan === 'annual' ? '5' : '1'} USDC on {CHAIN_META[chain].label}</Text>
             </Pressable>
             {note ? <Text style={styles.noteText}>{note}</Text> : <Text style={styles.finePrint}>Kivo verifies the payment on-chain and activates your badge automatically.</Text>}
