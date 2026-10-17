@@ -276,6 +276,12 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   };
   // Apply the cursor after an insert once, then hand it back to the keyboard.
   useEffect(() => { if (!forcedSelection) return; const timer = setTimeout(() => setForcedSelection(null), 50); return () => clearTimeout(timer); }, [forcedSelection]);
+  // Compact bubbles: the time sits at the end of the last line (text, "Message
+  // deleted" or the reactions row), with invisible spacing reserved for it.
+  const metaLabel = (message: LocalMessage) => `${message.editedAt ? 'edited · ' : ''}${new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${message.senderId === me && !isChannel ? message.status === 'pending' ? '  ◷' : message.status === 'failed' ? '  ⚠ tap & hold' : '  ✓' : ''}`;
+  const hasReactions = (message: LocalMessage) => !message.deleted && Boolean(extras?.reactions[message.id]?.counts.length);
+  const inlineMeta = (message: LocalMessage) => message.deleted || hasReactions(message) || (Boolean(message.text) && messageLength(message.text) <= 700 && message.text.split('\n').length <= 12);
+  const metaSpacer = (message: LocalMessage) => <Text style={styles.metaSpacer}>{'\u00A0'.repeat(Math.ceil(metaLabel(message).length * 1.6) + 2)}</Text>;
   const react = (messageId: string, emoji: string) => {
     const current = extras?.reactions[messageId];
     const next = current?.mine === emoji ? null : emoji;
@@ -484,28 +490,25 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                   const quoted = messages.find(item => item.id === message.replyTo);
                   return <View style={styles.replyQuote}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={2}>{quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available'}</Text></View>;
                 })() : null}
-                {message.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : message.text ? (() => {
+                {message.deleted ? <Text style={styles.deletedText}>Message deleted{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text> : message.text ? (() => {
                   // Long messages collapse after ~12 lines so one post can't take over the chat.
                   const long = messageLength(message.text) > 700 || message.text.split('\n').length > 12;
                   const open = expanded[message.id] === true;
                   return <View>
-                    <Text style={styles.text} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text, myUsername)}</Text>
+                    <Text style={styles.text} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text, myUsername)}{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text>
                     {long ? <Pressable hitSlop={6} onPress={() => setExpanded(prev => ({ ...prev, [message.id]: !open }))}><Text style={styles.showMore}>{open ? 'Show less' : 'Show more'}</Text></Pressable> : null}
                   </View>;
                 })() : null}
                 {(() => {
                   const reactions = extras?.reactions[message.id];
                   if (!reactions?.counts.length || message.deleted) return null;
-                  return <View style={styles.reactions}>{reactions.counts.map(entry => (
+                  return <View style={[styles.reactions, inlineMeta(message) && { paddingRight: metaLabel(message).length * 6 + 8 }]}>{reactions.counts.map(entry => (
                     <Pressable key={entry.emoji} disabled={!canReact || message.status !== 'sent'} onPress={() => react(message.id, entry.emoji)} style={[styles.reactionChip, reactions.mine === entry.emoji && styles.reactionChipMine]} accessibilityRole="button" accessibilityState={{ selected: reactions.mine === entry.emoji }} accessibilityLabel={`${entry.emoji} ${entry.count}${reactions.mine === entry.emoji ? ', your reaction' : ''}`}>
                       <Text style={[styles.reactionChipText, reactions.mine === entry.emoji && styles.reactionChipTextMine]}>{entry.emoji} {entry.count}</Text>
                     </Pressable>
                   ))}</View>;
                 })()}
-                <Text style={styles.meta}>
-                  {message.editedAt ? 'edited · ' : ''}{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  {mine ? message.status === 'pending' ? '  ◷' : message.status === 'failed' ? '  ⚠ tap & hold' : '  ✓' : ''}
-                </Text>
+                <Text style={[styles.meta, inlineMeta(message) && styles.metaInline]}>{metaLabel(message)}</Text>
               </Pressable>
             </View>
           );
@@ -685,9 +688,9 @@ const styles = StyleSheet.create({
   unreadLine: { flex: 1, height: 1, backgroundColor: 'rgba(85,183,243,0.45)' },
   unreadText: { color: '#55B7F3', fontSize: 11.5, fontWeight: '800' },
   reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 2 },
-  reactionChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.22)', borderWidth: 1, borderColor: 'transparent' },
+  reactionChip: { paddingHorizontal: 7, paddingVertical: 1, borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.22)', borderWidth: 1, borderColor: 'transparent' },
   reactionChipMine: { backgroundColor: 'rgba(37,137,245,0.28)', borderColor: '#2589F5' },
-  reactionChipText: { color: c.text, fontSize: 12.5, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  reactionChipText: { color: c.text, fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
   reactionChipTextMine: { color: '#FFFFFF' },
   reactionPicker: { flexDirection: 'row', gap: 4, paddingVertical: 12 },
   reactionOption: { flex: 1, aspectRatio: 1, maxWidth: 52, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface },
@@ -700,7 +703,7 @@ const styles = StyleSheet.create({
   bubbleRowMine: { justifyContent: 'flex-end' },
   bubbleRowGroupIncoming: { alignItems: 'flex-end' },
   avatarColumn: { width: 34, flexShrink: 0, marginRight: 8, alignItems: 'center', justifyContent: 'flex-end' },
-  bubble: { maxWidth: '84%', paddingHorizontal: 11, paddingTop: 7, paddingBottom: 5, borderRadius: 16, borderBottomLeftRadius: 4, backgroundColor: c.surfaceRaised, gap: 4 },
+  bubble: { maxWidth: '84%', paddingHorizontal: 9, paddingTop: 5, paddingBottom: 4, borderRadius: 16, borderBottomLeftRadius: 4, backgroundColor: c.surfaceRaised, gap: 2 },
   bubbleMine: { backgroundColor: '#1D6B4C', borderBottomLeftRadius: 16, borderBottomRightRadius: 4 },
   post: { maxWidth: '96%', borderRadius: 16 },
   deleted: { opacity: 0.6 },
@@ -736,6 +739,8 @@ const styles = StyleSheet.create({
   messageMentionMe: { color: '#FFFFFF', fontWeight: '900', backgroundColor: 'rgba(37,137,245,0.45)', borderRadius: 3 },
   deletedText: { color: c.textMuted, fontStyle: 'italic', fontSize: 13 },
   meta: { color: 'rgba(247,245,223,0.6)', fontSize: 10.5, alignSelf: 'flex-end' },
+  metaInline: { position: 'absolute', right: 9, bottom: 4 },
+  metaSpacer: { color: 'transparent', fontSize: 10.5 },
   mentionList: { maxHeight: 220, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.surface },
   mentionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8 },
   mentionRowPressed: { backgroundColor: c.surfaceRaised },
