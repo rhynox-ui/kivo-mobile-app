@@ -494,6 +494,10 @@ export async function signAndSendSponsoredSolanaStep(
   const tokenAccountReadConnection = new Connection(SOLANA_TOKEN_ACCOUNT_READ_RPC_URL, 'confirmed');
   const simulationConnection = new Connection(SOLANA_SIMULATION_RPC_URL, 'confirmed');
   const feePayerPubkey = new PublicKey(await getSolanaFeePayerPublicKey());
+  // Kivo's own fee wallet can't sponsor itself: it pays its own Solana fees.
+  if (signer.publicKey.equals(feePayerPubkey)) {
+    throw new Error("This is Kivo's fee wallet, so Kivo can't cover its fees. Add a little SOL to it (about 0.01) or trade from a different wallet. Nothing was sent.");
+  }
   // AccountNotFound at this stage is a fee-payer validation failure on
   // Solana. Read the sponsor balance from the standard RPC before asking
   // it to simulate the full trade, so a genuinely unfunded sponsor gets
