@@ -4,7 +4,7 @@
 // Every failure resolves to null/[] so the UI shows "unavailable",
 // never invented numbers.
 
-import {dexScreenerChainForChain, type DexScreenerPair, type TokenSocialLink} from '../core/dexScreener';
+import {dexScreenerChainForChain, socialUrl, type DexScreenerPair, type TokenSocialLink} from '../core/dexScreener';
 import type {TradeChain} from '../core/chainData';
 import {geckoTerminalNetworkForChainOrNull} from '../core/geckoTerminalNetworks';
 import type {KivoToken} from './tokens';
@@ -63,8 +63,10 @@ export async function fetchTokenMarket(chainKey: TradeChain, tokenAddress: strin
     if (!best || !best.pairAddress) return null;
     const socialLinks: TokenSocialLink[] = [];
     for (const social of best.info?.socials ?? []) {
-      const kind = social?.type === 'twitter' || social?.type === 'x' ? 'x' : social?.type === 'telegram' ? 'telegram' : null;
-      if (kind && social?.url && !socialLinks.some(link => link.kind === kind)) socialLinks.push({kind, url: social.url});
+      const type = (social?.type ?? social?.platform)?.toLowerCase();
+      const kind = type === 'twitter' || type === 'x' ? 'x' : type === 'telegram' ? 'telegram' : null;
+      const url = kind ? socialUrl(kind, social?.url ?? social?.handle) : undefined;
+      if (kind && url && !socialLinks.some(link => link.kind === kind)) socialLinks.push({kind, url});
     }
     const website = best.info?.websites?.find(item => typeof item?.url === 'string' && item.url);
     if (website?.url) socialLinks.push({kind: 'website', url: website.url});
