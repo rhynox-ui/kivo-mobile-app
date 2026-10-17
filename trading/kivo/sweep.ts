@@ -21,7 +21,9 @@ export type SweepResult = {movedUsd: number; moved: SpendableAsset[]; failed: {a
 
 /** The assets an automatic move would take home, largest first. */
 export function sweepCandidates(balance: SpendableBalance): SpendableAsset[] {
-  return awayFromHome(balance).filter(asset => asset.valueUsd >= MIN_SWEEP_USD && asset.chainKey !== 'near' as never);
+  // SOL on Solana stays as SOL: it is the home network's own gas coin, and
+  // selling it would only cost a route fee for no benefit.
+  return awayFromHome(balance).filter(asset => asset.valueUsd >= MIN_SWEEP_USD && asset.chainKey !== 'near' as never && !(asset.chainKey === HOME_CHAIN && asset.kind === 'native'));
 }
 
 function units(asset: SpendableAsset): string {
