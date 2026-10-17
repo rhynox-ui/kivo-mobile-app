@@ -20,15 +20,18 @@ export function ImportWalletScreen({
   const [value, setValue] = useState('');
   const [reveal, setReveal] = useState(true);
   const detected = useMemo(() => detectPhraseImport(value), [value]);
-  const looksLikeWords = /^[a-z\s]*$/i.test(value) && value.trim().includes(' ');
+  // Letters and spaces only: a phrase being typed (private keys contain digits),
+  // so word suggestions start from the very first word.
+  const looksLikeWords = /^[a-z\s]*$/i.test(value) && value.trim().length > 0;
   const words = value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const current = words[words.length - 1] ?? '';
   const suggestions =
-    looksLikeWords && current && !value.endsWith(' ')
+    reveal && looksLikeWords && current && !value.endsWith(' ')
       ? english.filter((word) => word.startsWith(current)).slice(0, 5)
       : [];
+  // Replace the word being typed (whatever its case) with the picked one.
   const pick = (word: string) =>
-    setValue((value.endsWith(' ') ? value : value.slice(0, value.lastIndexOf(current))) + word + ' ');
+    setValue(value.replace(/[a-z]*$/i, '') + word + ' ');
   const ok = detected.status === 'ok';
   const problem = detected.status === 'invalid' || detected.status === 'ambiguous' || detected.status === 'incomplete' ? detected.message : '';
   const submit = () => {
