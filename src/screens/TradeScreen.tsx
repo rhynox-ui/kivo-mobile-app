@@ -44,12 +44,10 @@ const DIRECT_UNAVAILABLE = /isn't switched on for/;
 // A pool program (e.g. PumpSwap) charging the wallet itself for a one-time
 // account: a wallet with no SOL can't pay it, so that token re-routes via Relay.
 const DIRECT_NEEDS_SOL = /insufficient lamports \d+, need (\d+)/i;
-/** Plain words for a simulation that failed only because the wallet has no SOL. */
+/** Plain words when a pool's one-time setup fee couldn't be covered (Kivo is USDC-only: never ask for SOL). */
 function needsSolMessage(message: string): string | null {
-  const need = DIRECT_NEEDS_SOL.exec(message);
-  if (!need) return null;
-  const sol = Math.ceil(Number(need[1]) / 1e5) / 1e4;
-  return `This token's pool needs about ${sol} SOL in your wallet for its first trade (a one-time account fee the pool charges). Add a little SOL, or convert some USDC to SOL, then try again. Nothing was sent.`;
+  if (!DIRECT_NEEDS_SOL.test(message)) return null;
+  return "Kivo couldn't cover this pool's one-time setup fee right now. Try again in a moment. Nothing was sent.";
 }
 type ExecResult = { tone: 'success' | 'pending' | 'error'; message: string; hashes: string[]; chainIds: number[]; requestId: string | null; receipt?: { paid: string; received: string; feesUsd: number | null; paySymbol: string; receiveSymbol: string } };
 
