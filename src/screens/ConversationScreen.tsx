@@ -22,8 +22,9 @@ type Item = { type: 'day'; key: string; label: string } | { type: 'unread'; key:
 const REACTIONS = ['👍', '❤️', '🔥', '🚀', '💎', '😂', '👀', '👎'];
 type ReactionState = { counts: { emoji: string; count: number }[]; mine: string | null };
 // Several pins per chat (newest first, up to 100); `pinned` is the newest.
-type Extras = { pinned: LocalMessage | null; pins: LocalMessage[]; reactions: Record<string, ReactionState>; unreadMentions: number };
-const EMPTY_EXTRAS: Extras = { pinned: null, pins: [], reactions: {}, unreadMentions: 0 };
+// `mentions`: ids of messages mentioning the viewer that are still unread, oldest first.
+type Extras = { pinned: LocalMessage | null; pins: LocalMessage[]; reactions: Record<string, ReactionState>; unreadMentions: number; mentions: string[] };
+const EMPTY_EXTRAS: Extras = { pinned: null, pins: [], reactions: {}, unreadMentions: 0, mentions: [] };
 const asPins = (pins: ApiMessage[] | undefined, pinned: ApiMessage | null): LocalMessage[] => (pins ?? (pinned ? [pinned] : [])).map(m => ({ ...m, status: 'sent' as const }));
 /** Telegram-style segmented bar: oldest at the top; shows at most 4 segments, windowed around the shown pin. */
 function PinIndicator({ count, position }: { count: number; position: number }) {
@@ -47,15 +48,23 @@ function mentionAt(text: string, cursor: number): { query: string; start: number
   const match = /(^|\s)@([A-Za-z0-9_]*)$/.exec(text.slice(0, cursor));
   return match ? { query: match[2], start: cursor - match[2].length - 1 } : null;
 }
+// Tapped @username → userId (null = no such Kivo user), cached for the session.
+const usernameCache = new Map<string, Promise<string | null>>();
+function resolveUsername(username: string): Promise<string | null> {
+  const key = username.toLowerCase(); const cached = usernameCache.get(key); if (cached) return cached;
+  const lookup = api.searchProfiles(username).then(found => found.find(p => p.username?.toLowerCase() === key)?.userId ?? null);
+  usernameCache.set(key, lookup); lookup.catch(() => usernameCache.delete(key)); // network errors are retried on the next tap
+  return lookup;
+}
 function pinnedPreview(message: LocalMessage): string {
   return message.deleted ? 'Message deleted' : message.text ? message.text.replace(/\s+/g, ' ') : message.token ? '🪙 ' + (message.token.symbol ?? message.token.name ?? 'Token') : message.media ? '📷 Photo' : 'Message';
 }
 
-function renderLinkedText(text: string, myUsername?: string | null): React.ReactNode[] {
+function renderLinkedText(text: string, myUsername?: string | null, onMention?: (username: string) => void): React.ReactNode[] {
   const nodes: React.ReactNode[]=[]; const pattern= /https?:\/\/[^\s<>"']+|www\.[^\s<>"']+|#[\p{L}\p{N}_]+|\$[A-Za-z][A-Za-z0-9_]*|@[A-Za-z0-9_]+/gu; let cursor=0; let key=0; const mine=myUsername?.replace(/^@/,'').toLowerCase();
   for(const match of text.matchAll(pattern)){const raw=match[0];const start=match.index??0;
     // @mentions: only at a word start (so emails stay plain text); the viewer's own handle is stronger.
-    if(raw.startsWith('@')){if(start>0&&/[\w.]/.test(text[start-1]))continue;if(start>cursor)nodes.push(text.slice(cursor,start));nodes.push(<Text key={`mention-${key++}`} style={mine&&raw.slice(1).toLowerCase()===mine?styles.messageMentionMe:styles.messageMention}>{raw}</Text>);cursor=start+raw.length;continue;}
+    if(raw.startsWith('@')){if(start>0&&/[\w.]/.test(text[start-1]))continue;if(start>cursor)nodes.push(text.slice(cursor,start));nodes.push(<Text key={`mention-${key++}`} accessibilityRole={onMention?'link':undefined} onPress={onMention?()=>onMention(raw.slice(1)):undefined} style={mine&&raw.slice(1).toLowerCase()===mine?styles.messageMentionMe:styles.messageMention}>{raw}</Text>);cursor=start+raw.length;continue;}
     if(start>cursor)nodes.push(text.slice(cursor,start));let url:string;let style:TextStyle=styles.messageLink;
     if(raw.startsWith('#')){url='https://x.com/hashtag/'+encodeURIComponent(raw.slice(1));style=styles.messageHashtag;}
     else if(raw.startsWith('$')){url='https://dexscreener.com/search?q='+encodeURIComponent(raw.slice(1));style=styles.messageTicker;}
@@ -145,6 +154,34 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     setFirstUnreadId(first.id); pendingJump.current = true; atBottom.current = false;
     setUnseenMessages(messages.filter(m => m.seq > initialRead && m.senderId !== me && !m.deleted).length);
   }, [messages]);
+  // Unread @mentions are marked read one by one (seen on screen or via the "@" button), batched.
+  const seenMentions = useRef<Set<string>>(new Set());
+  const mentionBatch = useRef<string[]>([]);
+  const mentionFlush = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushMentions = () => {
+    mentionFlush.current = null;
+    const ids = mentionBatch.current; mentionBatch.current = [];
+    if (ids.length) void api.markMentionsRead(id, ids).catch(() => { ids.forEach(m => seenMentions.current.delete(m)); });
+  };
+  const markMentionsSeen = (ids: string[]) => {
+    const fresh = ids.filter(m => !seenMentions.current.has(m)); if (!fresh.length) return;
+    fresh.forEach(m => seenMentions.current.add(m)); mentionBatch.current.push(...fresh);
+    setExtras(prev => prev && { ...prev, mentions: prev.mentions.filter(m => !fresh.includes(m)) });
+    if (!mentionFlush.current) mentionFlush.current = setTimeout(flushMentions, 500);
+  };
+  useEffect(() => () => { if (mentionFlush.current) { clearTimeout(mentionFlush.current); flushMentions(); } }, [id]);
+  const unreadMentionIds = extras?.mentions ?? [];
+  const unreadMentionSet = useMemo(() => new Set(unreadMentionIds), [unreadMentionIds]);
+  // FlatList wants a stable viewability callback: it reads the latest state through a ref.
+  const viewabilityHandler = useRef<(keys: string[]) => void>(() => {});
+  viewabilityHandler.current = keys => { const seen = keys.filter(k => unreadMentionSet.has(k)); if (seen.length) markMentionsSeen(seen); };
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 1000 }).current;
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: { key: string; isViewable: boolean }[] }) => viewabilityHandler.current(viewableItems.filter(v => v.isViewable).map(v => v.key))).current;
+  // @username taps open that Kivo profile.
+  const openMention = (username: string) => {
+    resolveUsername(username).then(userId => { if (userId) onOpenPerson?.(userId); else kivoAlert('Mention', `No Kivo user @${username}`); })
+      .catch(error => kivoAlert('Mention', error instanceof Error ? error.message : 'Could not open this profile.'));
+  };
   // Pinned message, reactions and unread @mentions: polled while the chat is open and the app is in front.
   useEffect(() => {
     let active = true;
@@ -153,11 +190,11 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
       if (AppState.currentState !== 'active') return;
       api.conversationExtras(id).then(next => {
         if (!active) return;
-        setExtras({ pinned: next.pinned ? { ...next.pinned, status: 'sent' } : null, pins: asPins(next.pins, next.pinned), reactions: next.reactions, unreadMentions: next.unreadMentions });
-        if (next.unreadMentions > 0) void api.markMentionsRead(id).catch(() => {});
+        // Mentions seen here but not yet confirmed by the server stay hidden.
+        setExtras({ pinned: next.pinned ? { ...next.pinned, status: 'sent' } : null, pins: asPins(next.pins, next.pinned), reactions: next.reactions, unreadMentions: next.unreadMentions, mentions: (next.mentions ?? []).filter(m => !seenMentions.current.has(m)) });
       }).catch(() => {});
     };
-    void api.markMentionsRead(id).catch(() => {});
+    seenMentions.current = new Set(); mentionBatch.current = [];
     load();
     const timer = setInterval(load, 15_000);
     const subscription = AppState.addEventListener('change', next => { if (next === 'active') load(); });
@@ -312,8 +349,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     return out;
   }, [messages, conversation?.kind, me, firstUnreadId]);
   /** Scroll to a message and flash it; false when it isn't in the loaded history. */
-  const jumpToMessage = (messageId: string) => {
-    if (!scrollToItem(messageId)) { kivoAlert('Pinned message', 'This message is older than the history on this phone.'); return false; }
+  const jumpToMessage = (messageId: string, what = 'Pinned message') => {
+    if (!scrollToItem(messageId)) { kivoAlert(what, 'This message is older than the history on this phone.'); return false; }
     atBottom.current = false; setHighlightedId(messageId); return true;
   };
   const scrollToItem = (key: string, animated = true) => {
@@ -472,6 +509,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           if (nearBottom) setUnseenMessages(0);
         }}
         scrollEventThrottle={100}
+        viewabilityConfig={viewabilityConfig}
+        onViewableItemsChanged={onViewableItemsChanged}
         ListEmptyComponent={<Text style={styles.emptyText}>{isChannel ? 'No posts yet.' : 'No messages yet. Say hello 👋'}</Text>}
         renderItem={({ item }) => {
           if (item.type === 'day') return <View style={styles.day}><Text style={styles.dayText}>{item.label}</Text></View>;
@@ -481,7 +520,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           return (
             <View style={[styles.bubbleRow, mine && styles.bubbleRowMine, conversation?.kind === 'group' && !mine && styles.bubbleRowGroupIncoming]}>
               {conversation?.kind === 'group' && !mine ? <View style={styles.avatarColumn}>{item.showAvatar ? <Avatar name={displayName(message.senderId)} uri={state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /> : null}</View> : null}
-              <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted, message.id === highlightedId && styles.bubbleHighlight]}>
+              <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted, unreadMentionSet.has(message.id) && styles.bubbleMention, message.id === highlightedId && styles.bubbleHighlight]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
                 {message.token && <TokenAttachmentCard token={message.token} compact onPress={onOpenToken ? () => onOpenToken(message.token!) : undefined} />}
@@ -495,7 +534,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                   const long = messageLength(message.text) > 700 || message.text.split('\n').length > 12;
                   const open = expanded[message.id] === true;
                   return <View>
-                    <Text style={styles.text} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text, myUsername)}{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text>
+                    <Text style={styles.text} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text, myUsername, openMention)}{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text>
                     {long ? <Pressable hitSlop={6} onPress={() => setExpanded(prev => ({ ...prev, [message.id]: !open }))}><Text style={styles.showMore}>{open ? 'Show less' : 'Show more'}</Text></Pressable> : null}
                   </View>;
                 })() : null}
@@ -519,6 +558,12 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           <Pressable style={styles.jumpLatest} onPress={() => { pendingJump.current = false; list.current?.scrollToEnd({ animated: true }); atBottom.current = true; setUnseenMessages(0); }} accessibilityLabel={`Jump to ${unseenMessages} new messages`}>
             <Text style={styles.jumpArrow}>↓</Text>
             <Text style={styles.jumpCountText}>{unseenMessages > 999 ? '999+' : unseenMessages} new</Text>
+          </Pressable>
+        )}
+        {unreadMentionIds.length > 0 && (
+          <Pressable style={[styles.jumpMention, unseenMessages > 0 && styles.jumpMentionStacked]} onPress={() => { const next = unreadMentionIds[0]; jumpToMessage(next, 'Mention'); markMentionsSeen([next]); }} accessibilityRole="button" accessibilityLabel={`Go to ${unreadMentionIds.length} unread mention${unreadMentionIds.length === 1 ? '' : 's'}`}>
+            <Text style={styles.jumpMentionText}>@</Text>
+            <View style={styles.jumpMentionBadge}><Text style={styles.jumpMentionBadgeText}>{unreadMentionIds.length > 99 ? '99+' : unreadMentionIds.length}</Text></View>
           </Pressable>
         )}
       </View>
@@ -568,7 +613,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                 {p.deleted ? <Text style={styles.deletedText}>Message deleted</Text> : <>
                   {p.token ? <TokenAttachmentCard token={p.token} compact /> : null}
                   {p.media ? <MessagePhoto uri={p.media.url} width={p.media.width} height={p.media.height} /> : null}
-                  {p.text ? <Text style={styles.text} numberOfLines={8}>{renderLinkedText(p.text, myUsername)}</Text> : null}
+                  {p.text ? <Text style={styles.text} numberOfLines={8}>{renderLinkedText(p.text, myUsername, username => { setPinsOpen(false); openMention(username); })}</Text> : null}
                 </>}
                 {canPin ? <Pressable hitSlop={8} onPress={() => setPin(p.id, false)} style={styles.pinItemUnpin} accessibilityRole="button" accessibilityLabel="Unpin message"><Text style={styles.pinsUnpinAll}>Unpin</Text></Pressable> : null}
               </Pressable>
@@ -659,6 +704,11 @@ const styles = StyleSheet.create({
   sheetCancel: { color: c.textMuted, fontSize: 16, fontWeight: '600' },
   jumpLatest: { position: 'absolute', right: 12, bottom: 18, minWidth: 44, height: 40, borderRadius: 20, paddingHorizontal: 14, backgroundColor: '#24394B', borderWidth: 1, borderColor: '#55B7F3', alignItems: 'center', justifyContent: 'center', elevation: 5, flexDirection: 'row', gap: 6 },
   jumpCountText: { color: '#FFFFFF', fontSize: 13, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  jumpMention: { position: 'absolute', right: 12, bottom: 18, width: 44, height: 44, borderRadius: 22, backgroundColor: '#24394B', borderWidth: 1, borderColor: '#55B7F3', alignItems: 'center', justifyContent: 'center', elevation: 5 },
+  jumpMentionStacked: { bottom: 68 },
+  jumpMentionText: { color: '#55B7F3', fontSize: 20, fontWeight: '900', marginTop: -2 },
+  jumpMentionBadge: { position: 'absolute', top: -6, right: -4, minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5, backgroundColor: '#2589F5', alignItems: 'center', justifyContent: 'center' },
+  jumpMentionBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900', fontVariant: ['tabular-nums'] },
   jumpArrow: { color: '#55B7F3', fontSize: 16, fontWeight: '900' },
   pinnedBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border },
   pinnedAccent: { width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: c.accent },
@@ -671,6 +721,7 @@ const styles = StyleSheet.create({
   pinSegment: { flex: 1, borderRadius: 2, backgroundColor: c.border },
   pinSegmentActive: { backgroundColor: c.accent },
   bubbleHighlight: { borderWidth: 2, borderColor: c.accent },
+  bubbleMention: { borderLeftWidth: 3, borderLeftColor: '#2589F5', backgroundColor: '#22384F' },
   pinsScreen: { flex: 1, backgroundColor: c.background },
   pinsHeader: { minHeight: 60, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: 1, borderBottomColor: c.border },
   pinsBack: { color: c.cream, fontSize: 36, width: 24 },
