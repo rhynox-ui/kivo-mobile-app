@@ -477,6 +477,35 @@ export type SolanaTransactionSigner = {
 /** Matches the server's cap (web/server/solanaSponsor.ts MAX_SPONSOR_TOPUP_LAMPORTS). */
 const MAX_SPONSOR_TOPUP_LAMPORTS = 3_000_000;
 
+/**
+ * Kivo's own fee wallet can't be sponsored (Relay's depositFeePayer and Kivo's
+ * sponsor both require a different wallet), so it pays its own way. When it
+ * is short, say exactly what the route needs instead of a generic message.
+ */
+async function feeWalletShortfallError(
+  connection: InstanceType<typeof import('@solana/web3.js').Connection>,
+  wallet: InstanceType<typeof import('@solana/web3.js').PublicKey>,
+  instructions: InstanceType<typeof import('@solana/web3.js').TransactionInstruction>[],
+  errorText: string,
+): Promise<Error | null> {
+  if (wallet.toBase58() !== await getSolanaFeePayerPublicKey().catch(() => '')) return null;
+  const sol = (lamports: number) => `${(lamports / 1e9).toFixed(4)} SOL`;
+  let sentByRoute = 0;
+  let newAccounts = 0;
+  for (const ix of instructions) {
+    const program = ix.programId.toBase58();
+    if (program === '11111111111111111111111111111111' && ix.data.length >= 12 && ix.data.readUInt32LE(0) === 2 && ix.keys[0]?.pubkey.equals(wallet)) {
+      sentByRoute += Number(ix.data.readBigUInt64LE(4));
+    }
+    if (program === 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL') newAccounts++;
+  }
+  const have = await connection.getBalance(wallet, 'confirmed').catch(() => null);
+  const need = errorText.match(/need (\d+)/i);
+  const parts = [`new token accounts ~${sol(newAccounts * 2_039_280)}`, `SOL the route sends ~${sol(sentByRoute)}`];
+  const total = need ? Number(need[1]) : newAccounts * 2_039_280 + sentByRoute + 10_000;
+  return new Error(`This is Kivo's fee wallet, so it pays its own fees. This route needs about ${sol(total)} (${parts.join(', ')})${have === null ? '' : `; the wallet has ${sol(have)}`}. Nothing was sent.`);
+}
+
 export async function signAndSendSponsoredSolanaStep(
   instructions: InstanceType<typeof import('@solana/web3.js').TransactionInstruction>[],
   lookupTables: InstanceType<typeof import('@solana/web3.js').AddressLookupTableAccount>[],
@@ -772,6 +801,8 @@ export async function signAndSendRelaySolanaStep(item: RelayTransactionStepItem,
     await assertSolanaSpendWithinIntentWeb3(connection, transaction, keypair.publicKey.toBase58(), spendIntent, tokenAccountReadConnection);
   } catch (guardErr) {
     if (!isInsufficientSolSimulation(guardErr)) throw guardErr;
+    const feeWalletError = await feeWalletShortfallError(connection, keypair.publicKey, instructions, guardErr instanceof Error ? `${guardErr.message} ${(guardErr as {logs?: string[]}).logs?.join(' ') ?? ''}` : String(guardErr));
+    if (feeWalletError) throw feeWalletError;
     try {
       return await signAndSendSponsoredSolanaStep(instructions, lookupTables, localSigner, connection, spendIntent);
     } catch (sponsorErr) {
@@ -792,6 +823,8 @@ export async function signAndSendRelaySolanaStep(item: RelayTransactionStepItem,
     const errorMessage = err instanceof Error ? err.message : String(err);
     const lamportsMatch = errorMessage.match(/insufficient lamports (\d+), need (\d+)/i);
     if (lamportsMatch) {
+      const feeWalletError = await feeWalletShortfallError(connection, keypair.publicKey, instructions, errorMessage);
+      if (feeWalletError) throw feeWalletError;
       // Nothing was broadcast yet (this is our own pre-flight simulate
       // rejecting it) — safe to retry with Kivo's fee payer covering
       // the shortfall instead of failing outright. Only falls through
