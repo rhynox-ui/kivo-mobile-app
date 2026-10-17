@@ -100,7 +100,7 @@ export function ChatListScreen({ onOpenChat, onOpenCommunities, onOpenNotificati
             catch (e) { kivoAlert(c.name, e instanceof Error ? e.message : c.kind === 'channel' ? 'Unable to subscribe to channel.' : 'Unable to join group.'); }
           }}>
             <Avatar name={c.name} uri={c.avatarUrl} size={52} verified={c.isVerified === true} />
-            <View style={styles.rowMain}><View style={styles.rowTop}><Text style={styles.rowTitle} numberOfLines={1}>{c.kind === 'channel' ? '📢 ' : '👥 '}{c.name}{c.isVerified === true ? ' ★' : ''}</Text></View><Text style={styles.preview} numberOfLines={1}>{c.kind === 'channel' ? `Public channel · ${c.memberCount.toLocaleString()} subscriber${c.memberCount === 1 ? '' : 's'} · Tap to subscribe` : `Public group · ${c.memberCount.toLocaleString()} member${c.memberCount === 1 ? '' : 's'} · Tap to join`}</Text></View>
+            <View style={styles.rowMain}><View style={styles.rowTop}><View style={styles.rowTitleLine}><Text style={styles.rowTitle} numberOfLines={1}>{c.kind === 'channel' ? '📢 ' : '👥 '}{c.name}</Text>{c.isVerified === true ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View></View><Text style={styles.preview} numberOfLines={1}>{c.kind === 'channel' ? `Public channel · ${c.memberCount.toLocaleString()} subscriber${c.memberCount === 1 ? '' : 's'} · Tap to subscribe` : `Public group · ${c.memberCount.toLocaleString()} member${c.memberCount === 1 ? '' : 's'} · Tap to join`}</Text></View>
           </Pressable>)}
         </View> : undefined}
         contentContainerStyle={styles.listContent}
