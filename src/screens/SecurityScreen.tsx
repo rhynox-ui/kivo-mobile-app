@@ -20,6 +20,7 @@ import {
 import { RevealPhraseModal } from '../wallet/RevealPhraseModal';
 import { ExportPrivateKeyModal } from '../wallet/ExportPrivateKeyModal';
 import { EnableBiometricModal } from '../wallet/EnableBiometricModal';
+import { GoogleBackupModal } from '../wallet/GoogleBackupModal';
 
 export function SecurityScreen({ onBack }: { onBack: () => void }) {
   const [label, setLabel] = useState('biometric');
@@ -28,6 +29,7 @@ export function SecurityScreen({ onBack }: { onBack: () => void }) {
   const [gasless, setGasless] = useState(true);
   const [auto, setAuto] = useState(DEFAULT_AUTO_LOCK_MS);
   const [showEnable, setShowEnable] = useState(false);
+  const [googleBackup, setGoogleBackup] = useState(false);
   const [phrase, setPhrase] = useState(false);
   const [keys, setKeys] = useState(false);
 
@@ -91,6 +93,13 @@ export function SecurityScreen({ onBack }: { onBack: () => void }) {
           />
         </View>
         <Text style={styles.section}>RECOVERY PHRASE</Text>
+        <Pressable onPress={() => setGoogleBackup(true)} style={styles.row}>
+          <Text style={styles.rowLabel}>Back up to Google Drive</Text>
+        </Pressable>
+        <Text style={styles.hint}>
+          Encrypted with your Kivo password and saved to your own Google Drive, so a new phone can restore
+          this wallet with Google sign-in and your password.
+        </Text>
         <Pressable onPress={() => setPhrase(true)} style={styles.row}>
           <Text style={styles.rowLabel}>Reveal recovery phrase</Text>
         </Pressable>
@@ -127,6 +136,7 @@ export function SecurityScreen({ onBack }: { onBack: () => void }) {
         onEnabled={confirm}
       />
       {phrase && <RevealPhraseModal visible onClose={() => setPhrase(false)} />}
+      <GoogleBackupModal visible={googleBackup} onClose={() => setGoogleBackup(false)} />
       {keys && <ExportPrivateKeyModal visible onClose={() => setKeys(false)} />}
     </View>
   );

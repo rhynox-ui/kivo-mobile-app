@@ -14,6 +14,7 @@ import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { WalletSetupScreen } from '../screens/WalletSetupScreen';
 import { CreateWalletScreen } from '../screens/CreateWalletScreen';
 import { ImportWalletScreen } from '../screens/ImportWalletScreen';
+import { GoogleWalletScreen } from '../screens/GoogleWalletScreen';
 import { RecoveryBackupScreen } from '../screens/RecoveryBackupScreen';
 import { VerifyRecoveryScreen } from '../screens/VerifyRecoveryScreen';
 import { BiometricScreen } from '../screens/BiometricScreen';
@@ -45,6 +46,7 @@ export type RootStackParamList = {
   WalletSetup: undefined;
   CreateWallet: undefined;
   ImportWallet: undefined;
+  GoogleWallet: undefined;
   RecoveryBackup: { mnemonic: string };
   VerifyRecovery: { mnemonic: string };
   PasswordSetup: { mnemonic: string; mode: 'create' | 'import' };
@@ -222,6 +224,7 @@ export function RootNavigator() {
           name="WalletSetup"
           component={({ navigation }: NativeStackScreenProps<RootStackParamList, 'WalletSetup'>) => (
             <WalletSetupScreen
+              onGoogle={() => navigation.navigate('GoogleWallet')}
               onCreate={() => navigation.navigate('CreateWallet')}
               onImport={() => navigation.navigate('ImportWallet')}
             />
@@ -243,6 +246,21 @@ export function RootNavigator() {
               onDone={() => navigation.replace('Home')}
               onPassword={(mnemonic) =>
                 navigation.navigate('PasswordSetup', { mnemonic, mode: 'import' })
+              }
+            />
+          )}
+        />
+        <Stack.Screen
+          name="GoogleWallet"
+          component={({ navigation }: NativeStackScreenProps<RootStackParamList, 'GoogleWallet'>) => (
+            <GoogleWalletScreen
+              onBack={() => navigation.goBack()}
+              onUsePhrase={() => navigation.replace('ImportWallet')}
+              onDone={(password) =>
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Biometrics', params: { password } }],
+                })
               }
             />
           )}
