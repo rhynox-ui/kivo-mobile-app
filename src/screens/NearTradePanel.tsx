@@ -14,13 +14,11 @@ import {recordTrade} from '@kivo/trading/kivo/history';
 import {TokenChartPanel} from '../components/TokenChartPanel';
 import { KivoModal } from '../components/KivoModal';
 
-function sessionFromAccounts(accounts: {evm: any; solana: any; near: {address: string; privateKey: string}}): DerivedAccounts {
-  const evmKey = accounts.evm.getHdKey().privateKey;
-  if (!evmKey) throw new Error('The device wallet key is unavailable.');
+function sessionFromAccounts(accounts: {evm: {address: string}; evmPrivateKey: string; solana: {publicKey: {toBase58(): string}; secretKey: Uint8Array} | null; near: {address: string; privateKey: string} | null}): DerivedAccounts {
   return {
-    evm: {address: accounts.evm.address, privateKey: `0x${Buffer.from(evmKey).toString('hex')}`},
-    solana: {address: accounts.solana.publicKey.toBase58(), privateKey: bs58.encode(accounts.solana.secretKey)},
-    near: accounts.near,
+    evm: {address: accounts.evm.address, privateKey: accounts.evmPrivateKey},
+    solana: {address: accounts.solana ? accounts.solana.publicKey.toBase58() : '', privateKey: accounts.solana ? bs58.encode(accounts.solana.secretKey) : ''},
+    near: accounts.near ?? undefined,
     authMethod: 'seed',
   };
 }

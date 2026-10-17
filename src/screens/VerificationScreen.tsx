@@ -3,7 +3,7 @@ import { ActivityIndicator, AppState, Linking, Modal, Pressable, ScrollView, Sha
 import { kivoAlert } from '../components/KivoAlert';
 import QRCode from 'react-native-qrcode-svg';
 import { api, storage, useSocialReady } from '../state/session';
-import { getWalletSession, localEvmSigner, withDeviceAccounts } from '../state/walletStore';
+import { getWalletSession, localEvmSigner, requireSolana, withDeviceAccounts } from '../state/walletStore';
 import { encodeFunctionData, parseUnits } from 'viem';
 import { Buffer } from 'buffer';
 import { kivoUserIdForWallet, verificationPaymentMemo } from '../../shared/api/types';
@@ -275,7 +275,8 @@ export function VerificationScreen({ subjectType, subjectId, subjectName, onBack
     let txHash: string;
     try {
       if (chain === 'solana') {
-        txHash = await withDeviceAccounts('Approve Blue Star USDC payment', async ({ solana }) => {
+        txHash = await withDeviceAccounts('Approve Blue Star USDC payment', async ({ solana: maybeSolana }) => {
+          const solana = requireSolana(maybeSolana);
           const connection = await workingSolanaConnection();
           const mint = new PublicKey(USDC_MINT);
           const recipient = new PublicKey(SOLANA_RECIPIENT);

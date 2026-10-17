@@ -4,6 +4,7 @@ import { kivoUserIdForWallet, normalizeWalletAddress, shortWallet, type ApiCommu
 import { rememberProfiles } from '@kivo/shared/chat/store';
 import type { KivoToken } from '@kivo/trading/kivo/tokens';
 import { SearchScreen } from './SearchScreen';
+import type { TradeChain } from '@kivo/trading/core/chainData';
 import { Avatar } from './ChatListScreen';
 import { kivoTheme } from '../theme/kivoTheme';
 import { api } from '../state/session';
@@ -12,13 +13,15 @@ import { getWalletSession } from '../state/walletStore';
 type Mode = 'tokens' | 'channels' | 'groups' | 'people';
 const MODES: Array<[Mode, string]> = [['tokens', 'Tokens'], ['channels', 'Channels'], ['groups', 'Groups'], ['people', 'People']];
 
-export function DiscoverScreen({ onSelectToken, onOpenChat, onOpenCommunity, onOpenPerson }: {
+export function DiscoverScreen({ onSelectToken, onOpenChat, onOpenCommunity, onOpenPerson, initialChain }: {
+  initialChain?: TradeChain | null;
   onSelectToken: (token: KivoToken) => void;
   onOpenChat: (id: string) => void;
   onOpenCommunity: (id: string) => void;
   onOpenPerson: (userId: string) => void;
 }) {
   const [mode, setMode] = useState<Mode>('tokens');
+  useEffect(() => { if (initialChain) setMode('tokens'); }, [initialChain]);
   return (
     <View style={styles.root}>
       <View style={styles.switcher}>
@@ -28,7 +31,7 @@ export function DiscoverScreen({ onSelectToken, onOpenChat, onOpenCommunity, onO
           </Pressable>
         ))}
       </View>
-      {mode === 'tokens' ? <SearchScreen onSelectToken={onSelectToken} />
+      {mode === 'tokens' ? <SearchScreen onSelectToken={onSelectToken} initialChain={initialChain} />
         : mode === 'people' ? <People onOpenPerson={onOpenPerson} />
         : <Communities kind={mode === 'channels' ? 'channel' : 'group'} onOpenChat={onOpenChat} onOpenCommunity={onOpenCommunity} />}
     </View>

@@ -106,14 +106,17 @@ async function sendSolanaUsdc(
 export async function withdrawUsdc(
   chainKey: ChainKey,
   account: LocalAccount,
-  solanaKeypair: InstanceType<typeof import('@solana/web3.js').Keypair>,
+  solanaKeypair: InstanceType<typeof import('@solana/web3.js').Keypair> | null,
   to: string,
   amount: string,
 ): Promise<{hash: string; requestId?: string}> {
   if (!isValidRecipientAddress(chainKey, to)) {
     throw new Error(`That doesn't look like a valid ${chainKey === 'solana' ? 'Solana' : 'wallet'} address.`);
   }
-  if (chainKey === 'solana') return sendSolanaUsdc(account, solanaKeypair, to.trim(), amount);
+  if (chainKey === 'solana') {
+    if (!solanaKeypair) throw new Error('This wallet has no Solana account. Nothing was sent.');
+    return sendSolanaUsdc(account, solanaKeypair, to.trim(), amount);
+  }
   return withdrawUsdcGasless({account, chainKey, to, amount});
 }
 

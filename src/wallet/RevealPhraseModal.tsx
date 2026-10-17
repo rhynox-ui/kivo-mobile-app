@@ -3,6 +3,7 @@ import{BackHandler,Pressable,StyleSheet,Text,TextInput,View}from'react-native';
 import{kivoTheme}from'../theme/kivoTheme';
 import{setScreenSecure}from'./screenSecurity';
 import{loadVault,unlockVaultMnemonic}from'./vault';
+import{parseWalletSecret}from'./walletSecret';
 
 // Drawn inside the current screen (not a separate <Modal> window) so the
 // activity's FLAG_SECURE covers it. The phrase only lives while this component
@@ -13,7 +14,7 @@ export function RevealPhraseModal({visible,onClose}:{visible:boolean;onClose:()=
   useEffect(()=>{if(!visible){setM('');setP('');}},[visible]);
   useEffect(()=>()=>{void setScreenSecure(false);},[]);
   useEffect(()=>{if(!visible)return;const sub=BackHandler.addEventListener('hardwareBackPress',()=>{close();return true;});return()=>sub.remove();},[visible,close]);
-  const go=async()=>{try{const secure=await setScreenSecure(true);if(!secure)throw new Error('Unable to secure this screen. Recovery phrase will not be displayed.');const v=await loadVault();if(!v)throw new Error('No wallet found.');setM(await unlockVaultMnemonic(v,p));setP('');setE('');}catch(x){setE(x instanceof Error?x.message:'Incorrect password.')}};
+  const go=async()=>{try{const secure=await setScreenSecure(true);if(!secure)throw new Error('Unable to secure this screen. Recovery phrase will not be displayed.');const v=await loadVault();if(!v)throw new Error('No wallet found.');const secret=parseWalletSecret(await unlockVaultMnemonic(v,p));if(secret.kind!=='mnemonic')throw new Error('This wallet was imported with a private key, so it has no recovery phrase. Back it up with Export private keys instead.');setM(secret.mnemonic);setP('');setE('');}catch(x){setE(x instanceof Error?x.message:'Incorrect password.')}};
   if(!visible)return null;
   return <View style={s.o}><View style={s.c}><Text style={s.t}>Recovery phrase</Text>{!m?<><Text style={s.h}>Confirm your password to view this wallet's recovery phrase.</Text><TextInput value={p}onChangeText={setP}placeholder="Password"placeholderTextColor={kivoTheme.colors.textMuted}secureTextEntry style={s.i}/>{e?<Text style={s.e}>{e}</Text>:null}<Pressable onPress={go}disabled={!p}style={s.b}><Text style={s.bt}>Continue</Text></Pressable></>:<><Text style={s.h}>Anyone with these words can take everything in this wallet.</Text><View style={s.g}>{m.split(' ').map((w,i)=><Text key={i}style={s.w}>{i+1}. {w}</Text>)}</View><Pressable onPress={close}style={s.b}><Text style={s.bt}>Done</Text></Pressable></>}<Pressable onPress={close}style={s.x}><Text style={s.h}>Close</Text></Pressable></View></View>;
 }

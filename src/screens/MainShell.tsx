@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChatListScreen } from './ChatListScreen';
+import type { TradeChain } from '@kivo/trading/core/chainData';
 import { FeedScreen } from './FeedScreen';
 import { ConversationScreen } from './ConversationScreen';
 import { CommunitiesScreen } from './CommunitiesScreen';
@@ -49,6 +50,7 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
   }, []);
   const [stack, setStack] = useState<View_[]>([{ name: 'main' }]);
   const [selectedToken, setSelectedToken] = useState<KivoToken | null>(null);
+  const [discoverChain, setDiscoverChain] = useState<TradeChain | null>(null);
   const [pendingFeedPostId, setPendingFeedPostId] = useState<string | null>(null);
   const [tradeSide, setTradeSide] = useState<TradeSide>('buy');
   const chat = useChatState();
@@ -106,8 +108,8 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
       <View style={styles.body}>
         {tab === 'Feed' && <FeedScreen initialPostId={pendingFeedPostId} onPostOpened={() => setPendingFeedPostId(null)} onOpenToken={token => openToken({ chainKey: token.chain as KivoToken['chainKey'], tokenAddress: token.address, symbol: token.symbol, name: token.name, imageUrl: token.imageUrl, priceUsd: null, change24h: null, marketCapUsd: null, liquidityUsd: null })} />}
         {tab === 'Chats' && <ChatListScreen onOpenChat={openChat} onOpenCommunities={() => push({ name: 'communities', kind: 'group' })} onOpenNotifications={() => push({ name: 'notifications' })} />}
-        {tab === 'Discover' && <DiscoverScreen onSelectToken={openToken} onOpenChat={openChat} onOpenCommunity={openCommunity} onOpenPerson={userId => push({ name: 'person', userId })} />}
-        {tab === 'Trade' && <TradeScreen selectedToken={selectedToken} initialSide={tradeSide} onToken={() => setTab('Discover')} onOpenHistory={() => push({ name: 'activity' })} />}
+        {tab === 'Discover' && <DiscoverScreen initialChain={discoverChain} onSelectToken={openToken} onOpenChat={openChat} onOpenCommunity={openCommunity} onOpenPerson={userId => push({ name: 'person', userId })} />}
+        {tab === 'Trade' && <TradeScreen selectedToken={selectedToken} initialSide={tradeSide} onToken={() => { setDiscoverChain(null); setTab('Discover'); }} onPickChain={chain => { setDiscoverChain(chain); setTab('Discover'); }} onOpenHistory={() => push({ name: 'activity' })} />}
         {tab === 'Profile' && <ProfileScreen
           onOpenWallet={(action?: 'deposit' | 'withdraw') => push({ name: 'wallet', action })}
           onOpenSettings={() => push({ name: 'settings' })}

@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { kivoTheme } from '../theme/kivoTheme';
-import { CHAIN_LABEL, type ChainKey } from '@kivo/trading/core/chainData';
+import { CHAIN_LABEL, tradeChainLabel, type ChainKey, type TradeChain } from '@kivo/trading/core/chainData';
+import { NetworkIcon } from '../wallet/NetworkIcon';
+import { TRADE_CHAIN_ORDER } from './SearchScreen';
 import { fetchCashBalances, totalCashUsd, readTokenBalance, type CashBalanceRow, type TokenBalance } from '@kivo/trading/kivo/balances';
 import { planUnifiedBuy, totalSpendableCash, type UnifiedPlan } from '@kivo/trading/kivo/unified';
 import { executeDirectPlan, planDirectTrade } from '@kivo/trading/kivo/direct';
@@ -34,8 +36,10 @@ const STAGES: Array<[ExecutionUpdate['stage'][], string]> = [
   [['filling', 'success', 'pending', 'refunded'], 'Relay submits · Kivo pays gas'],
 ];
 
-export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpenHistory }: {
+export function TradeScreen({ onToken, onPickChain, selectedToken, initialSide = 'buy', onOpenHistory }: {
   onToken?: () => void;
+  /** Open token discovery filtered to one network (the "Trading on" picker). */
+  onPickChain?: (chain: TradeChain) => void;
   selectedToken?: KivoToken | null;
   initialSide?: TradeSide;
   onOpenHistory?: () => void;
@@ -58,6 +62,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
   const [running, setRunning] = useState(false);
   const executingRef = useRef(false);
   const [chainOpen, setChainOpen] = useState(false);
+  const [networkOpen, setNetworkOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftSlippage, setDraftSlippage] = useState<number | null>(null);
   const [customSlippage, setCustomSlippage] = useState('');
@@ -210,10 +215,10 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
       // Unlock once. Before ANY broadcast, validate every leg's intent and
       // gasless sponsorship capability. This prevents leg 1 from succeeding
       // and leg 2 failing because sponsorship/route safety was only checked later.
-      const outcome = await withDeviceAccounts(`Confirm ${side} ${token.symbol}`, async ({evm, solana}) => {
+      const outcome = await withDeviceAccounts(`Confirm ${side} ${token.symbol}`, async ({evm, evmPrivateKey, solana}) => {
         const session = {
-          evm: {address: evm.address, privateKey: `0x${Buffer.from(evm.getHdKey().privateKey!).toString('hex')}`},
-          solana: {address: solana.publicKey.toBase58(), privateKey: bs58.encode(solana.secretKey)},
+          evm: {address: evm.address, privateKey: evmPrivateKey},
+          solana: {address: solana ? solana.publicKey.toBase58() : '', privateKey: solana ? bs58.encode(solana.secretKey) : ''},
           authMethod: 'seed' as const,
         };
         const done = { status: 'success' as 'success' | 'pending' | 'refunded', txHashes: [] as string[], chainIds: [] as number[], requestId: null as string | null };
@@ -303,13 +308,13 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <View style={styles.cashRow}>
-        <Text style={styles.cashLabel}>Cash</Text>
+      <Pressable style={styles.cashRow} onPress={() => { if (cash) setChainOpen(true); }} accessibilityRole="button" accessibilityLabel="Cash by network">
+        <Text style={styles.cashLabel}>Cash{cash ? '  ›' : ''}</Text>
         <Text style={styles.cashValue}>{!wallet ? '—' : cashTotal == null ? '…' : settings.hideBalances ? '••••' : formatUsd(cashTotal)}</Text>
-      </View>
+      </Pressable>
       <View style={styles.toolbar}>
-        <Pressable onPress={() => { if (cash) setChainOpen(true); }} style={[styles.pill, styles.grow]}>
-          <Text style={styles.pillMuted} numberOfLines={1}>Trading on <Text style={styles.pillStrong}>{tradeChain ? chainLabel(tradeChain) : '—'}</Text>{cash ? '  ›' : ''}</Text>
+        <Pressable onPress={() => setNetworkOpen(true)} style={[styles.pill, styles.grow]} accessibilityRole="button" accessibilityLabel="Choose network">
+          <Text style={styles.pillMuted} numberOfLines={1}>Trading on <Text style={styles.pillStrong}>{selectedToken?.chainKey === 'near' ? tradeChainLabel('near') : tradeChain ? chainLabel(tradeChain) : 'any network'}</Text>  ›</Text>
         </Pressable>
         <Pressable onPress={onToken} style={styles.pill}><Text style={styles.pillStrong}>⌕  Search</Text></Pressable>
         <Pressable onPress={() => setSettingsOpen(true)} style={styles.round} accessibilityLabel="Trade settings"><Text style={styles.gear}>⚙</Text></Pressable>
@@ -428,6 +433,27 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
           </>
         )}
 
+      <KivoModal visible={networkOpen} transparent animationType="slide" onRequestClose={() => setNetworkOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setNetworkOpen(false)}>
+          <Pressable style={[styles.sheet, styles.networkSheet]} onPress={() => {}}>
+            <Text style={styles.sheetTitle}>Trading on</Text>
+            <Text style={styles.noticeText}>Pick a network to see its tokens. Buys are paid from your USDC on any network; Kivo routes it there gas-free.</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {TRADE_CHAIN_ORDER.map(chain => {
+                const active = (selectedToken?.chainKey ?? null) === chain;
+                return (
+                  <Pressable key={chain} onPress={() => { setNetworkOpen(false); onPickChain?.(chain); }} style={[styles.payRow, active && styles.payRowSelected]} accessibilityRole="button">
+                    <NetworkIcon chainKey={chain} size={22} />
+                    <Text style={[styles.payName, styles.networkName]}>{tradeChainLabel(chain)}</Text>
+                    <Text style={styles.chevron}>{active ? '✓' : '›'}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </KivoModal>
+
       <KivoModal visible={chainOpen} transparent animationType="slide" onRequestClose={() => setChainOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setChainOpen(false)}>
           <Pressable style={styles.sheet} onPress={() => {}}>
@@ -496,7 +522,7 @@ export function TradeScreen({ onToken, selectedToken, initialSide = 'buy', onOpe
               </View>
               <QuoteRow label="Route fees" value={formatUsd(view.totalFeeUsd)} />
               <QuoteRow label="Network gas" value="Paid by Kivo" />
-              <QuoteRow label="Signing wallet" value={shortAddress(address)} />
+              <QuoteRow label="Signing wallet" value={shortAddress(token?.chainKey === 'solana' ? wallet?.solanaAddress ?? null : address)} />
             </>}
             {preflight && !preflight.ok
               ? <Text style={styles.error}>{preflight.error}</Text>
@@ -594,6 +620,8 @@ const styles = StyleSheet.create({
   muted: { color: c.textMuted, fontSize: 12.5 },
   small: { color: c.textMuted, fontSize: 11.5 },
   note: { color: c.textMuted, fontSize: 12, lineHeight: 18, marginTop: 14 },
+  networkSheet: { maxHeight: '80%' },
+  networkName: { flex: 1, marginLeft: 12 },
   cashRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 },
   cashLabel: { color: c.textMuted, fontSize: 14, fontWeight: '700' },
   cashValue: { color: c.cream, fontSize: 26, fontWeight: '900' },

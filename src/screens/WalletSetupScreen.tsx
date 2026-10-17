@@ -23,7 +23,7 @@ export function WalletSetupScreen({ onCreate, onImport }: Props) {
 
       <View style={styles.options}>
         <Option title="Create New Wallet" body="A new wallet secured on this device" onPress={onCreate} />
-        <Option title="Import Wallet" body="Use an existing recovery phrase" onPress={onImport} />
+        <Option title="Import Wallet" body="Use a recovery phrase or private key" onPress={onImport} />
       </View>
     </View>
   );
