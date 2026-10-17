@@ -104,16 +104,16 @@ export function ResultCard({
       <Animated.View style={riseStyle}>
         <Text style={styles.kicker}>{kicker}</Text>
         <Text style={[styles.headline, tone === 'success' && styles.headlineOk, tone !== 'success' && styles.headlinePlain]} numberOfLines={2} adjustsFontSizeToFit>{headline}</Text>
-        {subline || festive ? <Text style={styles.subline}>{festive ? 'Happy holidays from Kivo 🎄' : subline}</Text> : null}
+        {subline ? <Text style={styles.subline}>{subline}</Text> : null}
 
         {safeNote ? <View style={[styles.note, safeNote.ok ? styles.noteSafe : styles.noteWait]}><Text style={[styles.noteText, { color: safeNote.ok ? c.success : c.cream }]}>{safeNote.ok ? '✓ ' : ''}{safeNote.text}</Text></View> : null}
         {reason ? <View style={[styles.note, styles.noteWhy]}><Text style={[styles.noteText, styles.noteWhyText]}>{reason}</Text></View> : null}
 
         {from && to ? (
           <View style={styles.strip}>
-            <View style={styles.leg}><Text style={styles.legLabel}>{from.label ?? 'You paid'}</Text><View style={styles.legRow}><Logo symbol={from.symbol} uri={from.imageUrl} size={20} /><Text style={styles.legValue} numberOfLines={1}>{from.amount}</Text></View></View>
+            <View style={styles.leg}><Text style={styles.legLabel}>{from.label ?? 'You paid'}</Text><View style={styles.legRow}><Logo symbol={from.symbol} uri={from.imageUrl} size={20} /><Text style={styles.legValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{from.amount}</Text></View></View>
             <View style={styles.arrow}><Text style={styles.arrowText}>→</Text></View>
-            <View style={[styles.leg, styles.legRight]}><Text style={styles.legLabel}>{to.label ?? 'You got'}</Text><View style={[styles.legRow, styles.legRowRight]}><Text style={styles.legValue} numberOfLines={1}>{to.amount}</Text><Logo symbol={to.symbol} uri={to.imageUrl} size={20} /></View></View>
+            <View style={[styles.leg, styles.legRight]}><Text style={styles.legLabel}>{to.label ?? 'You got'}</Text><View style={[styles.legRow, styles.legRowRight]}><Text style={styles.legValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{to.amount}</Text><Logo symbol={to.symbol} uri={to.imageUrl} size={20} /></View></View>
           </View>
         ) : null}
 
