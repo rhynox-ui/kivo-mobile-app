@@ -28,8 +28,8 @@ import { checkSolanaTokenSecurity, checkTokenSecurity } from '@kivo/trading/core
 import { NearTradePanel } from './NearTradePanel';
 import { normalizeAmountInput } from '../utils/amountInput';
 import { KivoModal } from '../components/KivoModal';
+import { ResultCard, splitError } from '../components/ResultCard';
 import Clipboard from '@react-native-clipboard/clipboard';
-import { ResultCard } from '../components/ResultCard';
 import { ShareTradeSheet, type SharedTrade } from '../components/ShareTradeSheet';
 
 type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
@@ -41,6 +41,16 @@ type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
  */
 const directUnavailable = new Set<string>();
 const DIRECT_UNAVAILABLE = /isn't switched on for/;
+// A pool program (e.g. PumpSwap) charging the wallet itself for a one-time
+// account: a wallet with no SOL can't pay it, so that token re-routes via Relay.
+const DIRECT_NEEDS_SOL = /insufficient lamports \d+, need (\d+)/i;
+/** Plain words for a simulation that failed only because the wallet has no SOL. */
+function needsSolMessage(message: string): string | null {
+  const need = DIRECT_NEEDS_SOL.exec(message);
+  if (!need) return null;
+  const sol = Math.ceil(Number(need[1]) / 1e5) / 1e4;
+  return `This token's pool needs about ${sol} SOL in your wallet for its first trade (a one-time account fee the pool charges). Add a little SOL, or convert some USDC to SOL, then try again. Nothing was sent.`;
+}
 type ExecResult = { tone: 'success' | 'pending' | 'error'; message: string; hashes: string[]; chainIds: number[]; requestId: string | null; receipt?: { paid: string; received: string; feesUsd: number | null; paySymbol: string; receiveSymbol: string } };
 
 // Gasless (Mango Pro model): one signature on the device, Relay submits and pays gas.
@@ -180,7 +190,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     try {
       // Same network as the user's cash: straight to Uniswap, Relay pays the gas.
       // Native coins (ETH, SOL…) always route through Relay, which trades them directly.
-      const direct = gaslessTradingEnabled && !isNativeToken(token) && !directUnavailable.has(token.chainKey)
+      const direct = gaslessTradingEnabled && !isNativeToken(token) && !directUnavailable.has(token.chainKey) && !directUnavailable.has(`${token.chainKey}:${token.tokenAddress}`)
         ? await planDirectTrade({ side, token, amount: parsed, userAddress: address, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined, cash, tokenBalance, tokenDecimals, slippageBps: settings.slippageBps ?? undefined }).catch(() => null)
         : null;
       if (seq !== quoteSeq.current) return;
@@ -360,14 +370,16 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       const message = error instanceof Error ? error.message : 'Trade failed.';
       // Relay refused to sponsor the direct swap on this network and nothing
       // was sent: re-quote through a sponsored Relay route for a new review.
-      if (plan.direct && !hashes.length && DIRECT_UNAVAILABLE.test(message)) {
-        directUnavailable.add(token.chainKey);
+      if (plan.direct && !hashes.length && (DIRECT_UNAVAILABLE.test(message) || DIRECT_NEEDS_SOL.test(message))) {
+        directUnavailable.add(DIRECT_UNAVAILABLE.test(message) ? token.chainKey : `${token.chainKey}:${token.tokenAddress}`);
         setReviewOpen(false); setResult(null); setUpdate(null);
         setNotice(`Nothing was sent. Finding another gas-free route on ${chainLabel(token.chainKey)}…`);
         reopenReview.current = true;
         void fetchQuote();
         return;
       }
+      const friendly = !hashes.length ? needsSolMessage(message) : null;
+      if (friendly) { setResult({ tone: 'error', message: friendly, hashes, chainIds: [], requestId: null }); return; }
       setResult({ tone: 'error', message: hashes.length ? `${message} Some transactions were already sent; check them before trying again.` : message, hashes, chainIds: [], requestId: null });
       if (hashes.length) recordTrade({ side, token: tokenInfo, pay: { amount: view.pay.amount, symbol: view.pay.symbol, chainKey: view.pay.chainKey }, receive: { amount: view.receive.amount, symbol: view.receive.symbol, chainKey: view.receive.chainKey }, txHashes: hashes, chainIds: [], requestId: null, status: 'failed', error: message });
     } finally {
@@ -428,6 +440,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   };
   const disabledInput = !wallet || !token;
 
+  const errorParts = result?.tone === 'error' ? splitError(result.message.replace(/ Some transactions were already sent; check them before trying again\.$/, '')) : null;
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Pressable style={styles.cashRow} onPress={() => { if (spendable) setChainOpen(true); }} accessibilityRole="button" accessibilityLabel="Balance by network">
@@ -647,12 +660,13 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
           <View style={styles.sheet}>
             <ScrollView style={styles.reviewScroll} contentContainerStyle={styles.reviewScrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             {result ? (
-              // Finished: only the outcome, what was paid and received, and the transaction.
               <ResultCard
                 tone={result.tone}
                 hero={{ symbol: token?.symbol ?? '?', imageUrl: token?.imageUrl }}
                 kicker={result.tone === 'error' ? `${side === 'sell' ? 'Sell' : 'Buy'} didn't go through` : result.tone === 'pending' ? `${side === 'sell' ? 'Selling' : 'Buying'} ${token?.symbol ?? ''}` : `${side === 'sell' ? 'Sold' : 'Bought'} ${token?.symbol ?? ''}`}
-                headline={result.tone === 'success' && result.receipt ? `+${result.receipt.received}` : result.tone === 'pending' ? 'Confirming…' : result.message.replace(/ Some transactions were already sent; check them before trying again\.$/, '')}
+                headline={result.tone === 'success' && result.receipt ? `+${result.receipt.received}` : result.tone === 'pending' ? 'Confirming…' : errorParts!.headline}
+                reason={result.tone === 'error' ? errorParts!.reason : undefined}
+                tertiary={result.tone === 'error' && errorParts!.details ? { label: 'Copy error details', onPress: () => Clipboard.setString(errorParts!.details!) } : undefined}
                 subline={result.tone === 'success' && token ? `on ${CHAIN_LABEL[token.chainKey]} · in your wallet` : result.tone === 'pending' ? result.message : undefined}
                 safeNote={result.tone === 'error' ? (result.hashes.length ? { ok: false, text: 'Some transactions were already sent. Check them below before trying again.' } : { ok: true, text: side === 'sell' ? `Your ${token?.symbol ?? 'tokens'} are safe. Nothing left your wallet.` : 'Your money is safe. Nothing left your wallet.' }) : undefined}
                 from={result.tone !== 'error' && result.receipt ? { label: side === 'buy' ? 'You paid' : 'You sold', symbol: result.receipt.paySymbol, imageUrl: side === 'sell' ? token?.imageUrl : null, amount: result.receipt.paid } : undefined}

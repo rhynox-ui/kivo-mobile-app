@@ -4,7 +4,7 @@ import {ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, Tex
 import {transactionLink} from '@kivo/trading/kivo/execute';
 import {NetworkIcon} from '../wallet/NetworkIcon';
 import {BottomSheet} from './BottomSheet';
-import {ResultCard} from './ResultCard';
+import {ResultCard, splitError} from './ResultCard';
 import {normalizeAmountInput} from '../utils/amountInput';
 import {parseUnits} from 'viem';
 import {CHAIN_LABEL, MAINNET_CHAIN_IDS, NEAR_ENABLED, NEAR_LABEL, NEAR_USDC, NEAR_USDC_DECIMALS, type ChainKey} from '@kivo/trading/core/chainData';
@@ -140,8 +140,9 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
    tone={tone}
    hero={{symbol:outcome.to.symbol}}
    kicker={tone==='success'?'Converted':tone==='pending'?`Converting to ${outcome.to.symbol}`:'Convert failed'}
-   headline={tone==='error'?(outcome.message??'Conversion failed.'):tone==='pending'?`${sent?.paid??''} → ${outcome.to.symbol}`:`+${sent?.received??outcome.to.symbol}`}
+   headline={tone==='error'?splitError(outcome.message??'Conversion failed.').headline:tone==='pending'?`${sent?.paid??''} → ${outcome.to.symbol}`:`+${sent?.received??outcome.to.symbol}`}
    subline={ok?`${chainLabel(outcome.from.chain)} → ${chainLabel(outcome.to.chain)}${tone==='pending'?' · about a minute':''}`:undefined}
+   reason={tone==='error'?splitError(outcome.message??'').reason:undefined}
    safeNote={tone==='error'?(hashes&&hashes.length?{ok:false,text:'Some transactions were already sent. Check them below before trying again.'}:{ok:true,text:'Nothing was sent. Your balance is unchanged.'}):tone==='pending'?{ok:false,text:'Your funds are on the way. If you close the app, the conversion still finishes.'}:undefined}
    from={ok&&sent?{label:'You sent',symbol:outcome.from.symbol,amount:sent.paid}:undefined}
    to={ok&&sent?{label:tone==='pending'?'You get':'You got',symbol:outcome.to.symbol,amount:sent.received??'—'}:undefined}
