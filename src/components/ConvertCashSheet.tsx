@@ -6,13 +6,15 @@ import {NetworkIcon} from '../wallet/NetworkIcon';
 import {BottomSheet} from './BottomSheet';
 import {normalizeAmountInput} from '../utils/amountInput';
 import {parseUnits} from 'viem';
-import {CHAIN_LABEL, MAINNET_CHAIN_IDS, NEAR_ENABLED, NEAR_LABEL, NEAR_USDC, NEAR_USDC_DECIMALS, assetDecimalsForChain, currencyAddress, type ChainKey} from '@kivo/trading/core/chainData';
+import {CHAIN_LABEL, MAINNET_CHAIN_IDS, NEAR_ENABLED, NEAR_LABEL, NEAR_USDC, NEAR_USDC_DECIMALS, type ChainKey} from '@kivo/trading/core/chainData';
 import {getRelayQuote, summarizeQuote, type QuoteSummary} from '@kivo/trading/core/relayQuote';
 import {executeRelayQuote, getPartialTxHashes, type ExecuteStep} from '@kivo/trading/core/executeRelayQuote';
-import {CASH_CHAINS,cashAssetSymbol,fetchCashBalances, spendableCash, type CashBalanceRow} from '@kivo/trading/kivo/balances';
+import {clearCashBalanceCache} from '@kivo/trading/kivo/balances';
+import {clearSpendableBalanceCache, fetchSpendableBalance, type SpendableAsset, type SpendableBalance} from '@kivo/trading/kivo/spendable';
+import {convertQuoteParams, convertSources, convertTargets, sameAsset, type ConvertAsset} from '@kivo/trading/kivo/convert';
 import {recordTrade} from '@kivo/trading/kivo/history';
 import {markOwnAction} from '../wallet/depositWatcher';
-import {formatUsd} from '@kivo/trading/kivo/tokens';
+import {formatAmount, formatUsd, shortAddress} from '@kivo/trading/kivo/tokens';
 import {getWalletSession, withDeviceAccounts, type WalletSession} from '../state/walletStore';
 import type {DerivedAccounts} from '@kivo/trading/wallet/keys';
 import {fetchNearTokenBalance} from '@kivo/trading/core/nearTrade';
@@ -24,59 +26,72 @@ import {describeQuoteError} from '@kivo/trading/kivo/quote';
 import {nearView} from '@kivo/trading/core/nearRpc';
 
 type CashChain = ChainKey | 'near';
+/** One side of a conversion: an asset on a network, or USDC on NEAR (moved through NEAR Intents). */
+type Side = {id: string; chain: CashChain; symbol: string; decimals: number; asset: ConvertAsset | null; spendableAmount: number; priceUsd: number; valueUsd: number};
 let oneClickTokensPromise: ReturnType<typeof fetchOneClickTokens> | null = null;
 const cachedOneClickTokens = () => oneClickTokensPromise ??= fetchOneClickTokens().catch(error => { oneClickTokensPromise = null; throw error; });
-const balanceFor=(rows:CashBalanceRow[]|null,chain:CashChain,nearBalance=0)=>{if(chain==='near')return nearBalance;const r=rows?.find(x=>x.chainKey===chain);return r?.status==='ok'?spendableCash(chain,r.balance.amount):0;};
 const chainLabel=(chain:CashChain)=>chain==='near'?NEAR_LABEL:CHAIN_LABEL[chain];
-const cashSymbol=(chain:CashChain)=>chain==='near'?'USDC':cashAssetSymbol(chain); const decimalsFor=(chain:CashChain)=>chain==='near'?NEAR_USDC_DECIMALS:(assetDecimalsForChain(chain,cashAssetSymbol(chain))??6);
+const NEAR_ID='near:usdc';
+const nearSide=(amount:number):Side=>({id:NEAR_ID,chain:'near',symbol:'USDC',decimals:NEAR_USDC_DECIMALS,asset:null,spendableAmount:amount,priceUsd:1,valueUsd:amount});
+const sideFromSpendable=(a:SpendableAsset):Side=>({id:`${a.chainKey}:${a.address}`,chain:a.chainKey,symbol:a.symbol,decimals:a.decimals,asset:{chainKey:a.chainKey,address:a.address,symbol:a.symbol,decimals:a.decimals,kind:a.kind},spendableAmount:a.spendableAmount,priceUsd:a.priceUsd,valueUsd:a.valueUsd});
+const sideFromTarget=(t:ConvertAsset,held:SpendableAsset|undefined):Side=>({id:`${t.chainKey}:${t.address}`,chain:t.chainKey,symbol:t.symbol,decimals:t.decimals,asset:t,spendableAmount:held?.spendableAmount??0,priceUsd:held?.priceUsd??0,valueUsd:held?.valueUsd??0});
+/** NEAR only moves cash: USDC on NEAR <-> USDC on a network NEAR Intents supports. */
+const nearProblem=(from:Side,to:Side):string|null=>{if(from.chain!=='near'&&to.chain!=='near')return null;const other=from.chain==='near'?to:from;if(other.chain==='near')return 'Pick two different networks.';if(other.asset?.kind!=='cash'||other.symbol!=='USDC'||!nearCashMoveChains().includes(other.chain as ChainKey))return 'NEAR converts USDC only, to or from USDC on another network.';return null;};
 
 export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;onClose:()=>void;onConverted:()=>void}){
  const [wallet,setWallet]=useState<WalletSession|null>(getWalletSession());
- const [rows,setRows]=useState<CashBalanceRow[]|null>(null);
- const [from,setFrom]=useState<CashChain>('base'); const [to,setTo]=useState<CashChain>('solana');
- const pickDefaultFrom=(rows:CashBalanceRow[]|null,near:number):CashChain=>{let best:CashChain|undefined;let value=0;for(const chain of [...CASH_CHAINS] as CashChain[]){const b=balanceFor(rows,chain,near);if(b>value){best=chain;value=b;}}if(NEAR_ENABLED&&near>value)best='near';return best??(CASH_CHAINS[0] as CashChain);};
- const pickDefaultTo=(fromChain:CashChain,rows:CashBalanceRow[]|null,near:number):CashChain=>{let best:CashChain|undefined;let value=0;for(const chain of [...CASH_CHAINS,...(NEAR_ENABLED?nearCashMoveChains():[])] as CashChain[]){if(chain===fromChain)continue;const b=balanceFor(rows,chain,near);if(b>value){best=chain;value=b;}}return best??(fromChain==='base'?'solana':'base') as CashChain;};
+ const [balance,setBalance]=useState<SpendableBalance|null>(null);
+ const [nearBalance,setNearBalance]=useState(0);
+ const [fromId,setFromId]=useState<string|null>(null); const [toId,setToId]=useState<string|null>(null);
  const [picker,setPicker]=useState<'from'|'to'|null>(null); const [amount,setAmount]=useState('');
  const [quote,setQuote]=useState<QuoteSummary|null>(null); const [loading,setLoading]=useState(false); const rawQuoteRef=React.useRef<Awaited<ReturnType<typeof getRelayQuote>>|null>(null); const lastQuoteParamsRef=React.useRef<Parameters<typeof getRelayQuote>[0]|null>(null); const quoteRequestIdRef=React.useRef(0);
  const [error,setError]=useState<string|null>(null); const [execute,setExecute]=useState<ExecuteStep|null>(null); const [hashes,setHashes]=useState<string[]|null>(null);
- const [nearBalance,setNearBalance]=useState(0); const [nearRecord,setNearRecord]=useState<OneClickSwapRecord|null>(null);const[relayStatus,setRelayStatus]=useState<'success'|'pending'|'refunded'|null>(null);const busyRef=useRef(false); const [nearSending,setNearSending]=useState(false);
- const chains=[...new Set([...CASH_CHAINS,...(NEAR_ENABLED?nearCashMoveChains():[])])] as CashChain[];
- const refresh=()=>{const w=getWalletSession();setWallet(w);if(w){fetchCashBalances(w.address,[...CASH_CHAINS],w.solanaAddress).then(setRows).catch(()=>setRows(null)); if(w.nearAddress) fetchNearTokenBalance(NEAR_USDC,w.nearAddress).then(v=>setNearBalance(Number(v)/10**NEAR_USDC_DECIMALS)).catch(()=>setNearBalance(0));}};
- useEffect(()=>{if(!visible)return;setAmount('');setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setError(null);setHashes(null);setPicker(null);setNearRecord(null);refresh();},[visible]);
- useEffect(()=>{if(!visible||amount||picker)return;if(rows===null)return;const f=pickDefaultFrom(rows,nearBalance);setFrom(f);setTo(pickDefaultTo(f,rows,nearBalance));},[visible,rows,nearBalance]);
+ const [nearRecord,setNearRecord]=useState<OneClickSwapRecord|null>(null);const[relayStatus,setRelayStatus]=useState<'success'|'pending'|'refunded'|null>(null);const busyRef=useRef(false); const [nearSending,setNearSending]=useState(false);
+ const [sent,setSent]=useState<{paid:string;received:string|null}|null>(null);
+ const hasSolana=Boolean(wallet?.solanaAddress);
+ // Sources: everything spendable, largest first (plus NEAR USDC). Targets: cash on every network and each network's own coin.
+ const sources:Side[]=[...convertSources(balance?.assets??[]).map(sideFromSpendable),...(NEAR_ENABLED&&nearBalance>0?[nearSide(nearBalance)]:[])].sort((a,b)=>b.valueUsd-a.valueUsd);
+ const targets:Side[]=[...convertTargets({hasSolana}).map(t=>sideFromTarget(t,balance?.assets.find(a=>sameAsset(a,t)))),...(NEAR_ENABLED&&wallet?.nearAddress?[nearSide(nearBalance)]:[])];
+ const from=sources.find(x=>x.id===fromId)??null; const to=targets.find(x=>x.id===toId)??null;
+ const refresh=(forceFresh=false)=>{const w=getWalletSession();setWallet(w);if(w){fetchSpendableBalance(w.address,w.source==='local'?w.solanaAddress:undefined,{forceFresh}).then(setBalance).catch(()=>setBalance({assets:[],errors:[]})); if(w.nearAddress) fetchNearTokenBalance(NEAR_USDC,w.nearAddress).then(v=>setNearBalance(Number(v)/10**NEAR_USDC_DECIMALS)).catch(()=>setNearBalance(0));}};
+ useEffect(()=>{if(!visible)return;setAmount('');setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setError(null);setHashes(null);setSent(null);setPicker(null);setNearRecord(null);setFromId(null);setToId(null);refresh();},[visible]);
+ // Defaults once balances arrive: the largest holding, converted to cash on its own network (or cash elsewhere when it already is cash).
+ useEffect(()=>{if(!visible||fromId||!balance)return;const f=sources[0];if(!f)return;setFromId(f.id);const sameChainCash=f.asset&&f.asset.kind!=='cash'?targets.find(t=>t.chain===f.chain&&t.asset?.kind==='cash'):undefined;const other=sameChainCash??targets.find(t=>t.id!==f.id&&t.asset?.kind==='cash'&&t.chain===(f.chain==='base'?'solana':'base'))??targets.find(t=>t.id!==f.id);setToId(other?.id??null);},[visible,balance,nearBalance]);
  useEffect(()=>{if(!nearRecord||!shouldPollOneClickSwap(nearRecord))return;const t=setTimeout(()=>{refreshOneClickSwap(nearRecord,{fetchStatus:d=>fetchOneClickStatus(d),store:oneClickSwapStore}).then(next=>{setNearRecord(next);if(next.status==='SUCCESS'||next.status==='REFUNDED')onConverted();}).catch(()=>{});},5000);return()=>clearTimeout(t);},[nearRecord,onConverted]);
- const balance=balanceFor(rows,from,nearBalance); const n=Number(amount)||0; const same=from===to; const insufficient=(from==='near'||rows!==null)&&n>balance; const decimals=decimalsFor(from);
- useEffect(()=>{if(!visible||!wallet||same||n<=0||insufficient){setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setLoading(false);return;} const requestId=++quoteRequestIdRef.current; const t=setTimeout(async()=>{setLoading(true);setError(null);try{
+ const n=Number(amount)||0; const same=Boolean(from&&to&&from.id===to.id); const decimals=from?.decimals??6;
+ const insufficient=Boolean(from)&&n>(from?.spendableAmount??0)+1e-12; const pairProblem=from&&to?nearProblem(from,to):null;
+ const cashMove=Boolean(from&&to&&(from.chain==='near'||from.asset?.kind==='cash')&&(to.chain==='near'||to.asset?.kind==='cash'));
+ useEffect(()=>{if(!visible||!wallet||!from||!to||same||pairProblem||n<=0||insufficient){setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setLoading(false);return;} const requestId=++quoteRequestIdRef.current; const t=setTimeout(async()=>{setLoading(true);setError(null);try{
    const amountBaseUnits=parseUnits(amount,decimals).toString();
-   if(from==='near'||to==='near'){
+   if(from.chain==='near'||to.chain==='near'){
      if(!wallet.nearAddress) throw new Error('NEAR account is unavailable.');
      const publicSession: DerivedAccounts = {evm:{address:wallet.address,privateKey:''},solana:{address:wallet.solanaAddress??'',privateKey:''},near:{address:wallet.nearAddress,privateKey:''},authMethod:'seed'};
      const tokens=await cachedOneClickTokens();
-     const move=nearCashMoveRequest({direction:from==='near'?'from-near':'to-near',chainKey:(from==='near'?to:from) as ChainKey,amountBaseUnits,session:publicSession,tokens,dry:true});
+     const move=nearCashMoveRequest({direction:from.chain==='near'?'from-near':'to-near',chainKey:(from.chain==='near'?to.chain:from.chain) as ChainKey,amountBaseUnits,session:publicSession,tokens,dry:true});
      const response=await requestOneClickQuote(move.request);
      if(requestId!==quoteRequestIdRef.current)return; rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setQuote({totalFeeUsd:null,etaSeconds:response.quote.timeEstimate??null,receivedAmountFormatted:response.quote.amountOutFormatted??null,payAmountUsd:Number(response.quote.amountInUsd)||null,receiveAmountUsd:Number(response.quote.amountOutUsd)||null,priceImpactPct:null});
    } else {
-     const user=from==='solana'?wallet.solanaAddress:wallet.address; const recipient=to==='solana'?wallet.solanaAddress:wallet.address; if(!user||!recipient)throw new Error('Selected wallet address is unavailable.');
-     const quoteParams={fromChainKey:from as ChainKey,toChainKey:to as ChainKey,originCurrency:currencyAddress(from as ChainKey,cashAssetSymbol(from as ChainKey)),destinationCurrency:currencyAddress(to as ChainKey,cashAssetSymbol(to as ChainKey)),amountBaseUnits,userAddress:user,recipientAddress:recipient,originAmountUsd:n,...(from!=='solana'?{originGasOverhead:'80000'}:{}),...(to==='base'&&from!=='solana'&&cashAssetSymbol(from as ChainKey)==='USDC'?{fundingTransfer:true}:{waiveAppFee:true})};
+     const quoteParams=convertQuoteParams({from:from.asset!,to:to.asset!,amountBaseUnits,amountUsd:from.priceUsd>0?n*from.priceUsd:null,evmAddress:wallet.address,solanaAddress:wallet.solanaAddress});
      const q=await getRelayQuote(quoteParams); if(requestId!==quoteRequestIdRef.current)return; rawQuoteRef.current=q; lastQuoteParamsRef.current=quoteParams;
-     setQuote(summarizeQuote(q,assetDecimalsForChain(to as ChainKey,'USDC')??6));
+     setQuote(summarizeQuote(q,to.decimals));
    }
- }catch(e){if(requestId!==quoteRequestIdRef.current)return;setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setError(e instanceof Error?e.message:'Could not get a conversion rate.');}finally{if(requestId===quoteRequestIdRef.current)setLoading(false);}},450);return()=>clearTimeout(t);},[visible,wallet?.address,wallet?.solanaAddress,wallet?.nearAddress,from,to,amount,n,same,insufficient,decimals]);
- const convert=async()=>{if(!quote||!wallet||same||n<=0||insufficient||execute||nearSending||busyRef.current)return;busyRef.current=true;setError(null);setHashes(null);setRelayStatus(null);setNearRecord(null);try{
-   if(from==='near'||to==='near'){
+ }catch(e){if(requestId!==quoteRequestIdRef.current)return;setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setError(describeQuoteError(e));}finally{if(requestId===quoteRequestIdRef.current)setLoading(false);}},450);return()=>clearTimeout(t);},[visible,wallet?.address,wallet?.solanaAddress,wallet?.nearAddress,fromId,toId,amount,n,same,insufficient,decimals,pairProblem]);
+ const convert=async()=>{if(!quote||!wallet||!from||!to||same||pairProblem||n<=0||insufficient||execute||nearSending||busyRef.current)return;busyRef.current=true;setError(null);setHashes(null);setSent(null);setRelayStatus(null);setNearRecord(null);
+ const tokenInfo={chainKey:to.chain as ChainKey,address:to.asset?.address??NEAR_USDC,symbol:to.symbol,name:to.symbol,imageUrl:null};
+ try{
+   if(from.chain==='near'||to.chain==='near'){
      setNearSending(true);
      await withDeviceAccounts('Confirm Convert',async accounts=>{
        const session=accounts.relay;
        const tokens=await fetchOneClickTokens();
-       const move=nearCashMoveRequest({direction:from==='near'?'from-near':'to-near',chainKey:(from==='near'?to:from) as ChainKey,amountBaseUnits:parseUnits(amount,decimals).toString(),session,tokens,dry:false});
+       const move=nearCashMoveRequest({direction:from.chain==='near'?'from-near':'to-near',chainKey:(from.chain==='near'?to.chain:from.chain) as ChainKey,amountBaseUnits:parseUnits(amount,decimals).toString(),session,tokens,dry:false});
        const response=await requestOneClickQuote(move.request);
-       const originDecimals=from==='near'?NEAR_USDC_DECIMALS:decimalsFor(from);
-       const fromAddress=from==='near'?session.near!.address:(from==='solana'?wallet.solanaAddress!:wallet.address);
-       const record=await fundOneClickQuote({response,expected:move.expected,originChainKey:from==='near'?'near':from as ChainKey,originSymbol:cashSymbol(from),originDecimals,fromAddress,store:oneClickSwapStore,submitDepositTx:(txHash,depositAddress)=>submitOneClickDepositTx(txHash,depositAddress),send:async(toAddress,sendAmount)=>{
-         if(from==='near'){const call=await nearUsdcDepositCall(toAddress,parseUnits(sendAmount,NEAR_USDC_DECIMALS),nearView);const [outcome]=await import('@kivo/trading/core/nearSigning').then(m=>m.sendSponsoredNearCalls(session,[call]));return outcome.hash;}
-         const {withdrawUsdc}=await import('@kivo/trading/kivo/cash'); return (await withdrawUsdc(from as ChainKey,accounts.evm,accounts.solana,toAddress,sendAmount)).hash;
+       const fromAddress=from.chain==='near'?session.near!.address:(from.chain==='solana'?wallet.solanaAddress!:wallet.address);
+       const record=await fundOneClickQuote({response,expected:move.expected,originChainKey:from.chain==='near'?'near':from.chain as ChainKey,originSymbol:from.symbol,originDecimals:from.decimals,fromAddress,store:oneClickSwapStore,submitDepositTx:(txHash,depositAddress)=>submitOneClickDepositTx(txHash,depositAddress),send:async(toAddress,sendAmount)=>{
+         if(from.chain==='near'){const call=await nearUsdcDepositCall(toAddress,parseUnits(sendAmount,NEAR_USDC_DECIMALS),nearView);const [outcome]=await import('@kivo/trading/core/nearSigning').then(m=>m.sendSponsoredNearCalls(session,[call]));return outcome.hash;}
+         const {withdrawUsdc}=await import('@kivo/trading/kivo/cash'); return (await withdrawUsdc(from.chain as ChainKey,accounts.evm,accounts.solana,toAddress,sendAmount)).hash;
        }});
-       setNearRecord(record);setHashes(record.depositTxHash?[record.depositTxHash]:[]);setNearSending(false);refresh();onConverted();
+       setNearRecord(record);setHashes(record.depositTxHash?[record.depositTxHash]:[]);setSent({paid:`${amount} ${from.symbol}`,received:quote.receivedAmountFormatted?`${quote.receivedAmountFormatted} ${to.symbol}`:null});setNearSending(false);
      });
      return;
    }
@@ -86,34 +101,48 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
    const result=await withDeviceAccounts('Confirm Convert',async session=>{
      return executeRelayQuote(quoteToExecute,session.relay,s=>setExecute(s),{useGaslessTrading:true,requote:quoteParams?async()=>getRelayQuote(quoteParams):undefined});
    });
-   const settled=result.status??'success';setRelayStatus(settled);setHashes(result.txHashes);setExecute(null);void markOwnAction(wallet.address).catch(()=>{});recordTrade({side:'buy',token:{chainKey:to as ChainKey,address:currencyAddress(to as ChainKey,'USDC'),symbol:cashSymbol(to),name:cashSymbol(to),imageUrl:null},pay:{amount,symbol:'USDC',chainKey:from as ChainKey},receive:{amount:quote.receivedAmountFormatted??null,symbol:'USDC',chainKey:to as ChainKey},txHashes:result.txHashes,chainIds:[],requestId:result.requestId??null,status:settled});refresh();onConverted();
- }catch(e){setExecute(null);setNearSending(false);const partial=getPartialTxHashes(e);if(partial.length){setHashes(partial);recordTrade({side:'buy',token:{chainKey:to as ChainKey,address:currencyAddress(to as ChainKey,'USDC'),symbol:'USDC',name:'USDC',imageUrl:null},pay:{amount,symbol:'USDC',chainKey:from as ChainKey},receive:{amount:null,symbol:'USDC',chainKey:to as ChainKey},txHashes:partial,chainIds:[],requestId:null,status:'failed',error:e instanceof Error?e.message:'Conversion failed after a transaction was broadcast.'});}setError(e instanceof Error?e.message:'Conversion failed. Nothing was confirmed.');}finally{busyRef.current=false;}};
+   const settled=result.status??'success';setRelayStatus(settled);setHashes(result.txHashes);setExecute(null);
+   setSent({paid:`${amount} ${from.symbol}`,received:quote.receivedAmountFormatted?`${formatAmount(Number(quote.receivedAmountFormatted))} ${to.symbol}`:null});
+   void markOwnAction(wallet.address).catch(()=>{});
+   recordTrade({side:'buy',token:tokenInfo,pay:{amount,symbol:from.symbol,chainKey:from.chain as ChainKey},receive:{amount:quote.receivedAmountFormatted??null,symbol:to.symbol,chainKey:to.chain as ChainKey},txHashes:result.txHashes,chainIds:[],requestId:result.requestId??null,status:settled});
+ }catch(e){setExecute(null);setNearSending(false);const partial=getPartialTxHashes(e);if(partial.length){setHashes(partial);recordTrade({side:'buy',token:tokenInfo,pay:{amount,symbol:from.symbol,chainKey:from.chain as ChainKey},receive:{amount:null,symbol:to.symbol,chainKey:to.chain as ChainKey},txHashes:partial,chainIds:[],requestId:null,status:'failed',error:e instanceof Error?e.message:'Conversion failed after a transaction was broadcast.'});}setError(e instanceof Error?e.message:'Conversion failed. Nothing was confirmed.');}
+ finally{busyRef.current=false;
+   // Balances changed (or may have): read them fresh.
+   clearCashBalanceCache();clearSpendableBalanceCache();refresh(true);onConverted();}};
  if(!visible)return null;
+ const fromChainId=from&&from.chain!=='near'?MAINNET_CHAIN_IDS[from.chain as ChainKey]:null;
+ const txLinks=(list:string[])=>list.map(h=><Pressable key={h} hitSlop={6} onPress={()=>{Linking.openURL(transactionLink(h,fromChainId)).catch(()=>{});}}><Text style={[s.hash,s.hashLink]} numberOfLines={1}>{shortAddress(h,10,6)}  ↗ View transaction</Text></Pressable>);
+ const pickList=picker==='from'?sources:targets.filter(t=>t.id!==from?.id);
+ const usd=(v:number)=>v>0?formatUsd(v):'';
+ const buttonLabel=nearSending?'Sending…':(nearRecord&&shouldPollOneClickSwap(nearRecord))?'Waiting for NEAR Intents…':execute?'Converting…':!from?(balance?'Nothing to convert yet':'Reading balances…'):!to?'Pick what to receive':same?'Pick two different assets':pairProblem?pairProblem:!amount?'Enter an amount':insufficient?`Insufficient ${from.symbol} balance`:loading?'Finding rate…':quote?'Convert':'Finding rate…';
  return <BottomSheet visible={visible} onClose={onClose}><View>
  {picker?<><View style={s.header}><Pressable onPress={()=>setPicker(null)}><Text style={s.back}>‹ Back</Text></Pressable><Text style={s.title}>Convert {picker==='from'?'from':'to'}</Text><View style={{width:40}}/></View><ScrollView style={s.list}>
- {chains.filter(c=>c!==(picker==='from'?to:from)).map(c=><Pressable key={c} style={s.network} onPress={()=>{picker==='from'?setFrom(c):setTo(c);setAmount('');setPicker(null);}}><View style={s.left}><NetworkIcon chainKey={c} size={24} /><Text style={s.networkText}>{cashSymbol(c)} · {chainLabel(c)}</Text></View><Text style={s.networkBalance}>{rows===null&&c!=='near'?'…':formatUsd(balanceFor(rows,c,nearBalance))}</Text></Pressable>)}</ScrollView></>
- :<><View style={s.header}><Text style={s.title}>Convert</Text><View style={s.free}><Text style={s.freeText}>Kivo fee: Free</Text></View></View>
- <View style={s.asset}><View style={s.top}><Text style={s.muted}>FROM</Text><Text style={s.muted}>Available: {formatUsd(balance)}</Text></View><View style={s.main}><Pressable style={s.selector} onPress={()=>setPicker('from')}><NetworkIcon chainKey={from} size={26} /><Text style={s.symbol}>{cashSymbol(from)}</Text><Text style={s.chev}>⌄</Text></Pressable><TextInput value={amount} onChangeText={v=>setAmount(normalizeAmountInput(v))} placeholder='0' placeholderTextColor={kivoTheme.colors.textMuted} keyboardType='decimal-pad' style={s.amount}/></View><View style={s.bottom}><Text style={s.muted}>{chainLabel(from)}</Text><Pressable onPress={()=>setAmount(maxCashAmount(balance,decimals))}><Text style={s.max}>Max</Text></Pressable></View></View>
- <View style={s.swapWrap}><Pressable style={s.swap} onPress={()=>{const x=from;setFrom(to);setTo(x);setAmount('');}}><Text style={s.swapText}>⇅</Text></Pressable></View>
- <View style={s.asset}><View style={s.top}><Text style={s.muted}>TO</Text><Text style={s.muted}>Available: {rows===null&&to!=='near'?'…':formatUsd(balanceFor(rows,to,nearBalance))}</Text></View><View style={s.main}><Pressable style={s.selector} onPress={()=>setPicker('to')}><NetworkIcon chainKey={to} size={26} /><Text style={s.symbol}>{cashSymbol(to)}</Text><Text style={s.chev}>⌄</Text></Pressable>{loading?<ActivityIndicator color={kivoTheme.colors.textMuted}/>:<Text style={s.receive}>{quote?.receivedAmountFormatted??'0'}</Text>}</View><Text style={s.muted}>{chainLabel(to)}</Text></View>
- {error&&<Text style={s.error}>{error}</Text>}{hashes&&hashes.length>0&&error&&<View style={s.success}><Text style={s.successText}>Some transactions were already sent. Check them before trying again:</Text>{hashes.map(h=><Pressable key={h} hitSlop={6} onPress={()=>{Linking.openURL(transactionLink(h,from==='near'?null:MAINNET_CHAIN_IDS[from as ChainKey])).catch(()=>{});}}><Text style={[s.hash,s.hashLink]} numberOfLines={1}>{h}  ↗</Text></Pressable>)}</View>}{hashes&&!error&&<View style={s.success}><Text style={s.successText}>{convertOutcomeLabel(nearRecord,relayStatus)}</Text>{hashes.map(h=><Pressable key={h} hitSlop={6} onPress={()=>{Linking.openURL(transactionLink(h,from==='near'?null:MAINNET_CHAIN_IDS[from as ChainKey])).catch(()=>{});}}><Text style={[s.hash,s.hashLink]} numberOfLines={1}>{h}  ↗</Text></Pressable>)}</View>}
- <Pressable disabled={!quote||same||n<=0||insufficient||!!execute} onPress={convert} style={[s.button,(!quote||same||n<=0||insufficient||!!execute)&&s.disabled]}><Text style={s.buttonText}>{nearSending?'Sending…':(nearRecord&&shouldPollOneClickSwap(nearRecord))?'Waiting for NEAR Intents…':execute?'Converting…':!amount?'Enter an amount':insufficient?'Insufficient USDC balance':same?'Pick two different networks':loading?'Finding rate…':quote?'Convert':'Finding rate…'}</Text></Pressable><Pressable onPress={onClose} style={s.cancel}><Text style={s.cancelText}>Cancel</Text></Pressable></>}</View></BottomSheet>;
+ {pickList.length===0&&<Text style={s.muted}>{picker==='from'?'No balances to convert yet.':'Nothing to convert to.'}</Text>}
+ {pickList.map(x=><Pressable key={x.id} style={s.network} onPress={()=>{if(picker==='from'){setFromId(x.id);if(toId===x.id)setToId(null);}else setToId(x.id);setAmount('');setPicker(null);}}><View style={s.left}><NetworkIcon chainKey={x.chain} size={24} /><Text style={s.networkText}>{x.symbol} · {chainLabel(x.chain)}</Text></View>{picker==='from'?<View style={s.right}><Text style={s.networkBalance}>{formatUsd(x.valueUsd)}</Text><Text style={s.networkSub}>{formatAmount(x.spendableAmount)} {x.symbol}</Text></View>:<Text style={s.networkBalance}>{usd(x.valueUsd)}</Text>}</Pressable>)}</ScrollView></>
+ :<><View style={s.header}><Text style={s.title}>Convert</Text><View style={s.free}><Text style={s.freeText}>{cashMove?'Kivo fee: Free':'Kivo fee: 0.5%'}</Text></View></View>
+ <View style={s.asset}><View style={s.top}><Text style={s.muted}>FROM</Text><Text style={s.muted}>Available: {from?`${formatAmount(from.spendableAmount)} ${from.symbol}`:balance?'—':'…'}</Text></View><View style={s.main}><Pressable style={s.selector} onPress={()=>setPicker('from')}>{from?<NetworkIcon chainKey={from.chain} size={26} />:null}<Text style={s.symbol}>{from?.symbol??'Select'}</Text><Text style={s.chev}>⌄</Text></Pressable><TextInput value={amount} onChangeText={v=>setAmount(normalizeAmountInput(v))} placeholder='0' placeholderTextColor={kivoTheme.colors.textMuted} keyboardType='decimal-pad' style={s.amount}/></View><View style={s.bottom}><Text style={s.muted}>{from?chainLabel(from.chain):''}{from&&n>0&&from.priceUsd>0?`  ·  ≈ ${formatUsd(n*from.priceUsd)}`:''}</Text>{from?<Pressable onPress={()=>setAmount(maxAmount(from.spendableAmount,from.decimals))}><Text style={s.max}>Max</Text></Pressable>:null}</View></View>
+ <View style={s.swapWrap}><Pressable style={s.swap} onPress={()=>{const nextFrom=to?sources.find(x=>x.id===to.id):undefined;if(!nextFrom||!from)return;setFromId(nextFrom.id);setToId(from.id);setAmount('');}}><Text style={s.swapText}>⇅</Text></Pressable></View>
+ <View style={s.asset}><View style={s.top}><Text style={s.muted}>TO</Text><Text style={s.muted}>{to&&to.valueUsd>0?`Holding: ${formatUsd(to.valueUsd)}`:''}</Text></View><View style={s.main}><Pressable style={s.selector} onPress={()=>setPicker('to')}>{to?<NetworkIcon chainKey={to.chain} size={26} />:null}<Text style={s.symbol}>{to?.symbol??'Select'}</Text><Text style={s.chev}>⌄</Text></Pressable>{loading?<ActivityIndicator color={kivoTheme.colors.textMuted}/>:<Text style={s.receive} numberOfLines={1} adjustsFontSizeToFit>{quote?.receivedAmountFormatted?formatAmount(Number(quote.receivedAmountFormatted)):'0'}</Text>}</View><Text style={s.muted}>{to?chainLabel(to.chain):''}{quote?.receiveAmountUsd?`  ·  ≈ ${formatUsd(quote.receiveAmountUsd)}`:''}</Text></View>
+ {error&&<Text style={s.error}>{error}</Text>}
+ {hashes&&hashes.length>0&&error&&<View style={s.success}><Text style={s.successText}>Some transactions were already sent. Check them before trying again:</Text>{txLinks(hashes)}</View>}
+ {hashes&&!error&&<View style={s.success}><Text style={s.successText}>{convertOutcomeLabel(nearRecord,relayStatus)}</Text>{sent&&<Text style={s.sentText}>Sent {sent.paid}{sent.received?`  →  received ${sent.received}`:''}</Text>}{txLinks(hashes)}</View>}
+ <Pressable disabled={!quote||buttonLabel!=='Convert'} onPress={convert} style={[s.button,(!quote||buttonLabel!=='Convert')&&s.disabled]}><Text style={s.buttonText}>{buttonLabel}</Text></Pressable><Pressable onPress={onClose} style={s.cancel}><Text style={s.cancelText}>{hashes&&!error?'Done':'Cancel'}</Text></Pressable></>}</View></BottomSheet>;
 }
 const c={background:kivoTheme.colors.background,backgroundDeep:kivoTheme.colors.backgroundDeep,surface:kivoTheme.colors.surface,surfaceRaised:kivoTheme.colors.surfaceRaised,border:kivoTheme.colors.border,text:kivoTheme.colors.text,textMuted:kivoTheme.colors.textMuted,accent:kivoTheme.colors.accent,success:kivoTheme.colors.success,danger:kivoTheme.colors.danger,cream:kivoTheme.colors.cream}; const s=StyleSheet.create({
 overlay:{...StyleSheet.absoluteFill,zIndex:100,justifyContent:'flex-end'},dismiss:{...StyleSheet.absoluteFill,backgroundColor:'rgba(0,0,0,.72)'},sheet:{backgroundColor:c.surface,borderTopLeftRadius:26,borderTopRightRadius:26,padding:20,paddingBottom:34,maxHeight:'90%',borderWidth:1,borderColor:c.border},handle:{width:48,height:5,borderRadius:3,backgroundColor:c.border,alignSelf:'center',marginBottom:14},
 header:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:16},title:{color:c.text,fontSize:20,fontWeight:'900'},back:{color:c.textMuted,fontWeight:'700'},free:{backgroundColor:c.surfaceRaised,borderRadius:999,paddingHorizontal:10,paddingVertical:6},freeText:{color:c.success,fontSize:11,fontWeight:'800'},
 asset:{backgroundColor:c.surfaceRaised,borderRadius:16,padding:14,gap:8},top:{flexDirection:'row',justifyContent:'space-between'},muted:{color:c.textMuted,fontSize:11,fontWeight:'700'},main:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},selector:{flexDirection:'row',alignItems:'center',gap:6},symbol:{color:c.text,fontSize:16,fontWeight:'900'},chev:{color:c.textMuted},amount:{flex:1,textAlign:'right',color:c.text,fontSize:25,fontWeight:'800',padding:0,marginLeft:12},receive:{color:c.text,fontSize:24,fontWeight:'800',maxWidth:'55%',textAlign:'right'},bottom:{flexDirection:'row',justifyContent:'space-between'},max:{color:c.cream,fontWeight:'900'},
-swapWrap:{alignItems:'center',marginVertical:-12,zIndex:2},swap:{width:34,height:34,borderRadius:17,backgroundColor:c.surface,borderWidth:1,borderColor:c.border,alignItems:'center',justifyContent:'center'},swapText:{color:c.text,fontSize:17},error:{color:c.danger,fontSize:12,lineHeight:18,marginTop:10},success:{marginTop:10,gap:3},successText:{color:c.success,fontWeight:'800'},hash:{color:c.textMuted,fontSize:10},hashLink:{color:c.accent,textDecorationLine:'underline'},button:{height:52,borderRadius:26,backgroundColor:c.accent,alignItems:'center',justifyContent:'center',marginTop:16},buttonText:{color:c.backgroundDeep,fontWeight:'900',fontSize:15},disabled:{opacity:.45},list:{maxHeight:500},network:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:c.surfaceRaised,borderRadius:15,padding:13,marginBottom:8},left:{flexDirection:'row',alignItems:'center',gap:10,flex:1},networkText:{color:c.text,fontWeight:'800'},networkBalance:{color:c.textMuted,fontWeight:'700',fontSize:12},cancel:{height:44,alignItems:'center',justifyContent:'center'},cancelText:{color:c.cream,fontWeight:'800'}
+swapWrap:{alignItems:'center',marginVertical:-12,zIndex:2},swap:{width:34,height:34,borderRadius:17,backgroundColor:c.surface,borderWidth:1,borderColor:c.border,alignItems:'center',justifyContent:'center'},swapText:{color:c.text,fontSize:17},error:{color:c.danger,fontSize:12,lineHeight:18,marginTop:10},success:{marginTop:10,gap:3},successText:{color:c.success,fontWeight:'800'},hash:{color:c.textMuted,fontSize:10},hashLink:{color:c.accent,textDecorationLine:'underline'},button:{height:52,borderRadius:26,backgroundColor:c.accent,alignItems:'center',justifyContent:'center',marginTop:16},buttonText:{color:c.backgroundDeep,fontWeight:'900',fontSize:15},disabled:{opacity:.45},list:{maxHeight:500},network:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:c.surfaceRaised,borderRadius:15,padding:13,marginBottom:8},left:{flexDirection:'row',alignItems:'center',gap:10,flex:1},networkText:{color:c.text,fontWeight:'800'},networkBalance:{color:c.textMuted,fontWeight:'700',fontSize:12},networkSub:{color:c.textMuted,fontSize:10,marginTop:2},right:{alignItems:'flex-end'},sentText:{color:c.text,fontSize:12,fontWeight:'700'},cancel:{height:44,alignItems:'center',justifyContent:'center'},cancelText:{color:c.cream,fontWeight:'800'}
 });
 
 /** What the finished/pending conversion really is — "successfully" only once delivery is confirmed. */
 /**
- * Max as a short decimal that never exceeds the balance. Float maths on
- * 18-decimal USDC (BNB Chain) produced '0.92926483349762790…', a hair above
- * the balance, so Max showed 'Insufficient USDC balance'. Cash is shown to
- * 6 places, so round down there.
+ * Max as a short decimal that never exceeds the spendable amount. Float maths
+ * on 18-decimal USDC (BNB Chain) produced '0.92926483349762790…', a hair
+ * above the balance, so Max showed 'Insufficient balance'. Amounts are shown
+ * to 6 places, so round down there.
  */
-function maxCashAmount(balance:number,decimals:number):string{
+function maxAmount(balance:number,decimals:number):string{
   if(!(balance>0))return '';
   const places=Math.min(6,decimals);
   const scale=10**places;

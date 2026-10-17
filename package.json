@@ -20,7 +20,8 @@
     "verify:solana-output": "node --experimental-strip-types scripts/verify-solana-output-guard.mjs",
     "verify:diagnostic-redaction": "node --experimental-strip-types scripts/verify-diagnostic-redaction.mjs",
     "verify:dependency-overrides": "node scripts/verify-dependency-overrides.mjs",
-    "verify:unified-balance": "node --experimental-strip-types --import ./scripts/ts-extensionless.mjs scripts/verify-unified-balance.mjs"
+    "verify:unified-balance": "node --experimental-strip-types --import ./scripts/ts-extensionless.mjs scripts/verify-unified-balance.mjs",
+    "verify:convert": "node --experimental-strip-types --import ./scripts/ts-extensionless.mjs scripts/verify-convert.mjs"
   },
   "dependencies": {
     "@near-js/crypto": "2.5.1",

@@ -12,8 +12,8 @@ import { api } from '../state/session';
 import { KivoModal } from '../components/KivoModal';
 import { BottomSheet } from '../components/BottomSheet';
 import { PhotoViewer } from '../components/PhotoViewer';
-import { TokenMarketMetrics } from '../components/TokenMarketMetrics';
-import { TokenEntryMarketCap } from '../components/TokenEntryMarketCap';
+import { TokenAttachmentCard } from '../components/TokenAttachmentCard';
+import { TokenAttachmentPicker, type VerifiedToken } from '../components/TokenAttachmentPicker';
 
 type Item = { type: 'day'; key: string; label: string } | { type: 'message'; key: string; message: LocalMessage; showName: boolean; showAvatar: boolean };
 
@@ -74,10 +74,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const messages = state.messages[id] ?? [];
   const [draft, setDraft] = useState('');
   const [tokenAttachmentOpen, setTokenAttachmentOpen] = useState(false);
-  const [tokenAttachmentChain, setTokenAttachmentChain] = useState('solana');
-  const [tokenAttachmentAddress, setTokenAttachmentAddress] = useState('');
-  const [verifiedTokenAttachment, setVerifiedTokenAttachment] = useState<{chain:string;address:string;symbol:string;name:string;imageUrl:string|null}|null>(null);
-  const [verifyingTokenAttachment, setVerifyingTokenAttachment] = useState(false);
+  // Set by the picker once the pasted token has a live market (null while checking or empty).
+  const [verifiedTokenAttachment, setVerifiedTokenAttachment] = useState<VerifiedToken|null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   type MenuItem = { text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void };
   const [optionsMenu, setOptionsMenu] = useState<MenuItem[] | null>(null);
@@ -177,8 +175,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const send = async () => {
     if (sendingRef.current) return;
     const text = draft;
-    if (!text.trim() && !tokenAttachmentAddress.trim()) return;
-    if (tokenAttachmentAddress.trim() && (!verifiedTokenAttachment || verifiedTokenAttachment.address !== tokenAttachmentAddress.trim() || verifiedTokenAttachment.chain !== tokenAttachmentChain)) { kivoAlert('Token attachment','Verify the token market before sending the token card.'); return; }
+    if (!text.trim() && !verifiedTokenAttachment) return;
+    if (tokenAttachmentOpen && !verifiedTokenAttachment && !text.trim()) { kivoAlert('Token attachment', 'Paste a token with a live market first.'); return; }
     if (overLimit) {
       kivoAlert('Message', verifiedSender ? 'This message is too long.' : `Messages are limited to ${charLimit} characters. Blue Star accounts can send up to ${messageCharLimit(true).toLocaleString()} characters.`);
       return;
@@ -195,7 +193,6 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
         await sendText(id, text, replyingTo?.id, verifiedTokenAttachment ? {chain: verifiedTokenAttachment.chain, address: verifiedTokenAttachment.address} : undefined);
         setDraft('');
         setReplyingTo(null);
-        setTokenAttachmentAddress('');
         setVerifiedTokenAttachment(null);
         setTokenAttachmentOpen(false);
       }
@@ -313,24 +310,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
               <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
-                {message.token && (
-                  <Pressable accessibilityRole="button" accessibilityLabel="Open token in Trade" onPress={() => onOpenToken?.(message.token!)} style={styles.tokenAttachment}>
-                    <View style={styles.tokenAttachmentTop}>
-                      {message.token.imageUrl ? <Image source={{uri: message.token.imageUrl}} style={styles.tokenAttachmentIcon} resizeMode="cover" /> : <View style={styles.tokenAttachmentIconFallback}><Text style={styles.tokenAttachmentIconGlyph}>◈</Text></View>}
-                      <View style={styles.tokenAttachmentTitle}>
-                        <Text style={styles.tokenAttachmentSymbol}>{message.token.symbol ? "$" + message.token.symbol : "Token attachment"}</Text>
-                        <Text style={styles.tokenAttachmentName}>{message.token.name || message.token.chain}</Text>
-                      </View>
-                    </View>
-                    <TokenMarketMetrics chain={message.token.chain} address={message.token.address} />
-                    <View style={styles.tokenAttachmentAddressRow}>
-                      <Text style={styles.tokenAttachmentAddress} numberOfLines={1}>{message.token.address.slice(0, 6) + "…" + message.token.address.slice(-5)}</Text>
-                      <Pressable accessibilityRole="button" accessibilityLabel="Copy token address" hitSlop={8} onPress={() => { Clipboard.setString(message.token!.address); kivoAlert("Token address", "Copied to clipboard."); }} style={styles.tokenAttachmentCopy}><Text style={styles.tokenAttachmentCopyText}>⧉ Copy</Text></Pressable>
-                    </View>
-                    <TokenEntryMarketCap value={message.token.entryMarketCapUsd}/>
-                    <Text style={styles.tokenAttachmentHint}>Tap to trade</Text>
-                  </Pressable>
-                )}
+                {message.token && <TokenAttachmentCard token={message.token} compact onPress={onOpenToken ? () => onOpenToken(message.token!) : undefined} />}
                 {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
                 {message.replyTo && !message.deleted ? (() => {
                   const quoted = messages.find(item => item.id === message.replyTo);
@@ -372,12 +352,12 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
             {overLimit && !verifiedSender ? <Text style={styles.limitHint}>★ Get Verified for up to {messageCharLimit(true).toLocaleString()} characters</Text> : null}
           </View>
         ) : null}
-        {tokenAttachmentOpen && <View style={styles.tokenAttachPanel}><View style={styles.tokenChainRow}>{['solana','ethereum','base','bnb','robinhood','arbitrum','avalanche','abstract','hyperevm','ink','plasma','unichain','xlayer','arc'].map(chain => <Pressable key={chain} style={[styles.tokenChainChoice, tokenAttachmentChain === chain && styles.tokenChainChoiceActive]} onPress={() => {setTokenAttachmentChain(chain);setVerifiedTokenAttachment(null);}}><Text style={styles.tokenChainChoiceText}>{chain}</Text></Pressable>)}</View><TextInput value={tokenAttachmentAddress} onChangeText={value=>{setTokenAttachmentAddress(value);setVerifiedTokenAttachment(null);}} autoCapitalize="none" placeholder="Token mint / contract address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.tokenAddressInput}/><Pressable disabled={verifyingTokenAttachment||!tokenAttachmentAddress.trim()} style={styles.tokenVerifyButton} onPress={async()=>{setVerifyingTokenAttachment(true);setVerifiedTokenAttachment(null);try{const chainIds:Record<string,string>={ethereum:'ethereum',base:'base',bnb:'bsc',robinhood:'robinhood',solana:'solana',arbitrum:'arbitrum',avalanche:'avalanche',abstract:'abstract',hyperevm:'hyperevm',ink:'ink',plasma:'plasma',unichain:'unichain',xlayer:'xlayer',arc:'arc'};const address=tokenAttachmentAddress.trim();if(!(tokenAttachmentChain==='solana'?/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address):/^0x[0-9a-fA-F]{40}$/.test(address)))throw new Error('Invalid token address for selected network.');const chainId=chainIds[tokenAttachmentChain];let response=await fetch('https://kivo-web.pages.dev/api/market/dexscreener/latest/dex/tokens/'+encodeURIComponent(address));let pairs:any[]=[];if(response.ok){const data=await response.json();pairs=Array.isArray(data.pairs)?data.pairs:[];}if(!pairs.length){response=await fetch('https://kivo-web.pages.dev/api/market/dexscreener/tokens/v1/'+encodeURIComponent(chainId)+'/'+encodeURIComponent(address));if(response.ok){const data=await response.json();pairs=Array.isArray(data)?data:Array.isArray(data.pairs)?data.pairs:[];}}const target=tokenAttachmentChain==='solana'?address:address.toLowerCase();const pair=pairs.filter(p=>p.chainId===chainId&&p.pairAddress&&[p.baseToken?.address,p.quoteToken?.address].some(a=>typeof a==='string'&&(tokenAttachmentChain==='solana'?a===target:a.toLowerCase()===target))).sort((a,b)=>(Number(b.liquidity?.usd)||0)-(Number(a.liquidity?.usd)||0))[0];if(!pair)throw new Error('No active market found for this token on the selected network.');const isBase=tokenAttachmentChain==='solana'?pair.baseToken?.address===address:pair.baseToken?.address?.toLowerCase()===address.toLowerCase();const details=isBase?pair.baseToken:pair.quoteToken;if(!details?.symbol)throw new Error('Market data did not provide a token symbol.');setVerifiedTokenAttachment({chain:tokenAttachmentChain,address,symbol:String(details.symbol).slice(0,20),name:String(details.name||details.symbol).slice(0,80),imageUrl:typeof pair.info?.imageUrl==='string'&&pair.info.imageUrl.startsWith('https://')?pair.info.imageUrl:null});}catch(error){kivoAlert('Token market',error instanceof Error?error.message:'Could not verify token.');}finally{setVerifyingTokenAttachment(false);}}}><Text style={styles.tokenVerifyText}>{verifyingTokenAttachment?'Verifying market…':'Verify token market'}</Text></Pressable>{verifiedTokenAttachment&&<View style={styles.tokenPreview}>{verifiedTokenAttachment.imageUrl?<Image source={{uri:verifiedTokenAttachment.imageUrl}} style={styles.tokenPreviewIcon}/>:null}<View style={{flex:1}}><Text style={styles.tokenPreviewName}>${verifiedTokenAttachment.symbol} · {verifiedTokenAttachment.name}</Text><Text style={styles.tokenPreviewNetwork}>{verifiedTokenAttachment.chain}</Text><Text style={styles.tokenPreviewAddress}>{verifiedTokenAttachment.address.slice(0,8)}…{verifiedTokenAttachment.address.slice(-6)}</Text></View><Pressable onPress={()=>{setVerifiedTokenAttachment(null);setTokenAttachmentAddress('');}}><Text style={styles.tokenVerifyText}>Remove</Text></Pressable></View>}</View>}
+        {tokenAttachmentOpen && <TokenAttachmentPicker onChange={setVerifiedTokenAttachment} onClose={() => setTokenAttachmentOpen(false)} />}
         <View style={styles.composer}>
           <Pressable onPress={() => setTokenAttachmentOpen(value => !value)} hitSlop={8} style={styles.attach} accessibilityLabel="Attach token"><Text style={styles.attachText}>◇</Text></Pressable>
           <Pressable onPress={attach} hitSlop={8} style={styles.attach} accessibilityLabel="Attach photo"><Text style={styles.attachText}>＋</Text></Pressable>
           <TextInput value={draft} onChangeText={setDraft} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={messageCharLimit(true) * 2} style={styles.input} />
-          <Pressable disabled={(!draft.trim() && !tokenAttachmentAddress.trim()) || sending} onPress={send} style={[styles.send, ((!draft.trim() && !tokenAttachmentAddress.trim()) || overLimit || sending) && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
+          <Pressable disabled={(!draft.trim() && !verifiedTokenAttachment) || sending} onPress={send} style={[styles.send, ((!draft.trim() && !verifiedTokenAttachment) || overLimit || sending) && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
         </View>
         </View>
       ) : (
@@ -501,32 +481,6 @@ const styles = StyleSheet.create({
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background },
   attach: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
   attachText: { color: c.cream, fontSize: 26 },
-  tokenVerifyButton: { alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
-  tokenVerifyText: { color: c.accent, fontSize: 12, fontWeight: '800' },
-  tokenPreview: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
-  tokenPreviewIcon: { width: 34, height: 34, borderRadius: 17 },
-  tokenPreviewName: { color: c.text, fontSize: 13, fontWeight: '800' },
-  tokenPreviewNetwork: { color: c.textMuted, fontSize: 11, marginTop: 2 },
-  tokenPreviewAddress: { color: c.textMuted, fontSize: 10, marginTop: 2 },
-  tokenAttachPanel: { paddingHorizontal: 10, paddingVertical: 8, gap: 8, backgroundColor: c.background, borderTopWidth: 1, borderTopColor: c.border },
-  tokenChainRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  tokenChainChoice: { paddingHorizontal: 9, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: c.border },
-  tokenChainChoiceActive: { backgroundColor: c.accent, borderColor: c.accent },
-  tokenChainChoiceText: { color: c.text, fontSize: 11, fontWeight: '700' },
-  tokenAddressInput: { minHeight: 38, borderRadius: 10, paddingHorizontal: 11, backgroundColor: c.surface, color: c.text, borderWidth: 1, borderColor: c.border },
-  tokenAttachment: { padding: 10, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.background, gap: 7, marginVertical: 4 },
-  tokenAttachmentTop: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  tokenAttachmentIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: c.surface },
-  tokenAttachmentIconFallback: { width: 34, height: 34, borderRadius: 17, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' },
-  tokenAttachmentIconGlyph: { color: c.accent, fontSize: 20, fontWeight: '900' },
-  tokenAttachmentTitle: { flex: 1, minWidth: 0, gap: 2 },
-  tokenAttachmentSymbol: { color: c.text, fontWeight: '900', fontSize: 14 },
-  tokenAttachmentName: { color: c.textMuted, fontSize: 12 },
-  tokenAttachmentAddressRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  tokenAttachmentAddress: { color: c.text, fontSize: 11, flex: 1 },
-  tokenAttachmentCopy: { paddingHorizontal: 7, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: c.border },
-  tokenAttachmentCopyText: { color: c.accent, fontSize: 11, fontWeight: '800' },
-  tokenAttachmentHint: { color: c.textMuted, fontSize: 11, fontWeight: '700' },
   input: { flex: 1, minHeight: 44, maxHeight: 140, borderRadius: 22, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11, backgroundColor: c.surface, color: c.text, fontSize: 15 },
   send: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#2FD67B', alignItems: 'center', justifyContent: 'center' },
   sendDisabled: { opacity: 0.45 },

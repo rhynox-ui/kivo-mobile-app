@@ -58,3 +58,17 @@ assert.deepEqual(nearAccountFor(parseWalletSecret(serializeWalletSecret(n.secret
 assert.equal(detectImportInput('hello', gen).status, 'invalid');
 assert.equal(detectImportInput('   ', gen).status, 'empty');
 console.log('wallet import detection: ok');
+
+// New imports: recovery phrase only. Every key format is refused with the explanation.
+import {detectPhraseImport, PRIVATE_KEY_IMPORT_REFUSED} from '../src/wallet/walletSecret.ts';
+assert.equal(detectPhraseImport(PHRASE).status, 'ok');
+assert.equal(detectPhraseImport(PHRASE).kind, 'mnemonic');
+assert.equal(detectPhraseImport('abandon').status, 'incomplete');
+assert.equal(detectPhraseImport('abandon abandon abandon').status, 'incomplete');
+assert.equal(detectPhraseImport(PHRASE.replace(/about$/, 'abandon')).status, 'invalid');
+for (const key of [evmKey, evmKey.slice(2), bs58.encode(sol.secretKey), JSON.stringify([...sol.secretKey]), near.privateKey, bs58.encode(sol.secretKey.slice(0, 32)), '0x1234']) {
+  const r = detectPhraseImport(key);
+  assert.equal(r.status, 'invalid');
+  assert.equal(r.message, PRIVATE_KEY_IMPORT_REFUSED);
+}
+console.log('phrase-only import: ok');

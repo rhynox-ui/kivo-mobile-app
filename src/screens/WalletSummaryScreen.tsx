@@ -28,7 +28,7 @@ import { getWalletSession, loadWalletSession, requireNear, subscribeToWallet, wi
 import { useSettings } from '../state/settingsStore';
 import { addNotification } from '../state/notificationStore';
 import { markOwnAction } from '../wallet/depositWatcher';
-import { CHAIN_LABEL, MAINNET_CHAIN_IDS, type ChainKey } from '@kivo/trading/core/chainData';
+import { CHAIN_LABEL, MAINNET_CHAIN_IDS, NATIVE_SYMBOL, type ChainKey } from '@kivo/trading/core/chainData';
 import { transactionLink } from '@kivo/trading/kivo/execute';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, CASH_CHAINS, cashAssetSymbol, type CashBalanceRow } from '@kivo/trading/kivo/balances';
 import { isValidRecipientAddress, withdrawUsdc } from '@kivo/trading/kivo/cash';
@@ -51,6 +51,14 @@ const DEPOSIT_CHAINS: DepositNetwork[] = [...new Set<DepositNetwork>([...CASH_CH
 /** The real coin on each network: USDG on Robinhood, USDC everywhere else. */
 function cashCoin(network: DepositNetwork | null | undefined): string {
   return network && network !== 'near' ? cashAssetSymbol(network) : 'USDC';
+}
+
+/** What a deposit on this network may be: its cash coin, plus the network's own coin where Kivo can spend it. */
+function depositCoins(network: DepositNetwork): string {
+  const cash = cashCoin(network);
+  if (network === 'near') return cash;
+  const native = NATIVE_SYMBOL[network];
+  return native && native !== cash ? `${cash} or ${native}` : cash;
 }
 
 function networkLabel(network: DepositNetwork): string {
@@ -334,7 +342,7 @@ function DepositSheet({
               </Text>
 
               <Text style={styles.warn}>
-                Only send {cashCoin(selected)} on {networkLabel(selected)}. Other assets or unsupported networks may be lost.
+                Send {depositCoins(selected)} on {networkLabel(selected)} only. Assets sent on another network may be lost.
               </Text>
 
             </>

@@ -27,7 +27,7 @@ export function spendableCash(chainKey: ChainKey, balance: number): number {
 const READ_TIMEOUT_MS = 8_000;
 const CASH_CACHE_TTL_MS = 30_000;
 const NATIVE_CACHE_TTL_MS = 45_000;
-const nativeBalanceCache = new Map<string, {amount: number; at: number}>();
+const nativeBalanceCache = new Map<string, {amount: number; raw: bigint; at: number}>();
 const nativeBalanceInFlight = new Map<string, Promise<TokenBalance>>();
 let cashCache: {key: string; rows: CashBalanceRow[]; at: number} | null = null;
 let cashInFlight: {key: string; promise: Promise<CashBalanceRow[]>} | null = null;
@@ -119,13 +119,13 @@ export async function readNativeBalance(chainKey: ChainKey, owner: string, {forc
   if (!forceFresh) {
     const cached = nativeBalanceCache.get(key);
     if (cached && Date.now() - cached.at < NATIVE_CACHE_TTL_MS) {
-      return {chainKey, tokenAddress: '0x0000000000000000000000000000000000000000', symbol: nativeSymbol(chainKey), raw: 0n, decimals: 18, amount: cached.amount};
+      return {chainKey, tokenAddress: '0x0000000000000000000000000000000000000000', symbol: nativeSymbol(chainKey), raw: cached.raw, decimals: 18, amount: cached.amount};
     }
     const inFlight = nativeBalanceInFlight.get(key);
     if (inFlight) return inFlight;
   }
   const promise = readTokenBalance(chainKey, '0x0000000000000000000000000000000000000000', owner).then(result => {
-    nativeBalanceCache.set(key, {amount: result.amount, at: Date.now()});
+    nativeBalanceCache.set(key, {amount: result.amount, raw: result.raw, at: Date.now()});
     nativeBalanceInFlight.delete(key);
     return result;
   }, error => {
@@ -150,30 +150,42 @@ export async function readUsdcBalance(chainKey: ChainKey, owner: string): Promis
   const decimals = assetDecimalsForChain(chainKey, cashSymbol) ?? 6;
   return readTokenBalance(chainKey, address, owner, cashSymbol, decimals);
 }
-export async function readSolanaNativeBalance(owner: string, {forceFresh = false}: {forceFresh?: boolean} = {}): Promise<TokenBalance> {
-  const key = `solana:${owner}`;
-  if (!forceFresh) {
-    const cached = nativeBalanceCache.get(key);
-    if (cached && Date.now() - cached.at < NATIVE_CACHE_TTL_MS) return {chainKey: 'solana', tokenAddress: '11111111111111111111111111111111', symbol: 'SOL', raw: 0n, decimals: 9, amount: cached.amount};
-    const inFlight = nativeBalanceInFlight.get(key);
-    if (inFlight) return inFlight;
-  }
-  const [{Connection, PublicKey}] = await Promise.all([import('@solana/web3.js')]);
-  const connection = new Connection('https://solana-rpc.publicnode.com', 'confirmed');
-  const raw = await connection.getBalance(new PublicKey(owner));
-  const amount = Number(formatUnits(BigInt(raw), 9));
-  const result = {chainKey: 'solana' as ChainKey, tokenAddress: '11111111111111111111111111111111', symbol: 'SOL', raw: BigInt(raw), decimals: 9, amount};
-  nativeBalanceCache.set(key, {amount, at: Date.now()});
-  nativeBalanceInFlight.delete(key);
-  return result;
-}
-
 const SOLANA_READ_RPCS = [
   'https://solana-rpc.publicnode.com',
   'https://api.mainnet.solana.com',
   'https://rpc.solanatracker.io/public',
   'https://kivotrade.site/api/solana/rpc',
 ];
+export async function readSolanaNativeBalance(owner: string, {forceFresh = false}: {forceFresh?: boolean} = {}): Promise<TokenBalance> {
+  const key = `solana:${owner}`;
+  if (!forceFresh) {
+    const cached = nativeBalanceCache.get(key);
+    if (cached && Date.now() - cached.at < NATIVE_CACHE_TTL_MS) return {chainKey: 'solana', tokenAddress: '11111111111111111111111111111111', symbol: 'SOL', raw: cached.raw, decimals: 9, amount: cached.amount};
+    const inFlight = nativeBalanceInFlight.get(key);
+    if (inFlight) return inFlight;
+  }
+  const promise = (async () => {
+    const {Connection, PublicKey} = await import('@solana/web3.js');
+    const ownerKey = new PublicKey(owner);
+    // Same RPC rotation as token reads: one slow or rate-limited RPC must not hide the balance.
+    let lastError: unknown = null;
+    for (const url of SOLANA_READ_RPCS) {
+      try {
+        const raw = await withTimeout(new Connection(url, 'confirmed').getBalance(ownerKey));
+        const amount = Number(formatUnits(BigInt(raw), 9));
+        nativeBalanceCache.set(key, {amount, raw: BigInt(raw), at: Date.now()});
+        return {chainKey: 'solana' as ChainKey, tokenAddress: '11111111111111111111111111111111', symbol: 'SOL', raw: BigInt(raw), decimals: 9, amount};
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('Solana balance is unavailable right now.');
+  })();
+  nativeBalanceInFlight.set(key, promise);
+  try { return await promise; }
+  finally { if (nativeBalanceInFlight.get(key) === promise) nativeBalanceInFlight.delete(key); }
+}
+
 const missingAccount = (error: unknown) => /could not find account|Invalid param: could not find/i.test(error instanceof Error ? error.message : String(error));
 
 /**
@@ -198,11 +210,9 @@ export async function readSolanaTokenBalance(mintAddress: string, owner: string,
   for (const url of SOLANA_READ_RPCS) {
     const connection = new Connection(url, 'confirmed');
     try {
-      // Normal case: the token sits in the wallet's associated account.
-      const found = (await withTimeout(Promise.all(atas.map(ata => connection.getTokenAccountBalance(ata).catch(error => { if (missingAccount(error)) return null; throw error; })))))
-        .filter((r): r is NonNullable<typeof r> => r !== null);
-      if (found.length) return done(found.reduce((sum, r) => sum + BigInt(r.value.amount ?? '0'), 0n), Number(found[0].value.decimals));
-      // No associated account: check for any other account of this mint.
+      // Every token account this wallet holds for the mint (associated or
+      // not, classic SPL Token or Token-2022), summed: a balance held outside
+      // the associated account is still the user's money.
       const accounts = await withTimeout(connection.getParsedTokenAccountsByOwner(ownerKey, {mint}));
       let raw = 0n;
       let decimals: number | null = null;
@@ -211,6 +221,12 @@ export async function readSolanaTokenBalance(mintAddress: string, owner: string,
         if (!tokenAmount) continue;
         raw += BigInt(tokenAmount.amount ?? '0');
         decimals = Number(tokenAmount.decimals);
+      }
+      if (decimals === null && !accounts.value.length) {
+        // Some RPCs answer the by-owner call slowly or partially: confirm with the associated accounts.
+        const found = (await withTimeout(Promise.all(atas.map(ata => connection.getTokenAccountBalance(ata).catch(error => { if (missingAccount(error)) return null; throw error; })))))
+          .filter((r): r is NonNullable<typeof r> => r !== null);
+        if (found.length) return done(found.reduce((sum, r) => sum + BigInt(r.value.amount ?? '0'), 0n), Number(found[0].value.decimals));
       }
       if (decimals === null) decimals = (await withTimeout(connection.getTokenSupply(mint))).value.decimals;
       return done(raw, decimals);
@@ -223,23 +239,10 @@ export async function readSolanaTokenBalance(mintAddress: string, owner: string,
 export async function readSolanaUsdcBalance(owner: string): Promise<TokenBalance> {
   const mintAddress = TOKEN_ADDRESSES.USDC?.solana;
   if (!mintAddress) throw new Error('No verified USDC mint on Solana.');
-  const [{Connection, PublicKey}, splToken] = await Promise.all([
-    import('@solana/web3.js'),
-    import('@solana/spl-token'),
-  ]);
-  const connection = new Connection('https://solana-rpc.publicnode.com', 'confirmed');
-  const ownerKey = new PublicKey(owner);
-  const mint = new PublicKey(mintAddress);
-  const ata = await splToken.getAssociatedTokenAddress(mint, ownerKey);
-  // A wallet that never held USDC has no token account: that is a real 0.
-  // Any other failure (RPC down, rate limit) is an error, never a fake 0.
-  const info = await connection.getTokenAccountBalance(ata).catch((error: unknown) => {
-    if (/could not find account|Invalid param: could not find/i.test(error instanceof Error ? error.message : String(error))) return null;
-    throw error;
-  });
-  const amount = info ? Number(info.value.uiAmountString ?? info.value.uiAmount ?? 0) : 0;
-  const raw = BigInt(info?.value.amount ?? '0');
-  return {chainKey: 'solana', tokenAddress: mintAddress, symbol: 'USDC', raw, decimals: 6, amount};
+  // Every USDC account the wallet holds, over several RPCs. A wallet that
+  // never held USDC is a real 0; RPCs that all fail are an error, never a fake 0.
+  const balance = await readSolanaTokenBalance(mintAddress, owner, 'USDC');
+  return {...balance, symbol: 'USDC'};
 }
 
 /** USDC across every chain Kivo can pay from. Each chain fails independently. */

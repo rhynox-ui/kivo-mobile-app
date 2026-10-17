@@ -120,8 +120,10 @@ check('Mango Convert execution parity', () => {
   assert.ok(s.includes('useGaslessTrading:true'));
   assert.ok(s.includes('recordTrade'));
   assert.ok(s.includes('NetworkIcon'));
-  // Arc's gas reserve is kept by the shared spendableCash() (trading/core/usdcBalances.ts).
-  assert.ok(s.includes('spendableCash('));
+  // Arc's gas reserve is kept by the shared spendableCash(), applied to every
+  // source through the spendable balance Convert reads (trading/kivo/spendable.ts).
+  assert.ok(s.includes('fetchSpendableBalance'));
+  assert.ok(read('trading/kivo/spendable.ts').includes('spendableCash('));
   assert.ok(read('trading/core/usdcBalances.ts').includes('ARC_GAS_RESERVE_USDC'));
 });
 check('Critical trading files are typechecked', () => {
