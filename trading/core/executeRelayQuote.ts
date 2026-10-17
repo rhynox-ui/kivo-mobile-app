@@ -47,6 +47,7 @@ import {rewriteAccountCreationFundingInstructions} from './solanaAccountCreation
 
 // Shared by the remaining Relay instruction validation paths.
 const ASSOCIATED_TOKEN_PROGRAM_ID = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
+const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 const SYSTEM_ACCOUNT_CREATING_DISCRIMINANTS = new Set([0, 3]);
 
 const RELAY_STATUS_URL = 'https://api.relay.link/intents/status/v3';
@@ -475,7 +476,36 @@ export async function signAndSendSponsoredSolanaStep(
   const rewrittenInstructions = rewriteAccountCreationFundingInstructions(instructions, feePayerPubkey, TransactionInstruction);
 
   const {blockhash} = await connection.getLatestBlockhash('confirmed');
-  let finalInstructions = rewrittenInstructions;
+
+  // Rent the sponsor pays for a brand-new WSOL account (a route's GOMO ->
+  // WSOL -> USDC hop) comes straight back: the emptied account is closed to
+  // the sponsor at the end of the same transaction. Only accounts this
+  // transaction itself creates are closed, so a user's existing WSOL is never
+  // touched. Dropped if the transaction does not simulate cleanly with it.
+  const closedBackAtas = new Set<string>();
+  let baseInstructions = rewrittenInstructions;
+  try {
+    const closes: InstanceType<typeof TransactionInstruction>[] = [];
+    for (const ix of instructions) {
+      if (ix.programId.toBase58() !== ASSOCIATED_TOKEN_PROGRAM_ID || ix.keys.length < 4) continue;
+      const [, ata, owner, mint] = ix.keys.map(key => key.pubkey);
+      if (mint.toBase58() !== WSOL_MINT || !owner.equals(signer.publicKey) || closedBackAtas.has(ata.toBase58())) continue;
+      if (await connection.getAccountInfo(ata, 'confirmed')) continue; // already the user's: never close it
+      closes.push(splToken.createCloseAccountInstruction(ata, feePayerPubkey, signer.publicKey));
+      closedBackAtas.add(ata.toBase58());
+    }
+    if (closes.length) {
+      const withCloses = [...rewrittenInstructions, ...closes];
+      const probe = new VersionedTransaction(new TransactionMessage({payerKey: feePayerPubkey, instructions: withCloses, recentBlockhash: blockhash}).compileToV0Message(lookupTables));
+      const simulation = await simulationConnection.simulateTransaction(probe, {sigVerify: false, replaceRecentBlockhash: true});
+      if (!simulation.value.err) baseInstructions = withCloses;
+      else closedBackAtas.clear();
+    }
+  } catch (err) {
+    closedBackAtas.clear();
+    void recordDiagnosticEvent('sponsorshipRecovery.wsol-close-skipped', err);
+  }
+  let finalInstructions = baseInstructions;
   // USDC this transaction's own cost recovery adds on top of the trade —
   // allowed by the spend guard below as Kivo's, not the route's.
   let recoveryUnitsIncluded = 0n;
@@ -487,22 +517,24 @@ export async function signAndSendSponsoredSolanaStep(
   try {
     const usdcMintAddress = TOKEN_ADDRESSES.USDC?.solana;
     if (usdcMintAddress) {
-      const probeMessage = new TransactionMessage({payerKey: feePayerPubkey, instructions: rewrittenInstructions, recentBlockhash: blockhash}).compileToV0Message(lookupTables);
+      const probeMessage = new TransactionMessage({payerKey: feePayerPubkey, instructions: baseInstructions, recentBlockhash: blockhash}).compileToV0Message(lookupTables);
       const numRequiredSignatures = probeMessage.header.numRequiredSignatures;
       const usdcMint = new PublicKey(usdcMintAddress);
-      const needsTokenAccountRent = instructions.some(ix => ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID);
+      // Rent that comes back through a WSOL close is not a cost to recover.
+      const costedInstructions = instructions.filter(ix => !(ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID && ix.keys.length >= 2 && closedBackAtas.has(ix.keys[1].pubkey.toBase58())));
+      const needsTokenAccountRent = costedInstructions.some(ix => ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID);
       const tokenAccountRentExemptLamports = needsTokenAccountRent ? await connection.getMinimumBalanceForRentExemption(SPL_TOKEN_ACCOUNT_SPACE) : 0;
-      const lamportsCost = estimateSponsorshipLamportsCost(instructions, numRequiredSignatures, tokenAccountRentExemptLamports);
+      const lamportsCost = estimateSponsorshipLamportsCost(costedInstructions, numRequiredSignatures, tokenAccountRentExemptLamports);
 
       const prices = await fetchWalletPrices().catch(() => ({}) as Record<string, number>);
       const recoveryUnits = sponsorshipRecoveryUsdcUnits(lamportsCost, prices.SOL ?? 0);
 
       if (recoveryUnits > 0) {
         const userUsdcAta = await splToken.getAssociatedTokenAddress(usdcMint, signer.publicKey);
-        const userUsdcBalance = await connection.getTokenAccountBalance(userUsdcAta).catch(() => null);
-        const userUsdcUnits = userUsdcBalance ? Number(userUsdcBalance.value.amount) : 0;
-
-        if (userUsdcUnits >= recoveryUnits) {
+        // No pre-trade USDC check: on a sell to USDC the swap earlier in this
+        // same transaction pays the user, and the simulation below is the
+        // authority on whether the recovery transfer can be afforded.
+        {
           const sponsorUsdcAta = await splToken.getAssociatedTokenAddress(usdcMint, feePayerPubkey);
           const sponsorAtaInfo = await connection.getAccountInfo(sponsorUsdcAta);
 
@@ -514,7 +546,7 @@ export async function signAndSendSponsoredSolanaStep(
           // until the sponsor's receiving ATA already exists.
           if (sponsorAtaInfo) {
             const candidateInstructions = [
-              ...rewrittenInstructions,
+              ...baseInstructions,
               splToken.createTransferInstruction(userUsdcAta, sponsorUsdcAta, signer.publicKey, recoveryUnits),
             ];
 
