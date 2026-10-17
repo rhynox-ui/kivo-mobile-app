@@ -47,6 +47,8 @@ type WithdrawNetwork = ChainKey | 'near';
 type NearBalanceState = {status: 'loading' | 'ok' | 'error' | 'not-available'; amount: number};
 
 const DEPOSIT_CHAINS: DepositNetwork[] = [...new Set<DepositNetwork>([...CASH_CHAINS, 'near'])];
+/** Deposit networks: Solana (home) first. NEAR is left out because the automatic move home doesn't cover it. */
+const DEPOSIT_RECEIVE_CHAINS: DepositNetwork[] = [...new Set<DepositNetwork>(['solana', ...CASH_CHAINS])].filter(chain => chain !== 'near');
 
 
 /** The real coin on each network: USDG on Robinhood, USDC everywhere else. */
@@ -269,11 +271,9 @@ function DepositSheet({
     }
   }, [visible]);
 
-  // Kivo's home balance is USDC on Solana, so that is the only deposit
-  // option (no network to choose, nothing to move later). Wallets without
-  // a Solana account keep the network list.
-  const solanaOnly = Boolean(wallet.solanaAddress);
-  const selected: DepositNetwork | null = solanaOnly ? 'solana' : network;
+  // Any supported network can receive. Kivo's home balance is USDC on
+  // Solana, so funds that land elsewhere are moved there automatically.
+  const selected: DepositNetwork | null = network;
   const address = selected ? networkAddress(wallet, selected) : '';
 
 
@@ -288,7 +288,7 @@ function DepositSheet({
                 <Pressable onPress={onClose}><Text style={styles.ghostText}>Close</Text></Pressable>
               </View>
 
-              <Text style={styles.note}>Choose the network you want to receive on (USDC, or USDG on Robinhood Chain).</Text>
+              <Text style={styles.note}>Solana is fastest and free. Deposits on any other network are moved to your USDC on Solana automatically (a small network fee applies).</Text>
 
               <ScrollView
                 style={styles.networkList}
@@ -298,13 +298,13 @@ function DepositSheet({
                 persistentScrollbar
                 bounces={false}
               >
-                {DEPOSIT_CHAINS.map(chain => (
+                {DEPOSIT_RECEIVE_CHAINS.map(chain => (
                   <Pressable key={chain} onPress={() => setNetwork(chain)} style={styles.networkRow}>
                     <View style={styles.rowLeft}>
                       <NetworkIcon chainKey={chain} size={22} />
                       <Text style={styles.networkRowText}>{networkLabel(chain)}</Text>
                     </View>
-                    <Text style={styles.chevron}>›</Text>
+                    <Text style={styles.chevron}>{chain === 'solana' ? 'Recommended ›' : '›'}</Text>
                   </Pressable>
                 ))}
 
@@ -313,13 +313,11 @@ function DepositSheet({
           ) : (
             <>
               <View style={styles.sheetHeader}>
-                {solanaOnly ? <View style={styles.headerSpacer} /> : (
-                  <Pressable onPress={() => setNetwork(null)} hitSlop={10}>
-                    <Text style={styles.backText}>‹ Back</Text>
-                  </Pressable>
-                )}
-                <Text style={styles.sheetTitle}>{solanaOnly ? 'Deposit USDC' : networkLabel(selected)}</Text>
-                {solanaOnly ? <Pressable onPress={onClose} hitSlop={10}><Text style={styles.ghostText}>Close</Text></Pressable> : <View style={styles.headerSpacer} />}
+                <Pressable onPress={() => setNetwork(null)} hitSlop={10}>
+                  <Text style={styles.backText}>‹ Back</Text>
+                </Pressable>
+                <Text style={styles.sheetTitle}>{networkLabel(selected)}</Text>
+                <View style={styles.headerSpacer} />
               </View>
 
               <Text style={styles.addressSectionTitle}>Your {networkLabel(selected)} address</Text>
@@ -341,17 +339,15 @@ function DepositSheet({
               </View>
 
               <Text style={styles.note}>
-                {solanaOnly
-                  ? 'Send USDC on the Solana network only. When withdrawing from an exchange (Binance, Coinbase, Bybit, OKX…), choose USDC and the Solana network. It arrives in seconds.'
-                  : selected === 'solana'
-                  ? "A separate address — Solana isn't an EVM chain, so it can't share the address other networks use."
+                {selected === 'solana'
+                  ? 'Your home balance. When withdrawing from an exchange (Binance, Coinbase, Bybit, OKX…), choose USDC and the Solana network. It arrives in seconds.'
                   : selected === 'near'
                     ? 'Your NEAR account, from the same recovery phrase — it also works in compatible NEAR wallets.'
-                    : 'The same EVM address also works on the other supported EVM networks.'}
+                    : 'The same EVM address also works on the other supported EVM networks. Once it arrives, Kivo moves it to your USDC on Solana for you (amounts of $1 or more, a small network fee applies).'}
               </Text>
 
               <Text style={styles.warn}>
-                {solanaOnly ? 'Send only USDC on the Solana network to this address.' : `Send ${depositCoins(selected)} on ${networkLabel(selected)} only. Assets sent on another network may be lost.`}
+                {selected === 'solana' ? 'Send only USDC on the Solana network to this address.' : `Send ${depositCoins(selected)} on ${networkLabel(selected)} only. Assets sent on another network may be lost.`}
               </Text>
 
             </>
