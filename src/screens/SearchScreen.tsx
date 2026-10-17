@@ -108,7 +108,6 @@ export function SearchScreen({ onSelectToken, initialChain }: { onSelectToken?: 
   const needle = query.trim().toLowerCase();
   const nativeMatches = needle ? NATIVE_COINS.filter(coin => coin.symbol.toLowerCase().startsWith(needle) || tradeChainLabel(coin.chainKey).toLowerCase().startsWith(needle)) : [];
   const source = query.trim() ? [...nativeMatches, ...results] : chainList ?? trending;
-  const nativeChips = NATIVE_COINS.filter(coin => chainFilter === 'All' || coin.chainKey === chainFilter);
   const filtered = chainFilter === 'All' ? source : source.filter(item => item.chainKey === chainFilter);
   const visibleResults = sortTokens(filtered, sort);
 
@@ -148,16 +147,6 @@ export function SearchScreen({ onSelectToken, initialChain }: { onSelectToken?: 
           <Text style={styles.stateTitle}>No tokens found</Text>
           <Text style={styles.hint}>Try a token name, ticker, or another search term.</Text>
         </View>
-      )}
-
-      {!query.trim() && nativeChips.length > 0 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.nativeScroll} contentContainerStyle={styles.filters}>
-          {nativeChips.map(coin => (
-            <Pressable key={coin.chainKey} onPress={() => onSelectToken?.(coin)} style={styles.filter} accessibilityRole="button" accessibilityLabel={`Trade ${coin.symbol} on ${tradeChainLabel(coin.chainKey)}`}>
-              <Text style={styles.filterText}><Text style={styles.nativeSymbol}>{coin.symbol}</Text> · {tradeChainLabel(coin.chainKey)}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
       )}
 
       {!loading && !query.trim() && (
@@ -227,8 +216,6 @@ function TokenRow({ result, onPress }: { result: TokenSearchResult; onPress: () 
 }
 
 const styles = StyleSheet.create({
-  nativeScroll: { flexGrow: 0, marginBottom: 6 },
-  nativeSymbol: { fontWeight: '900' },
   root: { flex: 1, backgroundColor: kivoTheme.colors.background, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 0 },
   filterBar: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   filterScroll: { flexGrow: 0, flexShrink: 1 },
