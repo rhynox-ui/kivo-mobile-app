@@ -449,6 +449,9 @@ export type SolanaTransactionSigner = {
 // the rewrite/sign/co-sign/broadcast logic (or its cost-recovery
 // attempt, which stays opportunistic and harmless here too) a second
 // time for a different caller.
+/** Matches the server's cap (web/server/solanaSponsor.ts MAX_SPONSOR_TOPUP_LAMPORTS). */
+const MAX_SPONSOR_TOPUP_LAMPORTS = 3_000_000;
+
 export async function signAndSendSponsoredSolanaStep(
   instructions: InstanceType<typeof import('@solana/web3.js').TransactionInstruction>[],
   lookupTables: InstanceType<typeof import('@solana/web3.js').AddressLookupTableAccount>[],
@@ -456,7 +459,7 @@ export async function signAndSendSponsoredSolanaStep(
   connection: InstanceType<typeof import('@solana/web3.js').Connection>,
   spendIntent?: SolanaSpendIntent,
 ): Promise<{signature: string; warnings: string[]}> {
-  const [{Connection, PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction, ComputeBudgetProgram}, bs58Module, splToken] = await Promise.all([
+  const [{Connection, PublicKey, SystemProgram, TransactionInstruction, TransactionMessage, VersionedTransaction, ComputeBudgetProgram}, bs58Module, splToken] = await Promise.all([
     import('@solana/web3.js'),
     import('bs58'),
     import('@solana/spl-token'),
@@ -505,6 +508,25 @@ export async function signAndSendSponsoredSolanaStep(
     closedBackAtas.clear();
     void recordDiagnosticEvent('sponsorshipRecovery.wsol-close-skipped', err);
   }
+  // A pool program (e.g. PumpSwap's one-time per-user account) can charge the
+  // wallet itself, which a sponsored wallet with no SOL can't pay. Kivo tops
+  // the wallet up by exactly the shortfall the simulation reports; Kivo's
+  // server co-signs only if the trade spends all of it (the user never keeps
+  // it), and the cost is recovered in USDC below like any sponsored cost.
+  let topUpLamports = 0;
+  try {
+    const probe = new VersionedTransaction(new TransactionMessage({payerKey: feePayerPubkey, instructions: baseInstructions, recentBlockhash: blockhash}).compileToV0Message(lookupTables));
+    const simulation = await simulationConnection.simulateTransaction(probe, {sigVerify: false, replaceRecentBlockhash: true});
+    const short = simulation.value.err ? (simulation.value.logs ?? []).map(line => /insufficient lamports (\d+), need (\d+)/.exec(line)).find(match => match !== null) : null;
+    const needed = short ? Number(short[2]) - Number(short[1]) : 0;
+    if (needed > 0 && needed <= MAX_SPONSOR_TOPUP_LAMPORTS) {
+      const withTopUp = [SystemProgram.transfer({fromPubkey: feePayerPubkey, toPubkey: signer.publicKey, lamports: needed}), ...baseInstructions];
+      const check = await simulationConnection.simulateTransaction(new VersionedTransaction(new TransactionMessage({payerKey: feePayerPubkey, instructions: withTopUp, recentBlockhash: blockhash}).compileToV0Message(lookupTables)), {sigVerify: false, replaceRecentBlockhash: true});
+      if (!check.value.err) { baseInstructions = withTopUp; topUpLamports = needed; }
+    }
+  } catch (err) {
+    void recordDiagnosticEvent('sponsorship.topup-skipped', err);
+  }
   let finalInstructions = baseInstructions;
   // USDC this transaction's own cost recovery adds on top of the trade —
   // allowed by the spend guard below as Kivo's, not the route's.
@@ -524,7 +546,7 @@ export async function signAndSendSponsoredSolanaStep(
       const costedInstructions = instructions.filter(ix => !(ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID && ix.keys.length >= 2 && closedBackAtas.has(ix.keys[1].pubkey.toBase58())));
       const needsTokenAccountRent = costedInstructions.some(ix => ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID);
       const tokenAccountRentExemptLamports = needsTokenAccountRent ? await connection.getMinimumBalanceForRentExemption(SPL_TOKEN_ACCOUNT_SPACE) : 0;
-      const lamportsCost = estimateSponsorshipLamportsCost(costedInstructions, numRequiredSignatures, tokenAccountRentExemptLamports);
+      const lamportsCost = estimateSponsorshipLamportsCost(costedInstructions, numRequiredSignatures, tokenAccountRentExemptLamports) + topUpLamports;
 
       const prices = await fetchWalletPrices().catch(() => ({}) as Record<string, number>);
       const recoveryUnits = sponsorshipRecoveryUsdcUnits(lamportsCost, prices.SOL ?? 0);
