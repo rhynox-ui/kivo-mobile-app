@@ -79,6 +79,8 @@ const SOLANA_FEE_PAYER_URL: string | null = 'https://kivotrade.site/api/solana/f
 const SOLANA_SPONSOR_FEE_URL: string | null = 'https://kivotrade.site/api/solana/sponsor-fee';
 
 const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
+// Kivo's Solana sponsor (fee payer). Was mistyped (…LHKmN…) before; this is the real wallet.
+const SOLANA_FEE_PAYER_FALLBACK_PUBLIC_KEY = '2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki';
 let cachedSolanaFeePayerPublicKey: string | null = null;
 export async function getSolanaFeePayerPublicKey(): Promise<string> {
   if (cachedSolanaFeePayerPublicKey) return cachedSolanaFeePayerPublicKey;
@@ -121,10 +123,12 @@ export async function getSolanaFeePayerPublicKey(): Promise<string> {
     }
   }
 
-  // No hard-coded fallback: a guessed fee payer builds a transaction the
-  // sponsor can never sign (and the old fallback was a mistyped address).
+  // The public key is not secret. Falling back lets the sponsor endpoint
+  // make the authoritative decision; it still verifies the configured
+  // private key and refuses to sign if it does not match this wallet.
   void recordDiagnosticEvent('solanaSponsor.fee-payer-fallback', lastFailure);
-  throw new Error("Kivo's Solana fee sponsor could not be reached. Nothing was signed; try again in a moment.");
+  cachedSolanaFeePayerPublicKey = SOLANA_FEE_PAYER_FALLBACK_PUBLIC_KEY;
+  return cachedSolanaFeePayerPublicKey;
 }
 
 // A quote's gas/rate numbers are only fresh for a short window — this is
