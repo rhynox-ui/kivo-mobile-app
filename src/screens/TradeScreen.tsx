@@ -84,6 +84,8 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   const [shareTrade, setShareTrade] = useState<SharedTrade | null>(null);
   // Shown above the ticket when Kivo re-routed a trade (e.g. direct gas-free swap unavailable).
   const [notice, setNotice] = useState('');
+  // Set when a trade was re-routed: open the confirm sheet again as soon as the new quote is ready.
+  const reopenReview = useRef(false);
   // One haptic per trade outcome (respects the Haptics setting).
   useEffect(() => { if (result) haptic(result.tone === 'success' ? 'success' : result.tone === 'error' ? 'error' : 'warning'); }, [result]);
   const [running, setRunning] = useState(false);
@@ -192,7 +194,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   }, [token, address, parsed, amountProblem, side, cash, spendable, tokenBalance, amount, settings.slippageBps, gaslessTradingEnabled]);
 
   // Debounced auto-quote while typing.
-  useEffect(() => { setNotice(''); }, [amount, selectedToken?.tokenAddress, side]);
+  useEffect(() => { setNotice(''); reopenReview.current = false; }, [amount, selectedToken?.tokenAddress, side]);
   useEffect(() => {
     quoteSeq.current++;
     setQuote(null); setQuoteState('idle');
@@ -201,6 +203,13 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amount, cash, spendable, tokenBalance?.decimals, settings.slippageBps]);
+
+  // Re-routed trade: show the new quote's confirm sheet without another tap.
+  useEffect(() => {
+    if (!reopenReview.current) return;
+    if (quoteState === 'ready' && plan) { reopenReview.current = false; setNotice(''); setReviewOpen(true); }
+    else if (quoteState === 'error') reopenReview.current = false;
+  }, [quoteState, plan]);
 
   useEffect(() => {
     if (quoteState !== 'ready') return;
@@ -343,7 +352,8 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       if (plan.direct && !hashes.length && DIRECT_UNAVAILABLE.test(message)) {
         directUnavailable.add(token.chainKey);
         setReviewOpen(false); setResult(null); setUpdate(null);
-        setNotice(`Nothing was sent. Kivo found another gas-free route on ${chainLabel(token.chainKey)}: review the new quote and confirm again.`);
+        setNotice(`Nothing was sent. Finding another gas-free route on ${chainLabel(token.chainKey)}…`);
+        reopenReview.current = true;
         void fetchQuote();
         return;
       }
@@ -710,10 +720,17 @@ function cashLabel(symbol: string): string {
 
 function AssetChip({ symbol, uri }: { symbol: string; uri?: string | null }) {
   const imageUri = uri ?? (symbol.toUpperCase() === 'USDC' ? USDC_LOGO_URI : null);
+  // A logo that fails to load falls back to the letter mark.
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [imageUri]);
+  const isDollar = symbol === 'USD';
   return (
     <View style={styles.chipAsset}>
-      {imageUri ? (
-        <Image source={{ uri: imageUri }} style={styles.chipIcon} resizeMode="contain" />
+      {isDollar ? (
+        // A buy pays from your whole balance (USDC, USDT, ETH, SOL…), shown in dollars.
+        <View style={[styles.chipIcon, styles.chipDollar]}><Text style={styles.chipDollarText}>$</Text></View>
+      ) : imageUri && !failed ? (
+        <Image source={{ uri: imageUri }} onError={() => setFailed(true)} style={styles.chipIcon} resizeMode="contain" />
       ) : (
         <View style={styles.chipIcon}><Text style={styles.chipLetter}>{symbol.slice(0, 1).toUpperCase()}</Text></View>
       )}
@@ -806,6 +823,8 @@ const styles = StyleSheet.create({
   chipAsset: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.surfaceRaised, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 3 },
   chipIcon: { width: 16, height: 16, borderRadius: 8, backgroundColor: c.background, alignItems: 'center', justifyContent: 'center' },
   chipLetter: { color: c.cream, fontWeight: '900', fontSize: 8 },
+  chipDollar: { backgroundColor: '#2FD67B' },
+  chipDollarText: { color: '#032521', fontWeight: '900', fontSize: 11, lineHeight: 13 },
   chipSymbol: { color: c.text, fontWeight: '700', fontSize: 11 },
   amountInput: { flex: 1, minWidth: 0, color: c.text, fontSize: 16, fontWeight: '600', textAlign: 'right', paddingVertical: 0 },
   receive: { flex: 1, minWidth: 0, color: c.text, fontSize: 16, fontWeight: '600', textAlign: 'right' },
