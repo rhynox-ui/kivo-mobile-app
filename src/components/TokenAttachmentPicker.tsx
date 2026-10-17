@@ -128,6 +128,24 @@ export function TokenAttachmentPicker({ onChange, onClose, initialChain = 'solan
 
   const paste = async () => { try { const text = (await Clipboard.getString()).trim(); if (text) setAddress(text); } catch { /* clipboard unavailable */ } };
 
+  // Once the token is found the picker collapses to a compact chip above the
+  // composer, like the web app; ✕ removes the attachment.
+  if (state.status === 'ok' && state.token) {
+    const token = state.token;
+    const remove = () => { onChange(null); if (onClose) onClose(); else setAddress(''); };
+    return (
+      <View style={styles.chip}>
+        {token.imageUrl ? <Image source={{ uri: token.imageUrl }} style={styles.chipIcon} /> : <View style={styles.chipIcon}><Text style={styles.chipLetter}>{token.symbol.slice(0, 1)}</Text></View>}
+        <View style={styles.flex}>
+          <Text style={styles.chipSymbol} numberOfLines={1}>${token.symbol}</Text>
+          <Text style={styles.chipName} numberOfLines={1}>{token.name}</Text>
+          <Text style={styles.muted}>{tradeChainLabel(chain as TradeChain)}</Text>
+        </View>
+        <Pressable onPress={remove} hitSlop={10} accessibilityLabel="Remove token attachment"><Text style={styles.close}>✕</Text></Pressable>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.panel}>
       <View style={styles.head}>
@@ -199,6 +217,11 @@ const styles = StyleSheet.create({
   previewName: { color: c.text, fontWeight: '800', fontSize: 14 },
   ok: { color: c.success, fontSize: 18, fontWeight: '900' },
   flex: { flex: 1, minWidth: 0 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 18, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, marginTop: 8 },
+  chipIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
+  chipLetter: { color: c.cream, fontWeight: '900', fontSize: 17 },
+  chipSymbol: { color: c.text, fontWeight: '900', fontSize: 16 },
+  chipName: { color: c.text, fontSize: 14 },
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' },
   sheet: { backgroundColor: c.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 28, maxHeight: '85%', borderWidth: 1, borderColor: c.border },
   sheetTitle: { color: c.cream, fontSize: 18, fontWeight: '900', marginBottom: 12 },
