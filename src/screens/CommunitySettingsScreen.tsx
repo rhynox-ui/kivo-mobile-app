@@ -11,6 +11,8 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { api, socialReady } from '../state/session';
 import { pickAvatarPhoto } from '../utils/pickAvatarPhoto';
 import { Avatar } from './ChatListScreen';
+import { TokenAttachmentPicker, type VerifiedToken } from '../components/TokenAttachmentPicker';
+import { GATE_CHAINS, gateSummary, networkLabel, validGateAmount } from '../components/HolderGate';
 
 const KIVO_ORIGIN = 'https://kivotrade.site';
 type Detail = { community: ApiCommunity; members: ApiMember[] };
@@ -27,7 +29,7 @@ export function communityShareLink(c: ApiCommunity): string {
 }
 
 /** Manage a group/channel: owner and admins only. The server enforces every rule again. */
-export function CommunitySettingsScreen({ id, onBack, onDeleted, onOpenPerson }: { id: string; onBack: () => void; onDeleted: () => void; onOpenPerson?: (userId: string) => void }) {
+export function CommunitySettingsScreen({ id, onBack, onDeleted, onOpenPerson, onOpenVerification }: { id: string; onBack: () => void; onDeleted: () => void; onOpenPerson?: (userId: string) => void; onOpenVerification?: (subjectId: string) => void }) {
   const [data, setData] = useState<Detail | null>(null);
   const [error, setError] = useState('');
   const [bans, setBans] = useState<ApiBan[] | null>(null);
@@ -38,6 +40,18 @@ export function CommunitySettingsScreen({ id, onBack, onDeleted, onOpenPerson }:
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteTyped, setDeleteTyped] = useState('');
   const [notice, setNotice] = useState('');
+  // Holder gate editor: a Blue Star feature for the owner and admins (the server checks again).
+  const [gateEditing, setGateEditing] = useState(false);
+  const [gateToken, setGateToken] = useState<VerifiedToken | null>(null);
+  const [gateMin, setGateMin] = useState('');
+  const [myBlueStar, setMyBlueStar] = useState<boolean | null>(null);
+  useEffect(() => {
+    let active = true;
+    const me = api.signedInUserId();
+    if (!me) { setMyBlueStar(false); return () => { active = false; }; }
+    api.verificationStatus('profile', me).then(status => { if (active) setMyBlueStar(status.isVerified === true); }).catch(() => { if (active) setMyBlueStar(null); });
+    return () => { active = false; };
+  }, []);
   // Synchronous guard: one manage action at a time, so a double tap never sends a change twice.
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -198,6 +212,36 @@ export function CommunitySettingsScreen({ id, onBack, onDeleted, onOpenPerson }:
                   onValueChange={value => { void save({ onlyAdminsPost: value }, value ? 'Only admins can send now' : 'Everyone can send now'); }}
                   trackColor={{ true: kivoTheme.colors.accent, false: kivoTheme.colors.surfaceRaised }} thumbColor={kivoTheme.colors.cream} />
               </View>}
+        </View>
+
+        {/* Holders only */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Holders only ★</Text>
+          <Text style={c.gate ? styles.memberName : styles.muted}>{c.gate ? gateSummary(c.gate) : `Off — anyone can ${isChannel ? 'subscribe' : 'join'}.`}</Text>
+          {c.gate ? <Text selectable style={styles.small} numberOfLines={1}>{c.gate.address}</Text> : null}
+          <Text style={styles.small}>People need at least this much of the token in their own wallet to {isChannel ? 'subscribe' : 'join and send messages'}. Balances are read live from the chain. Owner and admins are never gated.</Text>
+          {myBlueStar === false
+            ? <>
+                <Text style={[styles.small, styles.disabled]}>Blue Star feature — get verified to turn this on.</Text>
+                {onOpenVerification && me ? <Chip label="★ Get Verified" onPress={() => onOpenVerification(me)} /> : null}
+              </>
+            : gateEditing
+              ? <>
+                  <TokenAttachmentPicker initialChain={c.gate?.chain ?? 'solana'} onChange={setGateToken} />
+                  <Text style={styles.label}>Minimum amount{gateToken ? ` of $${gateToken.symbol}` : ''}</Text>
+                  <TextInput value={gateMin} onChangeText={setGateMin} keyboardType="decimal-pad" autoCorrect={false} placeholder="e.g. 1000" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.input} editable={!busy} />
+                  {gateMin.trim() && !validGateAmount(gateMin) ? <Text style={styles.error}>Enter the minimum as a number, like 1000 or 0.5.</Text> : null}
+                  <KivoButton label="Save gate" disabled={busy || !gateToken || !validGateAmount(gateMin)} onPress={() => {
+                    if (!gateToken) return;
+                    if (!GATE_CHAINS.includes(gateToken.chain)) { kivoAlert('Holders only', `Holder gates aren’t available on ${networkLabel(gateToken.chain)} yet.`); return; }
+                    void run(() => api.setCommunityGate(id, { chain: gateToken.chain, address: gateToken.address, minAmount: gateMin.trim() }), 'Holder gate saved', { after: () => { setGateEditing(false); setGateToken(null); setNotice('Holder gate saved'); void load(); } });
+                  }} />
+                  <KivoButton variant="secondary" label="Cancel" disabled={busy} onPress={() => { setGateEditing(false); setGateToken(null); }} />
+                </>
+              : <View style={styles.photoActions}>
+                  <Chip label={c.gate ? 'Change' : 'Turn on'} disabled={busy || myBlueStar !== true} onPress={() => { setGateMin(c.gate?.minAmount ?? ''); setGateToken(null); setGateEditing(true); }} />
+                  {c.gate ? <Chip danger label="Remove" disabled={busy} onPress={() => confirm('Remove holder gate', `Anyone will be able to ${isChannel ? 'subscribe' : 'join'} again.`, 'Remove', () => run(() => api.setCommunityGate(id, null), 'Holder gate removed'))} /> : null}
+                </View>}
         </View>
 
         {/* Administrators */}

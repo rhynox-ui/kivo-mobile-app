@@ -15,7 +15,9 @@ import { activateChat, configureChat, startChatSync, stopChatSync } from '@kivo/
 import { activateProfileForWallet, configureProfileStore, getProfile, hasSavedProfile, updateProfile } from '@kivo/shared/profile/store';
 import { activateTradeHistory, configureTradeHistory } from '@kivo/trading/kivo/history';
 import { addNotification, setNotificationOwner } from './notificationStore';
-import { getWalletSession, subscribeToWallet } from './walletStore';
+import { ed25519 } from '@noble/curves/ed25519';
+import bs58 from 'bs58';
+import { getWalletSession, requireSolana, subscribeToWallet, walletUnlockedOnDevice, withDeviceAccounts } from './walletStore';
 import { signKivoMessage } from './signGuard';
 import { loadSettings } from './settingsStore';
 import { applyClientLimits } from '@kivo/shared/api/types';
@@ -116,6 +118,9 @@ export async function startKivoSession() {
     onIncoming: (conversation, message) => addNotification(conversation?.title ?? 'New message', message.text ? message.text.slice(0, 90) : '📷 Photo', { system: AppState.currentState !== 'active' }),
   });
   AppState.addEventListener('change', syncChatForAppState);
+  // Link the device's Solana wallet to the account once (for Solana holder gates).
+  subscribeToWallet(() => autoLinkSolana());
+  api.onSessionChange(() => autoLinkSolana());
   subscribeToWallet(wallet => {
     const address = wallet?.address ?? null;
     if (address?.toLowerCase() === lastAddress?.toLowerCase()) return;
@@ -200,6 +205,52 @@ export function useSocialReady(): boolean {
     return () => { unsubApi(); unsubWallet(); };
   }, []);
   return ready;
+}
+
+const SOLANA_LINK_KEY = 'kivo:solana-linked:v1:';
+const autoLinkTried = new Set<string>();
+let solanaLinkInFlight: Promise<boolean> | null = null;
+
+/**
+ * Proves to Kivo that this account (kivo:0x…) also controls the device's
+ * Solana wallet, so Solana-token holder gates can read its balance. Signs one
+ * plain-text message with the Solana key; the key itself never leaves the
+ * phone. Remembered per account, so it happens once.
+ */
+export function ensureSolanaLinked({ interactive = false }: { interactive?: boolean } = {}): Promise<boolean> {
+  if (solanaLinkInFlight) return solanaLinkInFlight;
+  const run = async () => {
+    const wallet = getWalletSession();
+    const userId = api.signedInUserId();
+    if (!wallet || wallet.source !== 'local' || !wallet.solanaAddress || !userId || !socialReady()) return false;
+    const solanaAddress = wallet.solanaAddress;
+    const key = SOLANA_LINK_KEY + userId;
+    if (await Promise.resolve(storage.getItem(key)).catch(() => null) === solanaAddress) return true;
+    // Never pop a biometric prompt on our own: background linking waits for an unlocked wallet.
+    if (!interactive && !walletUnlockedOnDevice()) return false;
+    const signature = await withDeviceAccounts('Link your Solana wallet', async ({ solana }) => {
+      const keypair = requireSolana(solana);
+      if (keypair.publicKey.toBase58() !== solanaAddress) throw new Error('The unlocked wallet does not match the active session.');
+      const message = new TextEncoder().encode(`Kivo: link Solana wallet ${solanaAddress} to ${userId}`);
+      return bs58.encode(ed25519.sign(message, keypair.secretKey.slice(0, 32)));
+    });
+    if (api.signedInUserId() !== userId) return false;
+    await api.linkSolanaWallet(solanaAddress, signature);
+    await Promise.resolve(storage.setItem(key, solanaAddress)).catch(() => {});
+    return true;
+  };
+  solanaLinkInFlight = run().finally(() => { solanaLinkInFlight = null; });
+  return solanaLinkInFlight;
+}
+
+function autoLinkSolana() {
+  const wallet = getWalletSession();
+  const userId = api.signedInUserId();
+  if (!wallet?.solanaAddress || !userId || !socialReady() || !walletUnlockedOnDevice()) return;
+  const attempt = userId + '|' + wallet.solanaAddress;
+  if (autoLinkTried.has(attempt)) return;
+  autoLinkTried.add(attempt);
+  void ensureSolanaLinked().catch(() => { autoLinkTried.delete(attempt); });
 }
 
 async function pullServerProfile() {

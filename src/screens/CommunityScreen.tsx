@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { kivoAlert } from '../components/KivoAlert';
-import { hasProfileLinks, normalizeProfileLinks, shortWallet, walletAddressOfUserId, type ApiCommunity, type ApiMember, type ProfileLinks } from '@kivo/shared/api/types';
+import { hasProfileLinks, normalizeProfileLinks, shortWallet, walletAddressOfUserId, type ApiCommunity, type ApiMember, type GateCheck, type ProfileLinks } from '@kivo/shared/api/types';
 import { refreshConversations } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
-import { api, socialReady } from '../state/session';
+import { api, ensureSolanaLinked, socialReady } from '../state/session';
+import { CallStatsCard } from '../components/CallStatsCard';
+import { gateSummary } from '../components/HolderGate';
 import { Avatar } from './ChatListScreen';
 import { communityShareLink } from './CommunitySettingsScreen';
 import { LinkFields, ProfileLinkChips, linkDraftFrom, type LinkDraft } from '../components/ProfileLinks';
@@ -27,6 +29,23 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
   // Synchronous guard: one community action at a time, so a double tap never repeats it.
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
+  // Holder gate: the viewer's eligibility, checked before Join (server re-checks on join).
+  const [gateCheck, setGateCheck] = useState<GateCheck | null>(null);
+  const [gateState, setGateState] = useState<'idle' | 'checking' | 'error'>('idle');
+  const [gateError, setGateError] = useState('');
+  const gate = data?.community.gate ?? null;
+  const gateNeeded = Boolean(gate && !data?.community.myRole);
+  const checkGate = useCallback(async (fresh = false) => {
+    if (!gate || !socialReady()) return;
+    setGateState('checking'); setGateError('');
+    try {
+      // Solana-token gates read the linked Solana wallet: link it first (one signature, once per account).
+      if (gate.chain === 'solana') await ensureSolanaLinked({ interactive: true }).catch(e => { setGateError(e instanceof Error ? e.message : 'Could not link your Solana wallet.'); });
+      const result = await api.checkCommunityGate(id, fresh);
+      setGateCheck(result); setGateState('idle');
+    } catch (e) { setGateCheck(null); setGateState('error'); setGateError(e instanceof Error ? e.message : 'Could not check your balance.'); }
+  }, [id, gate?.chain, gate?.address, gate?.minAmount]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setGateCheck(null); if (gateNeeded) void checkGate(); }, [gateNeeded, checkGate]);
 
   const loadLinks = useCallback(() => api.communityLinks(id)
     .then(result => { setLinks(result); setLinkDraft(linkDraftFrom(result.links)); setLinksError(''); })
@@ -83,6 +102,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
   const isChannel = c.kind === 'channel';
   const manager = c.myRole === 'owner' || c.myRole === 'admin';
   const shareMessage = `Join ${c.name} on Kivo: ${communityShareLink(c)}`;
+  const gateBlocked = gateNeeded && gateCheck?.eligible !== true;
 
   return (
     <View style={styles.root}>
@@ -98,9 +118,18 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
           <View style={styles.profileActions}>
             {c.myRole
               ? <Pressable onPress={() => onOpenChat(c.id)} style={styles.actionButton}><Text style={styles.primaryText}>{isChannel ? 'Open channel' : 'Open chat'}</Text></Pressable>
-              : <Pressable onPress={run(() => api.join(c.id), () => onOpenChat(c.id))} style={styles.actionButton}><Text style={styles.primaryText}>{c.visibility === 'private' ? 'Private' : isChannel ? 'Subscribe' : 'Join group'}</Text></Pressable>}
+              : <Pressable disabled={busy || gateBlocked} onPress={run(() => api.join(c.id), () => onOpenChat(c.id))} style={[styles.actionButton, gateBlocked && styles.disabled]}><Text style={styles.primaryText}>{c.visibility === 'private' ? 'Private' : isChannel ? 'Subscribe' : 'Join group'}</Text></Pressable>}
             <Pressable onPress={() => Share.share({ message: shareMessage })} style={styles.shareButton}><Text style={styles.shareButtonText}>Share</Text></Pressable>
           </View>
+          {c.gate ? <View style={styles.gateBox}>
+            <Text style={styles.gateTitle}>{gateSummary(c.gate)}</Text>
+            {!c.myRole ? (!socialReady() ? <Text style={styles.small}>Turn on chats to check your balance.</Text>
+              : gateState === 'checking' ? <ActivityIndicator color={kivoTheme.colors.accent} />
+              : gateCheck ? <Text style={[styles.small, gateCheck.eligible ? styles.gateOk : styles.gateNo]}>{gateCheck.eligible ? `✓ You hold ${gateCheck.balance ?? 'enough'} $${c.gate.symbol} — you can ${isChannel ? 'subscribe' : 'join'}.` : !gateCheck.wallet ? (c.gate.chain === 'solana' ? 'Link your Solana wallet to check your balance.' : 'Your account has no wallet on this network.') : `You hold ${gateCheck.balance ?? '0'} $${c.gate.symbol} — need at least ${c.gate.minAmount}.`}</Text>
+              : null) : <Text style={styles.small}>{c.myRole === 'owner' || c.myRole === 'admin' ? 'Owner and admins are never gated.' : 'Members need to keep holding to post.'}</Text>}
+            {gateError ? <Text style={[styles.small, styles.gateNo]}>{gateError}</Text> : null}
+            {!c.myRole && socialReady() && gateState !== 'checking' ? <Pressable onPress={() => { void checkGate(true); }} hitSlop={8}><Text style={styles.readMore}>Check again</Text></Pressable> : null}
+          </View> : null}
           {manager && onOpenManage ? <Pressable accessibilityRole="button" onPress={() => onOpenManage(c.id)} style={styles.manageButton}><Text style={styles.shareButtonText}>⚙ Manage {isChannel ? 'channel' : 'group'}</Text></Pressable> : null}
           {links?.eligible && hasProfileLinks(links.links) ? <ProfileLinkChips links={links.links} /> : null}
           <View style={styles.profileDescription}>
@@ -114,6 +143,7 @@ export function CommunityScreen({ id, onBack, onOpenChat, onOpenPerson, onOpenVe
           </View>
         </View>
 
+        <CallStatsCard loadKey={c.id} load={() => api.communityCalls(c.id)} />
         {manager && <View style={styles.card}>
           <Text style={styles.cardTitle}>Links ★</Text>
           {links == null && !linksError ? <ActivityIndicator color={kivoTheme.colors.accent} /> : null}
@@ -221,4 +251,8 @@ const styles = StyleSheet.create({
   danger: { color: c.danger, fontWeight: '800', fontSize: 12.5 },
   leave: { alignItems: 'center', padding: 14 },
   disabled: { opacity: 0.5 },
+  gateBox: { padding: 10, borderRadius: 14, backgroundColor: c.backgroundDeep, borderWidth: 1, borderColor: c.border, gap: 5 },
+  gateTitle: { color: c.text, fontWeight: '800', fontSize: 13.5 },
+  gateOk: { color: c.success },
+  gateNo: { color: c.danger },
 });

@@ -8,6 +8,7 @@ import { refreshConversations } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { api, useSocialReady } from '../state/session';
 import { Avatar, EnableSocial } from './ChatListScreen';
+import { gateSummary } from '../components/HolderGate';
 
 /** Groups and channels: yours, public ones to discover, and create — all on the Kivo social API. */
 export function CommunitiesScreen({ kind: initialKind = 'group', onOpenChat, onOpenInfo, onBack, onOpenVerification }: {
@@ -79,7 +80,7 @@ export function CommunitiesScreen({ kind: initialKind = 'group', onOpenChat, onO
       <TextInput value={query} onChangeText={setQuery} placeholder={`Search public ${kind}s`} placeholderTextColor={kivoTheme.colors.textMuted} style={styles.input} />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {discover == null ? <ActivityIndicator color={kivoTheme.colors.accent} /> : discover.length === 0 ? <Text style={styles.muted}>No public {kind}s found.</Text> : discover.map(c => (
-        <Row key={c.id} community={c} onPress={() => onOpenInfo(c.id)} action={<Pressable onPress={() => join(c)} style={styles.join}><Text style={styles.joinText}>{c.kind === 'channel' ? 'Subscribe' : 'Join'}</Text></Pressable>} />
+        <Row key={c.id} community={c} onPress={() => onOpenInfo(c.id)} action={<Pressable onPress={() => c.gate ? onOpenInfo(c.id) : join(c)} style={styles.join}><Text style={styles.joinText}>{c.kind === 'channel' ? 'Subscribe' : 'Join'}</Text></Pressable>} />
       ))}
       <View style={styles.rules}>
         <Text style={styles.rulesTitle}>How ownership works</Text>
@@ -96,6 +97,8 @@ function Row({ community: c, onPress, onInfo, action }: { community: ApiCommunit
       <View style={styles.flex}>
         <View style={styles.rowTitleLine}><Text style={styles.rowTitle} numberOfLines={1}>{c.name}</Text>{(c.isVerified === true) ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View>
         <Text style={styles.small} numberOfLines={1}>{c.memberCount} {c.kind === 'channel' ? 'subscribers' : 'members'}{c.myRole ? ` · ${c.myRole === 'owner' ? 'Owner' : c.myRole === 'admin' ? 'Admin' : c.kind === 'channel' ? 'Subscribed' : 'Member'}` : ''}</Text>
+        {/* Holder-gated: Join goes through the info screen, which checks eligibility first. */}
+        {c.gate ? <Text style={styles.small} numberOfLines={1}>{gateSummary(c.gate)}</Text> : null}
       </View>
       {action ?? (onInfo ? <Pressable onPress={onInfo} hitSlop={8}><Text style={styles.infoIcon}>ⓘ</Text></Pressable> : null)}
     </Pressable>

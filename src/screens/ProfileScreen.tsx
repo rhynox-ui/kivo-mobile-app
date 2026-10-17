@@ -12,6 +12,7 @@ import { useChatState } from '../state/useChat';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { hasProfileLinks, type ProfileLinks, type ProfileSocial } from '@kivo/shared/api/types';
 import { ProfileLinkChips } from '../components/ProfileLinks';
+import { CallStatsCard } from '../components/CallStatsCard';
 import { CHAIN_LABEL, tradeChainLabel } from '@kivo/trading/core/chainData';
 import { subscribeToTradeHistory, type TradeRecord } from '@kivo/trading/kivo/history';
 import { chartTotal, closedPositions, computePortfolioChange, fetchPortfolio, filterHistoryByRange, getPortfolioHistory, missingSourceNames, openHoldings, recordPortfolioSnapshot, type ChartTotal, type Portfolio, type PortfolioRange, type PortfolioSnapshot } from '@kivo/trading/kivo/portfolio';
@@ -335,6 +336,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
             ? <Pressable style={styles.verificationButton} onPress={() => onOpenVerification?.(profile.userId, `@${profile.username}`)}><Text style={styles.verificationButtonText}>★ Get Verified</Text></Pressable>
             : null}
       </View>
+      {socialReady ? <CallStatsCard style={styles.callsWrap} loadKey={profile.userId} load={() => api.userCalls(profile.userId)} /> : null}
       <View style={styles.divider} />
 
             <View style={styles.portfolioCard}>
@@ -486,6 +488,7 @@ const styles = StyleSheet.create({
   socialRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 16, rowGap: 6, marginTop: 2 },
   socialItem: { color: c.textMuted, fontSize: 13 },
   divider: { height: 1, backgroundColor: c.border, marginHorizontal: 20, marginTop: 12 },
+  callsWrap: { marginHorizontal: 20, marginTop: 12 },
   portfolioCard: { margin: 16, marginBottom: 0, padding: 14, borderRadius: 22, backgroundColor: c.surface, borderWidth: 1, borderColor: 'rgba(159,232,112,0.22)' },
   portfolioTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
   value: { color: c.text, fontSize: 30, fontWeight: '800' },

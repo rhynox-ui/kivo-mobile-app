@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { kivoTheme } from '../theme/kivoTheme';
-import { TokenMarketMetrics } from './TokenMarketMetrics';
+import { TokenMarketMetrics, loadSnapshot } from './TokenMarketMetrics';
 import { kivoAlert } from './KivoAlert';
 
 // The one token attachment card for feed posts, groups, channels and DMs,
@@ -20,6 +20,10 @@ export function TokenAttachmentCard({ token, onPress, compact = false }: { token
   // A logo that fails to load (dead IPFS link, hotlink block) falls back to the mark.
   const [logoFailed, setLogoFailed] = useState(false);
   useEffect(() => { setLogoFailed(false); }, [token.imageUrl]);
+  // Live MC vs the MC when it was posted: the call's return so far.
+  const [liveCap, setLiveCap] = useState<number | null>(null);
+  useEffect(() => { let active = true; setLiveCap(null); void loadSnapshot(token.chain, token.address).then(value => { if (active) setLiveCap(value.marketCapUsd); }); return () => { active = false; }; }, [token.chain, token.address]);
+  const sinceCall = liveCap != null && token.entryMarketCapUsd != null && Number.isFinite(token.entryMarketCapUsd) && token.entryMarketCapUsd > 0 ? (liveCap / token.entryMarketCapUsd - 1) * 100 : null;
   const entry = token.entryMarketCapUsd != null && Number.isFinite(token.entryMarketCapUsd) && token.entryMarketCapUsd > 0 ? compactUsd(token.entryMarketCapUsd) : '—';
   const short = token.address.length > 12 ? token.address.slice(0, compact ? 5 : 7) + '…' + token.address.slice(-5) : token.address;
   return (
@@ -43,6 +47,7 @@ export function TokenAttachmentCard({ token, onPress, compact = false }: { token
         <View style={styles.entry}>
           <Text style={styles.label}>Entry MC</Text>
           <Text style={styles.entryValue}>{entry}</Text>
+          {sinceCall != null ? <Text style={[styles.sinceCall, sinceCall >= 0 ? styles.up : styles.down]}>{sinceCall >= 0 ? '+' : '−'}{Math.abs(sinceCall).toFixed(Math.abs(sinceCall) >= 100 ? 0 : 1)}% since call</Text> : null}
         </View>
       </View>
     </Pressable>
@@ -69,4 +74,7 @@ const styles = StyleSheet.create({
   copy: { color: c.accent, fontSize: 14, fontWeight: '900' },
   entry: { alignItems: 'flex-end', flexShrink: 0 },
   entryValue: { color: c.text, fontSize: 13, fontWeight: '900' },
+  sinceCall: { fontSize: 11, fontWeight: '800', marginTop: 2 },
+  up: { color: '#2FD67B' },
+  down: { color: '#E57373' },
 });
