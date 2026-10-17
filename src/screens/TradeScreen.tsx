@@ -720,10 +720,17 @@ function cashLabel(symbol: string): string {
 
 function AssetChip({ symbol, uri }: { symbol: string; uri?: string | null }) {
   const imageUri = uri ?? (symbol.toUpperCase() === 'USDC' ? USDC_LOGO_URI : null);
+  // A logo that fails to load falls back to the letter mark.
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [imageUri]);
+  const isDollar = symbol === 'USD';
   return (
     <View style={styles.chipAsset}>
-      {imageUri ? (
-        <Image source={{ uri: imageUri }} style={styles.chipIcon} resizeMode="contain" />
+      {isDollar ? (
+        // A buy pays from your whole balance (USDC, USDT, ETH, SOL…), shown in dollars.
+        <View style={[styles.chipIcon, styles.chipDollar]}><Text style={styles.chipDollarText}>$</Text></View>
+      ) : imageUri && !failed ? (
+        <Image source={{ uri: imageUri }} onError={() => setFailed(true)} style={styles.chipIcon} resizeMode="contain" />
       ) : (
         <View style={styles.chipIcon}><Text style={styles.chipLetter}>{symbol.slice(0, 1).toUpperCase()}</Text></View>
       )}
@@ -816,6 +823,8 @@ const styles = StyleSheet.create({
   chipAsset: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.surfaceRaised, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 3 },
   chipIcon: { width: 16, height: 16, borderRadius: 8, backgroundColor: c.background, alignItems: 'center', justifyContent: 'center' },
   chipLetter: { color: c.cream, fontWeight: '900', fontSize: 8 },
+  chipDollar: { backgroundColor: '#2FD67B' },
+  chipDollarText: { color: '#032521', fontWeight: '900', fontSize: 11, lineHeight: 13 },
   chipSymbol: { color: c.text, fontWeight: '700', fontSize: 11 },
   amountInput: { flex: 1, minWidth: 0, color: c.text, fontSize: 16, fontWeight: '600', textAlign: 'right', paddingVertical: 0 },
   receive: { flex: 1, minWidth: 0, color: c.text, fontSize: 16, fontWeight: '600', textAlign: 'right' },
