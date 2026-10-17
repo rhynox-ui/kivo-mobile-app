@@ -139,6 +139,7 @@ function Row({ conversation: c, verificationRefreshTick, onPress }: { conversati
         </View>
         <View style={styles.rowTop}>
           <Text style={styles.preview} numberOfLines={1}>{c.lastPreview ? prefix + c.lastPreview : c.kind === 'dm' ? 'Say hello 👋' : c.kind === 'group' ? 'Group created' : 'Channel'}</Text>
+          {(c.unreadMentions ?? 0) > 0 && <View style={styles.mentionBadge} accessibilityLabel={`${c.unreadMentions} unread mention${c.unreadMentions === 1 ? '' : 's'}`}><Text style={styles.mentionBadgeText}>@</Text></View>}
           {unread > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{unread > 999 ? '999+' : unread}</Text></View>}
         </View>
       </View>
@@ -266,6 +267,8 @@ const styles = StyleSheet.create({
   timeUnread: { color: '#2FD67B', fontWeight: '700' },
   preview: { color: c.textMuted, fontSize: 13.5, flex: 1 },
   badge: { minWidth: 24, height: 24, borderRadius: 999, paddingHorizontal: 7, backgroundColor: '#40566A', alignItems: 'center', justifyContent: 'center' },
+  mentionBadge: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#2589F5', alignItems: 'center', justifyContent: 'center' },
+  mentionBadgeText: { color: '#FFFFFF', fontSize: 13, fontWeight: '900', marginTop: -1 },
   badgeText: { color: '#F4F8FC', fontSize: 12, fontWeight: '800', fontVariant: ['tabular-nums'] },
   avatar: { backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: c.cream, fontWeight: '800' },
