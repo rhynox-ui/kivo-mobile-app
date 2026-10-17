@@ -247,6 +247,10 @@ export class KivoApi {
   createFeedPost(input: {body: string; imageKey?: string | null; token?: {chain: string; address: string} | null}) { return this.request<FeedPost>('POST', '/api/feed', input); }
   setFeedReaction(postId: string, reaction: 'like' | 'dislike' | null) { return this.request<{reaction: 'like' | 'dislike' | null; likeCount: number; dislikeCount: number}>('POST', `/api/feed/${encodeURIComponent(postId)}/reaction`, {reaction}); }
   deleteFeedPost(postId: string) { return this.request<{deleted: true}>('DELETE', `/api/feed/${encodeURIComponent(postId)}`); }
+  /** Posts the viewer scrolled past, so For You shows new ones first. */
+  markFeedSeen(postIds: string[]) { return this.request<{seen: number}>('POST', '/api/feed/seen', {postIds}); }
+  /** Tokens the viewer's wallet holds (public on-chain data), so posts about them rank higher. */
+  setFeedHoldings(tokens: {chain: string; address: string}[]) { return this.request<{tokens: number}>('PUT', '/api/feed/holdings', {tokens}); }
   setFeedPostPinned(postId: string, pinned: boolean) { return this.request<{pinned: boolean}>('POST', `/api/feed/${encodeURIComponent(postId)}/pin`, {pinned}); }
   feedReplies(postId: string) { return this.request<FeedReply[]>('GET', `/api/feed/${encodeURIComponent(postId)}/replies`, undefined, false); }
   createFeedReply(postId: string, body: string) { return this.request<FeedReply>('POST', `/api/feed/${encodeURIComponent(postId)}/replies`, {body}); }
