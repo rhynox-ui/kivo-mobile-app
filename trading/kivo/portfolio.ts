@@ -85,6 +85,17 @@ function portfolioCacheKey(owner: string, history: TradeRecord[], addresses?: {s
 }
 
 
+/**
+ * Airdropped scam tokens advertise in their own name or symbol: a link, a
+ * "claim"/"reward" call, or a dollar amount. They are dropped from the
+ * portfolio (and its total) unless the user traded them in Kivo.
+ */
+const SPAM_PATTERN = /https?:|www\.|t\.me|\.(com|io|org|net|xyz|app|site|gift|top|club|vip|cc|live)\b|claim|reward|airdrop|voucher|visit|redeem|bonus|giveaway|\$\s?\d|[🎁✅🔥💰]/iu;
+
+export function looksLikeSpamToken(symbol: string, name: string): boolean {
+  return SPAM_PATTERN.test(symbol) || SPAM_PATTERN.test(name);
+}
+
 /** One key per token: EVM addresses are case-insensitive, Solana mints are not. */
 export function holdingKey(chainKey: string, address: string): string {
   return chainKey === 'solana' ? `solana:${address}` : `${chainKey}:${address.toLowerCase()}`;
@@ -228,8 +239,10 @@ async function fetchPortfolioUncached(owner: string, history: TradeRecord[], add
       if (!networks.length || networks.some(network => network == null)) miss('indexer:partial');
       for (const network of networks) if (network) miss(`${network}:indexer`);
     }
+    const tradedKeys = new Set(traded.map(token => holdingKey(token.chainKey, token.address)));
     for (const asset of indexedAssets.holdings) {
       if (asset.isNative || asset.chainKey === 'near' || asset.symbol === 'USDC' || asset.symbol === 'USDG' || asset.amount <= 0) continue;
+      if (!tradedKeys.has(holdingKey(asset.chainKey, asset.address)) && looksLikeSpamToken(asset.symbol, asset.name)) continue;
       addToken({key: holdingKey(asset.chainKey, asset.address), kind: 'token', chainKey: asset.chainKey, address: asset.address, symbol: asset.symbol, name: asset.name, amount: asset.amount, priceUsd: asset.priceUsd, valueUsd: asset.priceUsd == null ? asset.valueUsd : asset.amount * asset.priceUsd, imageUrl: asset.imageUrl, source: 'indexer'});
     }
   }

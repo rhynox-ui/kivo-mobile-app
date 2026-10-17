@@ -26,6 +26,14 @@ export type KivoTradeRequest = {
   tokenDecimals: number;
   slippageBps?: number;
   execution?: 'wallet' | 'gasless';
+  /** Buy: what this request spends, in USD, when the pay asset isn't a dollar coin (ETH, SOL…). */
+  amountUsd?: number;
+  /**
+   * USD the app fee is computed on. A buy split across networks passes the
+   * whole order here, so Kivo's fee is charged once per order (0.5%, or the
+   * small-trade minimum) and shared across the legs, not once per leg.
+   */
+  feeBasisUsd?: number;
 };
 
 export type KivoQuoteView = {
@@ -120,7 +128,8 @@ export async function requestKivoQuote(request: KivoTradeRequest): Promise<KivoQ
   const {input, output} = quoteAssets(request);
   const amountBaseUnits = toBaseUnits(request.amount, input.decimals);
   const amountNumber = parseAmountInput(request.amount);
-  const originAmountUsd = request.side === 'buy' ? amountNumber : amountNumber != null && request.token.priceUsd != null ? amountNumber * request.token.priceUsd : null;
+  const originAmountUsd = request.feeBasisUsd
+    ?? (request.side === 'buy' ? request.amountUsd ?? amountNumber : amountNumber != null && request.token.priceUsd != null ? amountNumber * request.token.priceUsd : null);
   const quote = await getRelayQuote({
     fromChainKey: input.chainKey, toChainKey: output.chainKey, originCurrency: input.address, destinationCurrency: output.address,
     amountBaseUnits, userAddress: request.userAddress, recipientAddress: request.recipientAddress, originAmountUsd,

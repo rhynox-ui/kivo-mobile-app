@@ -6,7 +6,7 @@ import { MAINNET_CHAIN_IDS } from '@kivo/trading/core/chainData';
 import { kivoTheme } from '../theme/kivoTheme';
 import { dexScreenerEmbedUrl, resolveDexScreenerPair, type ResolvedPair } from '@kivo/trading/core/dexScreener';
 import { checkSolanaTokenSecurity, checkTokenSecurity, type TokenSecuritySummary } from '@kivo/trading/core/goplusTokenSecurity';
-import type { KivoToken } from '@kivo/trading/kivo/tokens';
+import { isNativeToken, marketAddressFor, type KivoToken } from '@kivo/trading/kivo/tokens';
 import { openHttpsUrl } from '../utils/openExternal';
 import { KivoModal } from './KivoModal';
 
@@ -41,11 +41,14 @@ export function TokenChartPanel({ token }: { token: KivoToken }) {
     setResolving(true);
     setSecurity(null);
 
-    resolveDexScreenerPair({ chainKey: token.chainKey, tokenAddress: token.tokenAddress })
+    // A native coin (ETH, SOL…) charts as its wrapped coin and needs no contract security check.
+    const marketAddress = marketAddressFor(token);
+    (marketAddress ? resolveDexScreenerPair({ chainKey: token.chainKey, tokenAddress: marketAddress }) : Promise.resolve(null))
       .then(result => { if (!cancelled) setPair(result); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setResolving(false); });
 
+    if (isNativeToken(token)) return () => { cancelled = true; };
     const lookup = token.chainKey === 'solana'
       ? checkSolanaTokenSecurity(token.tokenAddress)
       : checkTokenSecurity((MAINNET_CHAIN_IDS as Partial<Record<string, number>>)[token.chainKey], token.tokenAddress);

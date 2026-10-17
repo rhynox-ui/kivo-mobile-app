@@ -144,10 +144,10 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   const [range, setRange] = useState<PortfolioRange>('24h');
   const [positionTab, setPositionTab] = useState<PositionTab>('open');
   const [convertOpen, setConvertOpen] = useState(false);
-  // Tokens open their page; cash opens Convert. Native coins (ETH, BNB, SOL…) have no token market page.
+  // Tokens and native coins (ETH, BNB, SOL…) open their page to buy or sell; cash opens Convert.
   const positionPress = (h: Holding): (() => void) | undefined =>
     h.kind === 'cash' ? () => setConvertOpen(true)
-      : h.kind === 'token' && onOpenToken ? () => onOpenToken(tokenFrom(h.chainKey, h.address, h.symbol, h.name, h.imageUrl, h.priceUsd))
+      : h.chainKey !== 'near' && onOpenToken ? () => onOpenToken(tokenFrom(h.chainKey, h.address, h.symbol, h.name, h.imageUrl, h.priceUsd))
         : undefined;
   const [filter, setFilter] = useState<PositionFilter>('all');
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(() => verificationMemory.get(profile.userId) ?? null);
@@ -398,8 +398,8 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
       {portfolio && positionTab === 'open' && unverifiedOpen.length > 0 ? (
         <View>
           <Pressable style={styles.unverifiedHead} onPress={() => setShowUnverified(v => !v)} accessibilityRole="button">
-            <Text style={styles.unverifiedTitle}>Unverified tokens ({unverifiedOpen.length})</Text>
-            <Text style={styles.unverifiedChevron}>{showUnverified ? '▴' : '▾'}</Text>
+            <Text style={styles.unverifiedTitle}>{unverifiedOpen.length} unpriced {unverifiedOpen.length === 1 ? 'token' : 'tokens'} hidden</Text>
+            <Text style={styles.unverifiedChevron}>{showUnverified ? 'Hide' : 'Show'}</Text>
           </Pressable>
           {showUnverified ? (
             <>
