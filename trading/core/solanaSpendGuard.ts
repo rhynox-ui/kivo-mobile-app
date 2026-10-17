@@ -31,6 +31,7 @@ export const SOLANA_NATIVE_SPEND = 'SOL';
 /** Network fees plus rent for a handful of new token accounts (~0.002 SOL each). */
 export const SOLANA_OVERHEAD_LAMPORTS = 30_000_000n; // 0.03 SOL
 /** simulateTransaction returns at most this many accounts in one call (the wallet itself + its token accounts). */
+const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
 const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 
@@ -105,7 +106,12 @@ export type SpendGuardConnection = {
 
 type Tracked = {address: string; mint: string; amount: bigint; delegate: string | null};
 
-const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+/** Solana public keys are Base58 and case-sensitive; never normalize them like EVM addresses. */
+export function solanaAddressEquals(a: string, b: string): boolean {
+  return a === b;
+}
+
+const eq = solanaAddressEquals;
 
 function readU64LE(bytes: Uint8Array, offset: number): bigint {
   let v = 0n;
@@ -115,6 +121,75 @@ function readU64LE(bytes: Uint8Array, offset: number): bigint {
 
 function readU32LE(bytes: Uint8Array, offset: number): number {
   return bytes[offset] + bytes[offset + 1] * 256 + bytes[offset + 2] * 65536 + bytes[offset + 3] * 16777216;
+}
+
+function addressOf(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object' && 'toBase58' in value && typeof value.toBase58 === 'function') {
+    try { return value.toBase58(); } catch { return null; }
+  }
+  return null;
+}
+
+/**
+ * A 0.03 SOL rent/fee allowance must not also authorize a direct SOL payment
+ * to an arbitrary recipient during a token trade. Inspect SystemProgram
+ * Transfer instructions before simulation: token-input trades may not send
+ * SOL from the user's wallet; native-SOL trades may transfer at most the
+ * exact SOL input the user selected.
+ */
+export function assertSolanaSystemTransfersWithinIntent(
+  transaction: unknown,
+  ownerAddress: string,
+  intent: SolanaSpendIntent,
+): void {
+  const tx = transaction as {
+    instructions?: {programId?: unknown; data?: Uint8Array; keys?: {pubkey?: unknown}[]}[];
+    message?: {
+      staticAccountKeys?: unknown[];
+      compiledInstructions?: {programIdIndex: number; accountKeyIndexes?: number[]; data?: Uint8Array}[];
+    };
+  } | null;
+  if (!tx || typeof tx !== 'object') {
+    throw new SolanaSpendGuardError('This transaction could not be inspected for unauthorized SOL transfers. Nothing was sent.');
+  }
+
+  let transferTotal = 0n;
+  const inspect = (programId: string | null, accounts: (string | null)[], data?: Uint8Array) => {
+    if (programId !== SYSTEM_PROGRAM_ID || !data || data.length < 12 || readU32LE(data, 0) !== 2) return;
+    const source = accounts[0];
+    // Signers cannot be loaded from an address lookup table. If the source
+    // resolves to the user's exact Base58 key, this is their SOL transfer.
+    if (source !== ownerAddress) return;
+    const amount = readU64LE(data, 4);
+    if (intent.spend !== SOLANA_NATIVE_SPEND) {
+      throw new SolanaSpendGuardError('This token trade includes an extra SOL transfer from your wallet. It was stopped before signing; nothing was sent.');
+    }
+    transferTotal += amount;
+    if (transferTotal > intent.maxSpend) {
+      throw new SolanaSpendGuardError('This transaction would transfer more SOL than the amount you entered. It was stopped before signing; nothing was sent.');
+    }
+  };
+
+  const keys = tx.message?.staticAccountKeys;
+  const compiled = tx.message?.compiledInstructions;
+  if (Array.isArray(keys) && Array.isArray(compiled)) {
+    const addresses = keys.map(addressOf);
+    for (const ix of compiled) {
+      const accountAddresses = (ix.accountKeyIndexes ?? []).map(index => addresses[index] ?? null);
+      inspect(addresses[ix.programIdIndex] ?? null, accountAddresses, ix.data);
+    }
+    return;
+  }
+
+  if (Array.isArray(tx.instructions)) {
+    for (const ix of tx.instructions) {
+      inspect(addressOf(ix.programId), (ix.keys ?? []).map(key => addressOf(key.pubkey)), ix.data);
+    }
+    return;
+  }
+
+  throw new SolanaSpendGuardError('This transaction could not be inspected for unauthorized SOL transfers. Nothing was sent.');
 }
 
 /** An SPL token account's base layout (same for Token-2022): mint, owner, amount, delegate. */
@@ -150,6 +225,7 @@ export async function assertSolanaSpendWithinIntent(
     expectedOutputAccounts = [],
   }: {owner: unknown; ownerAddress: string; intent: SolanaSpendIntent; tokenProgramIds: [unknown, unknown]; tokenAccountConnection?: SpendGuardConnection; encodeBase58: (b: Uint8Array) => string; overheadLamports?: bigint; expectedOutputMint?: string; expectedOutputMinimum?: bigint; expectedOutputAccounts?: string[]},
 ): Promise<void> {
+  assertSolanaSystemTransfersWithinIntent(transaction, ownerAddress, intent);
   const spendsSol = intent.spend === SOLANA_NATIVE_SPEND;
   const allowance = (mint: string): bigint =>
     (!spendsSol && eq(mint, intent.spend) ? intent.maxSpend : 0n) + (intent.extra ?? []).filter(e => eq(e.mint, mint)).reduce((s, e) => s + e.units, 0n);
@@ -214,7 +290,7 @@ export async function assertSolanaSpendWithinIntent(
       throw new SolanaSpendGuardError('This transaction would give another account standing authority over one of your tokens. It was stopped before signing; nothing was sent.');
     }
     if (after < before.amount) {
-      const key = before.mint.toLowerCase();
+      const key = before.mint;
       spentByMint.set(key, (spentByMint.get(key) ?? 0n) + (before.amount - after));
     }
   }

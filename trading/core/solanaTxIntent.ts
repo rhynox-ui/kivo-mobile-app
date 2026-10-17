@@ -45,6 +45,7 @@
 // legacy Transaction and a VersionedTransaction without depending on
 // any SDK's decoder staying stable.
 
+const ASSOCIATED_TOKEN_PROGRAM_ID = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
 const SPL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const SPL_TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 
@@ -264,6 +265,21 @@ export function assertSolanaTransactionMatchesIntent(
   // wallet-drain patterns actually use.
   const warnings: string[] = [];
   for (const ix of described.instructions) {
+    // Top-level ATA creation is only legitimate for the user's own token
+    // accounts. Otherwise a hostile route could make the user fund rent for
+    // an attacker-controlled ATA; the SOL overhead allowance alone cannot
+    // distinguish that from legitimate account rent.
+    if (
+      ix.programId === ASSOCIATED_TOKEN_PROGRAM_ID &&
+      (ix.firstDataByte === null || ix.firstDataByte === 1)
+    ) {
+      if (!expectedSigner || ix.accounts[2] !== expectedSigner) {
+        throw new SolanaIntentError(
+          "This route would pay rent to create a token account for another wallet. " +
+            "It was stopped before signing; nothing was sent and nothing was spent.",
+        );
+      }
+    }
     if (ix.programId !== SPL_TOKEN_PROGRAM_ID && ix.programId !== SPL_TOKEN_2022_PROGRAM_ID) continue;
     if (ix.firstDataByte === SPL_APPROVE || ix.firstDataByte === SPL_APPROVE_CHECKED) {
       throw new SolanaIntentError(
