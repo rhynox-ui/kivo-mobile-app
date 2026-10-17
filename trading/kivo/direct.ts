@@ -178,7 +178,7 @@ export async function executeDirectPlan(plan: DirectPlan, session: DerivedAccoun
   if (plan.kind === 'jupiter') {
     const buy = plan.side === 'buy';
     const spendIntent = buy
-      ? {spend: plan.inputMint.toLowerCase(), maxSpend: plan.amountIn + plan.fee.amount, expectedOutputMint: plan.outputMint, expectedOutputMinimum: plan.minAmountOut}
+      ? {spend: plan.inputMint, maxSpend: plan.amountIn + plan.fee.amount, expectedOutputMint: plan.outputMint, expectedOutputMinimum: plan.minAmountOut}
       : {spend: plan.inputMint.toLowerCase(), maxSpend: plan.amountIn, expectedOutputMint: plan.outputMint, expectedOutputMinimum: plan.minAmountOut};
     const execute = (quote: JupiterQuote) => executeJupiterSwap({
       quote, secretKeyBase58: session.solana.privateKey, expectedSolanaAddress: session.solana.address,
