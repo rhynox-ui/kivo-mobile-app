@@ -289,18 +289,16 @@ export {rewriteAccountCreationFundingInstructions} from './solanaAccountCreation
 // all recover cost with an SPL transfer to the fee payer's own account,
 // executed INSIDE the same sponsored transaction, not a quote-time %):
 //
-//  1. RECOVER EXACTLY REAL COST, PLUS A NON-PROFIT BUFFER. The amount is
-//     this transaction's own measured lamports cost (base fee + any
-//     rent this fee payer is now funding — read from the ORIGINAL,
-//     pre-rewrite instructions, not guessed), priced live via
-//     walletPrices.ts's SOL/USD feed (so it tracks SOL's own volatility
-//     instead of a stale $ constant), plus SPONSORSHIP_RECOVERY_BUFFER_PCT
-//     — sized only to cover the eventual USDC->SOL conversion cost when
-//     this wallet's accumulated USDC gets swept back into SOL, never a
-//     margin on top of real cost. Explicit product decision: recovering
-//     MORE than what sponsorship actually cost is the same "cheating"
-//     the flat appFeeBpsForSponsoredTrade()/sponsoredFeeFloorUsd() path
-//     in fees.ts already exists to avoid on the Relay-sponsorship side.
+//  1. RECOVER REAL COST, PLUS KIVO'S MARGIN. The amount is this
+//     transaction's own measured lamports cost (base fee, priority fee,
+//     rent for every new account this fee payer funds, any setup
+//     top-up — read from the ORIGINAL, pre-rewrite instructions, not
+//     guessed), priced live via walletPrices.ts's SOL/USD feed, plus
+//     SPONSORSHIP_RECOVERY_BUFFER_PCT (the eventual USDC->SOL conversion
+//     when this wallet's USDC is swept back into SOL) and
+//     SPONSORSHIP_RECOVERY_MARGIN_PCT (product decision: gas-free trading
+//     is a service, so sponsorship earns a margin instead of only
+//     breaking even).
 //
 //  2. NEVER IN THE WAY OF THE TRADE. Recovery is denominated in USDC and
 //     paid from whatever USDC the user's wallet already holds (checked
@@ -344,11 +342,12 @@ const SPL_TOKEN_ACCOUNT_SPACE = 165;
 const COMPUTE_BUDGET_PROGRAM_ID = 'ComputeBudget111111111111111111111111111111';
 // ComputeBudgetInstruction enum's SetComputeUnitLimit variant.
 const COMPUTE_BUDGET_SET_UNIT_LIMIT_DISCRIMINANT = 2;
-// Not profit — see this section's own header, point 1. Sized to cover
-// the real, if modest, cost of eventually converting this wallet's
-// accumulated USDC back into the SOL it actually needs to keep
-// sponsoring trades with.
+// Covers converting this wallet's accumulated USDC back into the SOL it
+// needs to keep sponsoring trades (see this section's header, point 1).
 const SPONSORSHIP_RECOVERY_BUFFER_PCT = 0.01;
+// Kivo's margin on top of what sponsoring the transaction really cost.
+export const SPONSORSHIP_RECOVERY_MARGIN_PCT = 0.25;
+const RECOVERY_MULTIPLIER = 1 + SPONSORSHIP_RECOVERY_BUFFER_PCT + SPONSORSHIP_RECOVERY_MARGIN_PCT;
 // Simulate-then-correct margin over the REAL measured compute units —
 // never a guessed absolute number. See this section's own header,
 // point 3.
@@ -426,7 +425,7 @@ export function priorityFeeLamports(instructions: InstanceType<typeof import('@s
 export function sponsorshipRecoveryUsdcUnits(lamportsCost: number, solPriceUsd: number): number {
   if (!(lamportsCost > 0) || !(solPriceUsd > 0)) return 0;
   const solCost = lamportsCost / 1_000_000_000;
-  const recoveryUsd = solCost * solPriceUsd * (1 + SPONSORSHIP_RECOVERY_BUFFER_PCT);
+  const recoveryUsd = solCost * solPriceUsd * RECOVERY_MULTIPLIER;
   return Math.round(recoveryUsd * 10 ** ASSET_ONCHAIN_DECIMALS.USDC);
 }
 
@@ -631,7 +630,7 @@ export async function signAndSendSponsoredSolanaStep(
   // can afford it in this transaction (the simulation decides).
   if (recoveryUnitsIncluded === 0n && sponsoredLamportsCost > 0) {
     try {
-      const lamports = Math.ceil(sponsoredLamportsCost * (1 + SPONSORSHIP_RECOVERY_BUFFER_PCT));
+      const lamports = Math.ceil(sponsoredLamportsCost * RECOVERY_MULTIPLIER);
       const candidate = [...finalInstructions, SystemProgram.transfer({fromPubkey: signer.publicKey, toPubkey: feePayerPubkey, lamports})];
       const simulation = await simulationConnection.simulateTransaction(new VersionedTransaction(new TransactionMessage({payerKey: feePayerPubkey, instructions: candidate, recentBlockhash: blockhash}).compileToV0Message(lookupTables)), {sigVerify: false, replaceRecentBlockhash: true});
       if (!simulation.value.err) { finalInstructions = candidate; recoveryLamportsIncluded = BigInt(lamports); }
