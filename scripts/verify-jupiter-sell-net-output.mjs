@@ -73,3 +73,8 @@ assert.doesNotThrow(() => assertSolanaSystemTransfersWithinIntent({
 assert.doesNotThrow(() => assertSolanaSystemTransfersWithinIntent(legacyTransfer(999n), attacker, tokenSpend));
 
 console.log('Jupiter sell fee accounting and case-sensitive Solana address regression checks passed.');
+
+// A token trade may include a top-level SOL transfer from the wallet only
+// when the trade funds it (checked against the simulated balance later).
+assert.equal(assertSolanaSystemTransfersWithinIntent(legacyTransfer(5n), user, tokenSpend, {fundedByTrade: true}), 5n);
+console.log('funded-by-trade SOL transfer: deferred to the balance check');
