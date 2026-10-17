@@ -3,6 +3,7 @@
 // before a buy that needs those funds. Never prompts: it only runs while
 // the wallet is already unlocked in this session.
 
+import {isFeeExemptWallet} from '@kivo/trading/core/fees';
 import {clearCashBalanceCache} from '@kivo/trading/kivo/balances';
 import {clearSpendableBalanceCache, fetchSpendableBalance} from '@kivo/trading/kivo/spendable';
 import {sweepCandidates, sweepToHome, type SweepResult} from '@kivo/trading/kivo/sweep';
@@ -25,6 +26,8 @@ export function runAutoSweep({upToUsd, background = false}: {upToUsd?: number; b
   if (background && Date.now() - lastBackgroundAt < BACKGROUND_EVERY_MS) return Promise.resolve(null);
   const wallet = getWalletSession();
   if (!wallet || wallet.source !== 'local' || !wallet.solanaAddress || !walletUnlockedOnDevice()) return Promise.resolve(null);
+  // Kivo's own fee wallets keep their SOL/ETH float for sponsoring users.
+  if (isFeeExemptWallet(wallet.address) || isFeeExemptWallet(wallet.solanaAddress)) return Promise.resolve(null);
   if (background) lastBackgroundAt = Date.now();
   running = (async () => {
     try {
