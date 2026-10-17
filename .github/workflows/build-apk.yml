@@ -105,6 +105,9 @@ jobs:
           rm -f "$RUNNER_TEMP/kivo-signing-check.csr"
           echo "Private-key password: OK"
           echo "Android upload keystore verified: alias=$ANDROID_KEY_ALIAS"
+          # Public certificate fingerprint (not a secret): add it, plus the Play
+          # App Signing SHA-1, to the Android OAuth client for Google sign-in.
+          echo "Upload key $(keytool -list -v -keystore android/app/kivo-release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | grep -m1 'SHA1:')"
 
       - name: Choose unused Android version code
         id: version

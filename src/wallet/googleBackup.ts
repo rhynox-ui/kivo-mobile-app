@@ -56,6 +56,9 @@ export async function signInWithGoogle(): Promise<GoogleAccount> {
     const code = (error as { code?: string })?.code;
     if (error instanceof GoogleSignInCancelled || code === statusCodes.SIGN_IN_CANCELLED) throw new GoogleSignInCancelled();
     if (code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) throw new Error('Google Play services are not available on this phone. Use a recovery phrase instead.');
+    // Android code 10: the Google Cloud OAuth client doesn't list this app's
+    // package + signing SHA-1 (see docs/google-wallet.md). Not the user's fault.
+    if (code === 'DEVELOPER_ERROR' || code === '10') throw new Error("Google sign-in isn't switched on for this version of Kivo yet. Use a recovery phrase for now; you can add a Google backup later from Settings → Security.");
     if (code === statusCodes.IN_PROGRESS) throw new Error('Google sign-in is already open.');
     throw error instanceof Error ? error : new Error('Google sign-in failed.');
   }

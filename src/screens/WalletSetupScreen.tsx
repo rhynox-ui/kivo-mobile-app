@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { GoogleLogo } from '../components/GoogleLogo';
 import { KivoMark } from '../components/KivoMark';
 import { kivoTheme } from '../theme/kivoTheme';
 
@@ -24,7 +25,7 @@ export function WalletSetupScreen({ onGoogle, onCreate, onImport }: Props) {
 
       <View style={styles.options}>
         <Pressable onPress={onGoogle} style={styles.google} accessibilityRole="button">
-          <Text style={styles.googleG}>G</Text>
+          <GoogleLogo size={22} />
           <Text style={styles.googleText}>Continue with Google</Text>
         </Pressable>
         <Text style={styles.googleNote}>Fastest: no phrase to write down. Your wallet is encrypted with your Kivo password and backed up to your own Google Drive.</Text>
@@ -60,7 +61,6 @@ function Option({
 
 const styles = StyleSheet.create({
   google: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: kivoTheme.colors.cream, borderRadius: 999, paddingVertical: 16 },
-  googleG: { color: '#4285F4', fontSize: 20, fontWeight: '900' },
   googleText: { color: kivoTheme.colors.backgroundDeep, fontSize: 16, fontWeight: '900' },
   googleNote: { color: kivoTheme.colors.textMuted, fontSize: 12, lineHeight: 17, textAlign: 'center', marginTop: 8, marginBottom: 14 },
   container: {
