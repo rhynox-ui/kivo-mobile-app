@@ -47,6 +47,8 @@ let lastChatActivityAt = 0;
 const QUIET_AFTER_MS = 2 * 60 * 1000;
 let syncing = false;
 let activeConversation: string | null = null;
+let conversationsAt = 0;
+const LIST_REFRESH_MS = 60_000;
 let failures = 0;
 let syncGeneration = 0;
 /** Bumped whenever the chat owner changes; any await that resumes under a different owner must drop its result. */
@@ -137,6 +139,7 @@ export async function refreshConversations() {
   if (!opts || !opts.api.isSignedIn(state.owner)) return;
   const generation = ownerGeneration;
   const conversations = await opts.api.conversations();
+  conversationsAt = Date.now();
   if (generation !== ownerGeneration) return;
   const profiles = {...state.profiles};
   for (const conversation of conversations) if (conversation.peer) profiles[conversation.peer.userId] = conversation.peer;
@@ -227,6 +230,8 @@ export function startChatSync(shouldContinue: () => boolean = () => true) {
   const canContinue = () => generation === syncGeneration && shouldContinue();
   const loop = async () => {
     if (!canContinue()) return;
+    // Self-repair the list: a failed first load used to leave it empty.
+    if (!state.conversations.length || Date.now() - conversationsAt > LIST_REFRESH_MS) await refreshConversations().catch(() => {});
     await syncNow();
     if (!canContinue()) return;
     // 3 s while a chat is open and active, 6 s once it has been quiet for 2 minutes, 12 s in the background.

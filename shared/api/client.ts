@@ -153,7 +153,11 @@ export class KivoApi {
     if (raw) { headers['content-type'] = raw.type; payload = raw.body as RequestInit['body']; }
     else if (body !== undefined) { headers['content-type'] = 'application/json'; payload = JSON.stringify(body); }
     let response: Response;
-    try { response = await fetch(this.baseUrl + path, {method, headers, body: payload}); }
+    // A hung request (e.g. on a network switch) must not freeze chat sync,
+    // which skips every poll while one is in flight.
+    const timeoutMs = raw ? 120_000 : method === 'GET' ? 15_000 : 30_000;
+    const signal = typeof AbortSignal !== 'undefined' && typeof (AbortSignal as {timeout?: unknown}).timeout === 'function' ? AbortSignal.timeout(timeoutMs) : undefined;
+    try { response = await fetch(this.baseUrl + path, {method, headers, body: payload, signal}); }
     catch { throw new ApiError(0, 'You appear to be offline. Kivo will retry when you are back.'); }
     const data = await response.json().catch(() => null) as (T & {error?: string}) | null;
     if (!response.ok) {
