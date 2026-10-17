@@ -323,15 +323,20 @@ async function deliver(local: LocalMessage, payload: {text: string; mediaKey?: s
   }
 }
 
-export async function sendText(conversationId: string, text: string, replyTo?: string, token?: {chain: string; address: string}) {
+/**
+ * token: the attached token. symbol/name/imageUrl are only for showing the
+ * card while it sends; the server looks the token up itself and its answer
+ * replaces them.
+ */
+export async function sendText(conversationId: string, text: string, replyTo?: string, token?: {chain: string; address: string; symbol?: string; name?: string; imageUrl?: string | null}) {
   const trimmed = text.normalize('NFC').trim();
   if (!trimmed && !token) return;
   if (messageLength(trimmed) > messageCharLimit(true)) throw new Error('This message is too long.');
   const me = myUserId();
   if (!me) throw new Error('Connect your wallet to chat.');
-  const local: LocalMessage = {seq: 0, id: 'm_' + clientId(), conversationId, senderId: me, text: trimmed, media: null, token: token ? {...token, symbol: '', name: '', imageUrl: null} : null, replyTo: replyTo ?? null, createdAt: Date.now(), deleted: false, status: 'pending'};
+  const local: LocalMessage = {seq: 0, id: 'm_' + clientId(), conversationId, senderId: me, text: trimmed, media: null, token: token ? {chain: token.chain, address: token.address, symbol: token.symbol ?? '', name: token.name ?? '', imageUrl: token.imageUrl ?? null} : null, replyTo: replyTo ?? null, createdAt: Date.now(), deleted: false, status: 'pending'};
   upsertLocal(local);
-  await deliver(local, {text: trimmed, token, replyTo});
+  await deliver(local, {text: trimmed, token: token ? {chain: token.chain, address: token.address} : undefined, replyTo});
 }
 
 /** Sends an already-compressed image (see web/mobile compressors). */

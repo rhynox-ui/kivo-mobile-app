@@ -64,7 +64,7 @@ export function ShareTradeSheet({ trade, visible, onClose, onShareToFeed }: {
   const sendTo = async (conversation: ApiConversation) => {
     setSent(value => ({ ...value, [conversation.id]: 'sending' }));
     try {
-      await sendText(conversation.id, text, undefined, { chain: trade.chain, address: trade.address });
+      await sendText(conversation.id, text, undefined, { chain: trade.chain, address: trade.address, symbol: trade.symbol, imageUrl: trade.imageUrl });
       setSent(value => ({ ...value, [conversation.id]: 'sent' }));
     } catch {
       setSent(value => ({ ...value, [conversation.id]: 'failed' }));
