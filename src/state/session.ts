@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import type { KeyValueStorage } from '@kivo/shared/storage';
 import { KivoApi } from '@kivo/shared/api/client';
 import { activateChat, configureChat, startChatSync, stopChatSync } from '@kivo/shared/chat/store';
-import { activateProfileForWallet, configureProfileStore, getProfile, updateProfile } from '@kivo/shared/profile/store';
+import { activateProfileForWallet, configureProfileStore, getProfile, hasSavedProfile, updateProfile } from '@kivo/shared/profile/store';
 import { activateTradeHistory, configureTradeHistory } from '@kivo/trading/kivo/history';
 import { addNotification, setNotificationOwner } from './notificationStore';
 import { getWalletSession, subscribeToWallet } from './walletStore';
@@ -146,6 +146,31 @@ export async function startKivoSession() {
       if (!isCurrentWallet(address)) stopChatSync();
     });
   });
+}
+
+/**
+ * Whether this wallet already has a Kivo profile, on this phone or on Kivo's
+ * server (a wallet imported or restored from Google keeps its account), so
+ * onboarding never asks an existing user to create a profile again. The
+ * server's name and bio are applied locally right away. Unknown (offline)
+ * counts as new: the profile screen is only a username field.
+ */
+export async function hasExistingProfile(): Promise<boolean> {
+  const wallet = getWalletSession();
+  if (!wallet) return false;
+  if (await hasSavedProfile(wallet.address)) return true;
+  try {
+    const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000));
+    const [found] = await Promise.race([api.searchProfiles(wallet.address), timeout]);
+    if (!found?.username || found.address?.toLowerCase() !== wallet.address.toLowerCase()) return false;
+    try {
+      if (getProfile().walletAddress?.toLowerCase() !== wallet.address.toLowerCase()) await activateProfileForWallet(wallet.address);
+      updateProfile({ username: found.username, bio: found.bio ?? '' });
+    } catch { /* keep the local default until the server sync */ }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** One device-wallet signature (plain text, no transaction) turns on chats, communities and profile sync. */

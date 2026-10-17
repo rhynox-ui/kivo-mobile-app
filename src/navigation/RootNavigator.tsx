@@ -26,7 +26,7 @@ import { ProfileSetupScreen } from '../screens/ProfileSetupScreen';
 import { MainShell } from '../screens/MainShell';
 import { kivoTheme } from '../theme/kivoTheme';
 import { getWalletSession, clearLocalWallet, lockWalletSession } from '../state/walletStore';
-import { api, startKivoSession } from '../state/session';
+import { api, hasExistingProfile, startKivoSession } from '../state/session';
 import {
   getLegacyMnemonic,
   hasVault,
@@ -327,7 +327,8 @@ export function RootNavigator() {
           }: NativeStackScreenProps<RootStackParamList, 'Biometrics'>) => (
             <BiometricScreen
               password={route.params.password}
-              onContinue={() => navigation.replace('ProfileSetup')}
+              // An imported or restored wallet keeps its Kivo profile: go straight home.
+              onContinue={() => { void hasExistingProfile().then(existing => navigation.replace(existing ? 'Home' : 'ProfileSetup')); }}
             />
           )}
         />

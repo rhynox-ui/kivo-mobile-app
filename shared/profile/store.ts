@@ -84,6 +84,12 @@ export async function activateProfileForWallet(address: string | null): Promise<
   return getProfile();
 }
 
+/** True when this phone already saved a Kivo profile for the wallet (it was set up here before). */
+export async function hasSavedProfile(address: string): Promise<boolean> {
+  if (!storage) return false;
+  try { return Boolean(await storage.getItem(STORAGE_PREFIX + address.trim().toLowerCase())); } catch { return false; }
+}
+
 export function getProfile(): KivoProfile {
   return { ...profile };
 }
