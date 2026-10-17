@@ -3,6 +3,7 @@
 // wallet session — the same way the web client wires them to the browser.
 
 import { configureRelayEndpoints } from '@kivo/trading/core/relayQuote';
+import { configureMarketHosts } from '@kivo/trading/core/marketHosts';
 import { configureGaslessStatusUrl } from '@kivo/trading/kivo/gasless';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
@@ -87,6 +88,9 @@ export async function startKivoSession() {
   configureProfileStore({ storage });
   configureTradeHistory({ storage });
   void loadLiveLimits();
+  // GeckoTerminal (trending, charts) is tried directly first; when it rate
+  // limits, Kivo's caching proxy answers instead of an empty list.
+  configureMarketHosts({ geckoterminal: `${KIVO_API_BASE_URL}/api/market/geckoterminal` });
   // Configure Relay immediately so the app does not block startup on a
   // network request. Sponsorship is confirmed in the background from Kivo's
   // backend before it is advertised/used.

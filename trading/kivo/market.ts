@@ -8,7 +8,7 @@ import {dexScreenerChainForChain, type DexScreenerPair, type TokenSocialLink} fr
 import type {TradeChain} from '../core/chainData';
 import {geckoTerminalNetworkForChainOrNull} from '../core/geckoTerminalNetworks';
 import type {KivoToken} from './tokens';
-import {marketUrl} from '../core/marketHosts';
+import {marketFetch, marketUrl} from '../core/marketHosts';
 
 export type TokenMarket = {
   token: KivoToken;
@@ -117,7 +117,7 @@ export async function fetchCandles(chainKey: TradeChain, pairAddress: string, ra
   if (cached && Date.now() - cached.fetchedAt < CANDLE_TTL_MS) return cached.data;
   const {timeframe, aggregate, limit} = RANGE_QUERY[range];
   try {
-    const response = await fetch(marketUrl('geckoterminal', `/api/v2/networks/${network}/pools/${encodeURIComponent(pairAddress)}/ohlcv/${timeframe}?aggregate=${aggregate}&limit=${limit}&currency=usd`));
+    const response = await marketFetch('geckoterminal', `/api/v2/networks/${network}/pools/${encodeURIComponent(pairAddress)}/ohlcv/${timeframe}?aggregate=${aggregate}&limit=${limit}&currency=usd`);
     if (!response.ok) return [];
     const body = (await response.json()) as {data?: {attributes?: {ohlcv_list?: unknown[][]}}};
     const list = body?.data?.attributes?.ohlcv_list ?? [];
