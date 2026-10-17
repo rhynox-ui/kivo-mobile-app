@@ -18,7 +18,8 @@ import type {SpendableAsset, SpendableKind} from './spendable';
 
 type RelayQuoteParams = Parameters<typeof getRelayQuote>[0];
 
-export type ConvertAsset = QuoteAsset & {kind: SpendableKind};
+/** 'token': any other held token (a memecoin, WBTC…), converted like a sell into the target. */
+export type ConvertAsset = QuoteAsset & {kind: SpendableKind | 'token'};
 
 /** Networks whose own coin can be a conversion target (the same coins Search lists). */
 export const CONVERT_NATIVE_CHAINS: ChainKey[] = (['solana', 'base', 'ethereum', 'bnb', 'arbitrum', 'avalanche', 'robinhood', 'unichain', 'ink'] as ChainKey[])

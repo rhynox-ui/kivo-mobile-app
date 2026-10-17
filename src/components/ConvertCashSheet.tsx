@@ -9,7 +9,9 @@ import {parseUnits} from 'viem';
 import {CHAIN_LABEL, MAINNET_CHAIN_IDS, NEAR_ENABLED, NEAR_LABEL, NEAR_USDC, NEAR_USDC_DECIMALS, type ChainKey} from '@kivo/trading/core/chainData';
 import {getRelayQuote, summarizeQuote, type QuoteSummary} from '@kivo/trading/core/relayQuote';
 import {executeRelayQuote, getPartialTxHashes, type ExecuteStep} from '@kivo/trading/core/executeRelayQuote';
-import {clearCashBalanceCache} from '@kivo/trading/kivo/balances';
+import {clearCashBalanceCache, readTokenBalance} from '@kivo/trading/kivo/balances';
+import {fetchPortfolio} from '@kivo/trading/kivo/portfolio';
+import {getTradeHistory} from '@kivo/trading/kivo/history';
 import {clearSpendableBalanceCache, fetchSpendableBalance, type SpendableAsset, type SpendableBalance} from '@kivo/trading/kivo/spendable';
 import {convertQuoteParams, convertSources, convertTargets, sameAsset, type ConvertAsset} from '@kivo/trading/kivo/convert';
 import {recordTrade} from '@kivo/trading/kivo/history';
@@ -42,6 +44,8 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
  const [wallet,setWallet]=useState<WalletSession|null>(getWalletSession());
  const [balance,setBalance]=useState<SpendableBalance|null>(null);
  const [nearBalance,setNearBalance]=useState(0);
+ // Every other token the wallet holds (memecoins etc.), with on-chain decimals and balance.
+ const [heldTokens,setHeldTokens]=useState<Side[]>([]);
  const [fromId,setFromId]=useState<string|null>(null); const [toId,setToId]=useState<string|null>(null);
  const [picker,setPicker]=useState<'from'|'to'|null>(null); const [amount,setAmount]=useState('');
  const [quote,setQuote]=useState<QuoteSummary|null>(null); const [loading,setLoading]=useState(false); const rawQuoteRef=React.useRef<Awaited<ReturnType<typeof getRelayQuote>>|null>(null); const lastQuoteParamsRef=React.useRef<Parameters<typeof getRelayQuote>[0]|null>(null); const quoteRequestIdRef=React.useRef(0);
@@ -50,13 +54,22 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
  const [sent,setSent]=useState<{paid:string;received:string|null}|null>(null);
  const hasSolana=Boolean(wallet?.solanaAddress);
  // Sources: everything spendable, largest first (plus NEAR USDC). Targets: cash on every network and each network's own coin.
- const sources:Side[]=[...convertSources(balance?.assets??[]).map(sideFromSpendable),...(NEAR_ENABLED&&nearBalance>0?[nearSide(nearBalance)]:[])].sort((a,b)=>b.valueUsd-a.valueUsd);
- const targets:Side[]=[...convertTargets({hasSolana}).map(t=>sideFromTarget(t,balance?.assets.find(a=>sameAsset(a,t)))),...(NEAR_ENABLED&&wallet?.nearAddress?[nearSide(nearBalance)]:[])];
- const from=sources.find(x=>x.id===fromId)??null; const to=targets.find(x=>x.id===toId)??null;
- const refresh=(forceFresh=false)=>{const w=getWalletSession();setWallet(w);if(w){fetchSpendableBalance(w.address,w.source==='local'?w.solanaAddress:undefined,{forceFresh}).then(setBalance).catch(()=>setBalance({assets:[],errors:[]})); if(w.nearAddress) fetchNearTokenBalance(NEAR_USDC,w.nearAddress).then(v=>setNearBalance(Number(v)/10**NEAR_USDC_DECIMALS)).catch(()=>setNearBalance(0));}};
+ const spendableSources:Side[]=[...convertSources(balance?.assets??[]).map(sideFromSpendable),...(NEAR_ENABLED&&nearBalance>0?[nearSide(nearBalance)]:[])];
+ const sources:Side[]=[...spendableSources,...heldTokens.filter(t=>!spendableSources.some(x=>x.id===t.id))].sort((a,b)=>b.valueUsd-a.valueUsd);
+ const baseTargets:Side[]=[...convertTargets({hasSolana}).map(t=>sideFromTarget(t,balance?.assets.find(a=>sameAsset(a,t)))),...(NEAR_ENABLED&&wallet?.nearAddress?[nearSide(nearBalance)]:[])];
+ const targets:Side[]=[...baseTargets,...heldTokens.filter(t=>!baseTargets.some(x=>x.id===t.id))];
+ // Either side can hold any asset, so ⇅ always swaps (an empty source just shows 0 available).
+ const sideById=(id:string|null)=>id?sources.find(x=>x.id===id)??targets.find(x=>x.id===id)??null:null;
+ const from=sideById(fromId); const to=sideById(toId);
+ const loadHeldTokens=(w:WalletSession,forceFresh:boolean)=>{fetchPortfolio(w.address,getTradeHistory(),{solanaAddress:w.solanaAddress},{forceFresh}).then(async portfolio=>{
+   const held=portfolio.holdings.filter(x=>x.kind==='token'&&x.chainKey!=='near'&&(x.chainKey!=='solana'||w.solanaAddress)&&(x.valueUsd??0)>=0.01);
+   const read=await Promise.allSettled(held.map(x=>readTokenBalance(x.chainKey as ChainKey,x.address,x.chainKey==='solana'?w.solanaAddress!:w.address,x.symbol)));
+   setHeldTokens(held.flatMap((x,i)=>{const r=read[i];if(r.status!=='fulfilled'||!(r.value.amount>0))return[];const price=x.priceUsd??0;const asset:ConvertAsset={chainKey:x.chainKey as ChainKey,address:x.address,symbol:x.symbol,decimals:r.value.decimals,kind:'token'};return[{id:`${x.chainKey}:${x.address}`,chain:x.chainKey as ChainKey,symbol:x.symbol,decimals:r.value.decimals,asset,spendableAmount:r.value.amount,priceUsd:price,valueUsd:r.value.amount*price}];}));
+ }).catch(()=>setHeldTokens([]));};
+ const refresh=(forceFresh=false)=>{const w=getWalletSession();setWallet(w);if(w)loadHeldTokens(w,forceFresh);if(w){fetchSpendableBalance(w.address,w.source==='local'?w.solanaAddress:undefined,{forceFresh}).then(setBalance).catch(()=>setBalance({assets:[],errors:[]})); if(w.nearAddress) fetchNearTokenBalance(NEAR_USDC,w.nearAddress).then(v=>setNearBalance(Number(v)/10**NEAR_USDC_DECIMALS)).catch(()=>setNearBalance(0));}};
  useEffect(()=>{if(!visible)return;setAmount('');setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setError(null);setHashes(null);setSent(null);setPicker(null);setNearRecord(null);setFromId(null);setToId(null);refresh();},[visible]);
  // Defaults once balances arrive: the largest holding, converted to cash on its own network (or cash elsewhere when it already is cash).
- useEffect(()=>{if(!visible||fromId||!balance)return;const f=sources[0];if(!f)return;setFromId(f.id);const sameChainCash=f.asset&&f.asset.kind!=='cash'?targets.find(t=>t.chain===f.chain&&t.asset?.kind==='cash'):undefined;const other=sameChainCash??targets.find(t=>t.id!==f.id&&t.asset?.kind==='cash'&&t.chain===(f.chain==='base'?'solana':'base'))??targets.find(t=>t.id!==f.id);setToId(other?.id??null);},[visible,balance,nearBalance]);
+ useEffect(()=>{if(!visible||fromId||!balance)return;const f=spendableSources[0]??sources[0];if(!f)return;setFromId(f.id);const sameChainCash=f.asset&&f.asset.kind!=='cash'?targets.find(t=>t.chain===f.chain&&t.asset?.kind==='cash'):undefined;const other=sameChainCash??targets.find(t=>t.id!==f.id&&t.asset?.kind==='cash'&&t.chain===(f.chain==='base'?'solana':'base'))??targets.find(t=>t.id!==f.id);setToId(other?.id??null);},[visible,balance,nearBalance]);
  useEffect(()=>{if(!nearRecord||!shouldPollOneClickSwap(nearRecord))return;const t=setTimeout(()=>{refreshOneClickSwap(nearRecord,{fetchStatus:d=>fetchOneClickStatus(d),store:oneClickSwapStore}).then(next=>{setNearRecord(next);if(next.status==='SUCCESS'||next.status==='REFUNDED')onConverted();}).catch(()=>{});},5000);return()=>clearTimeout(t);},[nearRecord,onConverted]);
  const n=Number(amount)||0; const same=Boolean(from&&to&&from.id===to.id); const decimals=from?.decimals??6;
  const insufficient=Boolean(from)&&n>(from?.spendableAmount??0)+1e-12; const pairProblem=from&&to?nearProblem(from,to):null;
@@ -77,7 +90,10 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
    }
  }catch(e){if(requestId!==quoteRequestIdRef.current)return;setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setError(describeQuoteError(e));}finally{if(requestId===quoteRequestIdRef.current)setLoading(false);}},450);return()=>clearTimeout(t);},[visible,wallet?.address,wallet?.solanaAddress,wallet?.nearAddress,fromId,toId,amount,n,same,insufficient,decimals,pairProblem]);
  const convert=async()=>{if(!quote||!wallet||!from||!to||same||pairProblem||n<=0||insufficient||execute||nearSending||busyRef.current)return;busyRef.current=true;setError(null);setHashes(null);setSent(null);setRelayStatus(null);setNearRecord(null);
- const tokenInfo={chainKey:to.chain as ChainKey,address:to.asset?.address??NEAR_USDC,symbol:to.symbol,name:to.symbol,imageUrl:null};
+ // Converting a held token away is a sell of that token in the trade history (keeps its PnL right).
+ const soldToken=from.asset?.kind==='token';
+ const tokenInfo=soldToken?{chainKey:from.chain as ChainKey,address:from.asset!.address,symbol:from.symbol,name:from.symbol,imageUrl:null}:{chainKey:to.chain as ChainKey,address:to.asset?.address??NEAR_USDC,symbol:to.symbol,name:to.symbol,imageUrl:null};
+ const historySide=soldToken?'sell' as const:'buy' as const;
  try{
    if(from.chain==='near'||to.chain==='near'){
      setNearSending(true);
@@ -104,8 +120,8 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
    const settled=result.status??'success';setRelayStatus(settled);setHashes(result.txHashes);setExecute(null);
    setSent({paid:`${amount} ${from.symbol}`,received:quote.receivedAmountFormatted?`${formatAmount(Number(quote.receivedAmountFormatted))} ${to.symbol}`:null});
    void markOwnAction(wallet.address).catch(()=>{});
-   recordTrade({side:'buy',token:tokenInfo,pay:{amount,symbol:from.symbol,chainKey:from.chain as ChainKey},receive:{amount:quote.receivedAmountFormatted??null,symbol:to.symbol,chainKey:to.chain as ChainKey},txHashes:result.txHashes,chainIds:[],requestId:result.requestId??null,status:settled});
- }catch(e){setExecute(null);setNearSending(false);const partial=getPartialTxHashes(e);if(partial.length){setHashes(partial);recordTrade({side:'buy',token:tokenInfo,pay:{amount,symbol:from.symbol,chainKey:from.chain as ChainKey},receive:{amount:null,symbol:to.symbol,chainKey:to.chain as ChainKey},txHashes:partial,chainIds:[],requestId:null,status:'failed',error:e instanceof Error?e.message:'Conversion failed after a transaction was broadcast.'});}setError(e instanceof Error?e.message:'Conversion failed. Nothing was confirmed.');}
+   recordTrade({side:historySide,token:tokenInfo,pay:{amount,symbol:from.symbol,chainKey:from.chain as ChainKey},receive:{amount:quote.receivedAmountFormatted??null,symbol:to.symbol,chainKey:to.chain as ChainKey},txHashes:result.txHashes,chainIds:[],requestId:result.requestId??null,status:settled});
+ }catch(e){setExecute(null);setNearSending(false);const partial=getPartialTxHashes(e);if(partial.length){setHashes(partial);recordTrade({side:historySide,token:tokenInfo,pay:{amount,symbol:from.symbol,chainKey:from.chain as ChainKey},receive:{amount:null,symbol:to.symbol,chainKey:to.chain as ChainKey},txHashes:partial,chainIds:[],requestId:null,status:'failed',error:e instanceof Error?e.message:'Conversion failed after a transaction was broadcast.'});}setError(e instanceof Error?e.message:'Conversion failed. Nothing was confirmed.');}
  finally{busyRef.current=false;
    // Balances changed (or may have): read them fresh.
    clearCashBalanceCache();clearSpendableBalanceCache();refresh(true);onConverted();}};
@@ -121,7 +137,7 @@ export function ConvertCashSheet({visible,onClose,onConverted}:{visible:boolean;
  {pickList.map(x=><Pressable key={x.id} style={s.network} onPress={()=>{if(picker==='from'){setFromId(x.id);if(toId===x.id)setToId(null);}else setToId(x.id);setAmount('');setPicker(null);}}><View style={s.left}><NetworkIcon chainKey={x.chain} size={24} /><Text style={s.networkText}>{x.symbol} · {chainLabel(x.chain)}</Text></View>{picker==='from'?<View style={s.right}><Text style={s.networkBalance}>{formatUsd(x.valueUsd)}</Text><Text style={s.networkSub}>{formatAmount(x.spendableAmount)} {x.symbol}</Text></View>:<Text style={s.networkBalance}>{usd(x.valueUsd)}</Text>}</Pressable>)}</ScrollView></>
  :<><View style={s.header}><Text style={s.title}>Convert</Text><View style={s.free}><Text style={s.freeText}>{cashMove?'Kivo fee: Free':'Kivo fee: 0.5%'}</Text></View></View>
  <View style={s.asset}><View style={s.top}><Text style={s.muted}>FROM</Text><Text style={s.muted}>Available: {from?`${formatAmount(from.spendableAmount)} ${from.symbol}`:balance?'—':'…'}</Text></View><View style={s.main}><Pressable style={s.selector} onPress={()=>setPicker('from')}>{from?<NetworkIcon chainKey={from.chain} size={26} />:null}<Text style={s.symbol}>{from?.symbol??'Select'}</Text><Text style={s.chev}>⌄</Text></Pressable><TextInput value={amount} onChangeText={v=>setAmount(normalizeAmountInput(v))} placeholder='0' placeholderTextColor={kivoTheme.colors.textMuted} keyboardType='decimal-pad' style={s.amount}/></View><View style={s.bottom}><Text style={s.muted}>{from?chainLabel(from.chain):''}{from&&n>0&&from.priceUsd>0?`  ·  ≈ ${formatUsd(n*from.priceUsd)}`:''}</Text>{from?<Pressable onPress={()=>setAmount(maxAmount(from.spendableAmount,from.decimals))}><Text style={s.max}>Max</Text></Pressable>:null}</View></View>
- <View style={s.swapWrap}><Pressable style={s.swap} onPress={()=>{const nextFrom=to?sources.find(x=>x.id===to.id):undefined;if(!nextFrom||!from)return;setFromId(nextFrom.id);setToId(from.id);setAmount('');}}><Text style={s.swapText}>⇅</Text></Pressable></View>
+ <View style={s.swapWrap}><Pressable style={s.swap} onPress={()=>{if(!from||!to)return;setFromId(to.id);setToId(from.id);setAmount('');setQuote(null);setError(null);}}><Text style={s.swapText}>⇅</Text></Pressable></View>
  <View style={s.asset}><View style={s.top}><Text style={s.muted}>TO</Text><Text style={s.muted}>{to&&to.valueUsd>0?`Holding: ${formatUsd(to.valueUsd)}`:''}</Text></View><View style={s.main}><Pressable style={s.selector} onPress={()=>setPicker('to')}>{to?<NetworkIcon chainKey={to.chain} size={26} />:null}<Text style={s.symbol}>{to?.symbol??'Select'}</Text><Text style={s.chev}>⌄</Text></Pressable>{loading?<ActivityIndicator color={kivoTheme.colors.textMuted}/>:<Text style={s.receive} numberOfLines={1} adjustsFontSizeToFit>{quote?.receivedAmountFormatted?formatAmount(Number(quote.receivedAmountFormatted)):'0'}</Text>}</View><Text style={s.muted}>{to?chainLabel(to.chain):''}{quote?.receiveAmountUsd?`  ·  ≈ ${formatUsd(quote.receiveAmountUsd)}`:''}</Text></View>
  {error&&<Text style={s.error}>{error}</Text>}
  {hashes&&hashes.length>0&&error&&<View style={s.success}><Text style={s.successText}>Some transactions were already sent. Check them before trying again:</Text>{txLinks(hashes)}</View>}
