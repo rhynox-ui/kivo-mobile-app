@@ -6,7 +6,9 @@
 
 import {encodeFunctionData, isAddress, parseUnits, type Address} from 'viem';
 import bs58 from 'bs58';
-import {signAndSendSponsoredSolanaStep, sponsorshipRecoveryUsdcUnits, type SolanaTransactionSigner} from '../core/executeRelayQuote';
+import {executeRelayQuote, signAndSendSponsoredSolanaStep, sponsorshipRecoveryUsdcUnits, type SolanaTransactionSigner} from '../core/executeRelayQuote';
+import {getRelayQuote, summarizeQuote, type QuoteSummary} from '../core/relayQuote';
+import type {DerivedAccounts} from '../wallet/keys';
 import {fetchWalletPrices} from '../core/walletPrices';
 import type {LocalAccount} from 'viem/accounts';
 import {TOKEN_ADDRESSES, assetDecimalsForChain, type ChainKey} from '../core/chainData';
@@ -141,4 +143,41 @@ export async function withdrawUsdc(
 
 export async function sendUsdc(chainKey: ChainKey, account: LocalAccount, to: string, amount: string): Promise<{hash: string; requestId: string}> {
   return withdrawUsdcGasless({account, chainKey, to, amount});
+}
+
+/**
+ * Withdrawal from Kivo's home balance (USDC on Solana) to any network: one
+ * Relay route, USDC on Solana -> USDC (USDG on Robinhood) on `chainKey`,
+ * delivered straight to `to`. USDC->USDC carries no Relay platform fee and
+ * no Kivo fee; Relay's own execution cost (≈$0.02 + destination gas) comes
+ * out of the amount and is shown before confirming. The Solana network fee
+ * is paid by Kivo's fee payer and recovered in the same transaction.
+ */
+function homeWithdrawalParams(chainKey: ChainKey, solanaAddress: string, to: string, amount: string) {
+  const usdcSolana = TOKEN_ADDRESSES.USDC?.solana;
+  if (!usdcSolana) throw new Error('No verified USDC mint for Solana.');
+  if (!isValidRecipientAddress(chainKey, to)) throw new Error("That doesn't look like a valid wallet address for this network.");
+  return {
+    fromChainKey: 'solana' as ChainKey,
+    toChainKey: chainKey,
+    originCurrency: usdcSolana,
+    destinationCurrency: cashAssetAddress(chainKey),
+    amountBaseUnits: parseUnits(amount.trim(), 6).toString(),
+    userAddress: solanaAddress,
+    recipientAddress: to.trim(),
+    waiveAppFee: true,
+  };
+}
+
+/** What the recipient gets for a home withdrawal to another network (shown before confirming). */
+export async function quoteHomeWithdrawal(chainKey: ChainKey, solanaAddress: string, to: string, amount: string): Promise<QuoteSummary> {
+  return summarizeQuote(await getRelayQuote(homeWithdrawalParams(chainKey, solanaAddress, to, amount)), assetDecimalsForChain(chainKey, cashAssetSymbol(chainKey)) ?? 6);
+}
+
+export async function withdrawFromHome(chainKey: ChainKey, accounts: DerivedAccounts, to: string, amount: string): Promise<{hash: string; requestId?: string}> {
+  if (!accounts.solana?.address) throw new Error('This wallet has no Solana account. Nothing was sent.');
+  const params = homeWithdrawalParams(chainKey, accounts.solana.address, to, amount);
+  const result = await executeRelayQuote(await getRelayQuote(params), accounts, undefined, {requote: () => getRelayQuote(params)});
+  if (result.status === 'refunded') throw new Error('The transfer could not be completed and was refunded to your Solana USDC.');
+  return {hash: result.txHashes[result.txHashes.length - 1] ?? '', requestId: result.requestId ?? undefined};
 }
