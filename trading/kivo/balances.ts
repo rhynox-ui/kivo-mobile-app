@@ -150,7 +150,7 @@ export async function readUsdcBalance(chainKey: ChainKey, owner: string): Promis
   const decimals = assetDecimalsForChain(chainKey, cashSymbol) ?? 6;
   return readTokenBalance(chainKey, address, owner, cashSymbol, decimals);
 }
-const SOLANA_READ_RPCS = [
+export const SOLANA_READ_RPCS = [
   'https://solana-rpc.publicnode.com',
   'https://api.mainnet.solana.com',
   'https://rpc.solanatracker.io/public',
