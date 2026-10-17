@@ -509,8 +509,8 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
             <View style={styles.card}>
               <Text style={styles.cardLabel}>YOU PAY</Text>
               <View style={styles.cardRow}>
-                <AssetChip symbol={side === 'buy' ? 'USD' : token!.symbol} uri={side === 'buy' ? null : token!.imageUrl} />
-                <TextInput ref={amountRef} editable={!disabledInput} value={amount} onChangeText={value => setAmount(normalizeAmountInput(value))} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.amountInput} accessibilityLabel={side === 'buy' ? 'Dollars to spend' : `${token!.symbol} to sell`} />
+                <AssetChip symbol={side === 'buy' ? 'USDC' : token!.symbol} uri={side === 'buy' ? null : token!.imageUrl} />
+                <TextInput ref={amountRef} editable={!disabledInput} value={amount} onChangeText={value => setAmount(normalizeAmountInput(value))} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.amountInput} accessibilityLabel={side === 'buy' ? 'USDC to spend' : `${token!.symbol} to sell`} />
               </View>
               <Text style={styles.avail}>{!wallet ? '' : available != null ? (side === 'buy' ? `${settings.hideBalances ? '••••' : formatBalanceUsd(available)} avail.` : `${formatAmount(available)} avail.`) : side === 'sell' && balanceError ? 'Balance unavailable' : 'Reading balance…'}</Text>
             </View>
@@ -723,13 +723,9 @@ function AssetChip({ symbol, uri }: { symbol: string; uri?: string | null }) {
   // A logo that fails to load falls back to the letter mark.
   const [failed, setFailed] = useState(false);
   useEffect(() => { setFailed(false); }, [imageUri]);
-  const isDollar = symbol === 'USD';
   return (
     <View style={styles.chipAsset}>
-      {isDollar ? (
-        // A buy pays from your whole balance (USDC, USDT, ETH, SOL…), shown in dollars.
-        <View style={[styles.chipIcon, styles.chipDollar]}><Text style={styles.chipDollarText}>$</Text></View>
-      ) : imageUri && !failed ? (
+      {imageUri && !failed ? (
         <Image source={{ uri: imageUri }} onError={() => setFailed(true)} style={styles.chipIcon} resizeMode="contain" />
       ) : (
         <View style={styles.chipIcon}><Text style={styles.chipLetter}>{symbol.slice(0, 1).toUpperCase()}</Text></View>
@@ -823,8 +819,6 @@ const styles = StyleSheet.create({
   chipAsset: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.surfaceRaised, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 3 },
   chipIcon: { width: 16, height: 16, borderRadius: 8, backgroundColor: c.background, alignItems: 'center', justifyContent: 'center' },
   chipLetter: { color: c.cream, fontWeight: '900', fontSize: 8 },
-  chipDollar: { backgroundColor: '#2FD67B' },
-  chipDollarText: { color: '#032521', fontWeight: '900', fontSize: 11, lineHeight: 13 },
   chipSymbol: { color: c.text, fontWeight: '700', fontSize: 11 },
   amountInput: { flex: 1, minWidth: 0, color: c.text, fontSize: 16, fontWeight: '600', textAlign: 'right', paddingVertical: 0 },
   receive: { flex: 1, minWidth: 0, color: c.text, fontSize: 16, fontWeight: '600', textAlign: 'right' },
