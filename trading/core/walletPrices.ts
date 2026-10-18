@@ -6,7 +6,7 @@
 // only long-established, unambiguous ids; a native asset with no entry
 // here shows no price rather than a guessed one. This unblocks two real
 // gaps this app had with no price feed at all: the large-trade fee cap
-// (appFeeBps/appFeeBpsForSponsoredTrade in fees.ts already implement it,
+// (kivoFeeBps/appFeeBpsForSponsoredTrade in fees.ts already implement it,
 // but nothing ever passed a real originAmountUsd for them to cap
 // against) and the fallback-trade fee sweep (fallbackDex.ts's own
 // sweepFallbackFeeFromNativeBalance).

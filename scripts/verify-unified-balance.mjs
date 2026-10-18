@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import {nativeSpendable, spendOrder, spendableFor, totalSpendableUsd} from '../trading/kivo/spendable.ts';
 import {legUnits, runLegsByNetwork} from '../trading/kivo/unified.ts';
-import {appFeeBps} from '../trading/core/fees.ts';
+import {kivoFeeBps, kivoFeeUsd} from '../trading/core/fees.ts';
 import {isNativeToken, marketAddressFor} from '../trading/kivo/tokens.ts';
 import {looksLikeSpamToken} from '../trading/kivo/portfolio.ts';
 
@@ -39,14 +39,21 @@ assert.equal(legUnits(eth, 1), '0.000500');
 assert.ok(Number(legUnits(eth, 2)) <= eth.spendableAmount);
 assert.equal(legUnits(balance.assets[1], 1.239), '1.239000');
 
-// One fee per order: a flat 0.5% (capped at $50) of the whole order, shared across the legs.
+// One fee per order: kivoFeeUsd of the whole order (on the token's own chain),
+// shared across the legs as bps of the order — never once per leg.
 const order = 10;
-const bps = Number(appFeeBps(order));
+const baseToken = {chainKey: 'base', tokenAddress: '0x1111111111111111111111111111111111111111'};
+const bps = Number(kivoFeeBps({amountUsd: order, ...baseToken}));
 assert.equal(bps, 50);
 const legFees = [4, 3, 2, 1].reduce((sum, leg) => sum + leg * bps / 10_000, 0);
 assert.ok(Math.abs(legFees - order * 0.005) < 1e-9);
-assert.equal(Number(appFeeBps(2)), 50, 'no small-trade minimum');
-assert.equal(Number(appFeeBps(20_000)), 25, 'capped at $50');
+assert.equal(Number(kivoFeeBps({amountUsd: 2, ...baseToken})), 50, 'no minimum off Solana');
+assert.equal(Number(kivoFeeBps({amountUsd: 20_000, ...baseToken})), 25, 'capped at $50');
+// Solana: the order-level minimum (min(2%, $0.95)) is shared too, not charged per leg.
+const solToken = {chainKey: 'solana', tokenAddress: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'};
+const solBps = Number(kivoFeeBps({amountUsd: 50, ...solToken}));
+assert.equal(solBps, 190);
+assert.ok(Math.abs([30, 20].reduce((sum, leg) => sum + leg * solBps / 10_000, 0) - kivoFeeUsd({amountUsd: 50, ...solToken})) < 1e-9);
 
 // Networks run in parallel, legs on one network one after another.
 async function checkParallel() {

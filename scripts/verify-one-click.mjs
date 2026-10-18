@@ -209,7 +209,7 @@ const FEE_ACCOUNT = '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9
 assert.deepEqual(oneClickAppFees(100, FEE_ACCOUNT), [{recipient: FEE_ACCOUNT, fee: 50}]);
 assert.deepEqual(oneClickAppFees(undefined, FEE_ACCOUNT), [{recipient: FEE_ACCOUNT, fee: 50}]);
 assert.deepEqual(oneClickAppFees(10_000, FEE_ACCOUNT), [{recipient: FEE_ACCOUNT, fee: 50}]);
-ok('NEAR routes charge the same 0.5% (50 bps) as Relay trades');
+ok('NEAR routes charge the other-chains rate (0.5%, 50 bps) like Relay trades off Solana');
 assert.deepEqual(oneClickAppFees(20_000, FEE_ACCOUNT), [{recipient: FEE_ACCOUNT, fee: 25}]);
 assert.deepEqual(oneClickAppFees(100_000, FEE_ACCOUNT), [{recipient: FEE_ACCOUNT, fee: 5}]);
 ok('and the same $50 cap on large trades');

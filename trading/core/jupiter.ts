@@ -1,5 +1,6 @@
 // Solana trades straight on Jupiter, with Kivo's Solana fee payer covering
-// network fees and new token-account rent (signAndSendSponsoredSolanaStep:
+// network fees (absorbed by Kivo) and new token-account rent (recovered at
+// cost: the user's refundable deposit) (signAndSendSponsoredSolanaStep:
 // spend guard, simulation, Kivo co-signature, broadcast).
 //
 // Jupiter's keyless API is tried first; Kivo's /api/jupiter proxy (which can

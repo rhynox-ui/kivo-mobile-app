@@ -11,14 +11,14 @@
 //   - what happened: the user's own call results from the relayer, read
 //     the site's way (nearOutcome.ts) — a refunded swap is never "Bought".
 //
-// Mango's fee (0.5%, DEV_FEE_WALLET_NEAR) is always taken in USDC and sent
+// Mango's fee (fees.ts kivoFeeUsd, DEV_FEE_WALLET_NEAR) is always taken in USDC and sent
 // as its own call only AFTER the swap is confirmed: a Buy pays it from the
 // USDC it set aside, a Sell from the USDC it just received. A cancelled
 // swap pays no fee; a partly filled one pays the same share. NEAR gas is
 // covered by Mango (it costs a fraction of a cent per swap).
 
 import {NATIVE_NEAR, NEAR_USDC, NEAR_USDC_DECIMALS, WRAP_NEAR, TOKEN_ADDRESSES, assetDecimalsForChain, type ChainKey} from './chainData.ts';
-import {DEV_FEE_WALLET_NEAR, appFeeBps} from './fees.ts';
+import {DEV_FEE_WALLET_NEAR, kivoFeeUsd} from './fees.ts';
 import {IntearRouteError, assertIntearRouteSafe, feeTransaction, fetchIntearRoutes, pickSafeRoute, type IntearRoute, type SafeRoute} from './intearRouter.ts';
 import {classifySwapOutcomes, type SwapOutcomeStatus} from './nearOutcome.ts';
 import {nearRpc, nearView} from './nearRpc.ts';
@@ -205,11 +205,17 @@ export async function fetchNearTokenBalance(tokenId: string, accountId: string, 
   return readNearTokenBalance(tokenId, accountId, view);
 }
 
-/** Mango's fee on `usdcUnits` of USDC — 0.5%, capped at $50 (fees.ts appFeeBps). */
-export function nearTradeFee(usdcUnits: bigint): bigint {
+/**
+ * Kivo's fee on `usdcUnits` of USDC for a NEAR trade of `token` — the
+ * "other chains" rule (fees.ts kivoFeeUsd: 0.5%, 0.45% referred, capped at
+ * $50). Exact to 1 ppm, never rounded up.
+ */
+export function nearTradeFee(usdcUnits: bigint, token?: string | null): bigint {
   if (usdcUnits <= 0n) return 0n;
   const usd = Number(usdcUnits) / 10 ** NEAR_USDC_DECIMALS;
-  return (usdcUnits * BigInt(appFeeBps(usd))) / 10_000n;
+  const feeUsd = kivoFeeUsd({amountUsd: usd, chainKey: 'near', tokenAddress: token ?? null});
+  const ppm = BigInt(Math.max(0, Math.floor((feeUsd / usd) * 1_000_000)));
+  return (usdcUnits * ppm) / 1_000_000n;
 }
 
 export type NearTradeStage = {
@@ -279,7 +285,7 @@ export async function quoteNearTrade({
   const buy = side === 'buy';
   const tokenIn = buy ? NEAR_USDC : token;
   const tokenOut = buy ? token : NEAR_USDC;
-  const buyFee = buy ? nearTradeFee(payUnits) : 0n;
+  const buyFee = buy ? nearTradeFee(payUnits, token) : 0n;
   const swapIn = payUnits - buyFee;
   if (swapIn <= 0n) throw new NearTradeError('This amount is too small to trade.');
   const routes = await fetchIntearRoutes({tokenIn, tokenOut, amountIn: swapIn, slippageBps: bps, accountId, fetchImpl});
@@ -338,7 +344,7 @@ export async function quoteNearTrade({
   }
 
   if (!route) throw new NearTradeError(routes.length ? 'No safe route for this trade right now.' : 'No NEAR exchange can fill this trade right now.');
-  const fee = buy ? buyFee : nearTradeFee(route.minOut);
+  const fee = buy ? buyFee : nearTradeFee(route.minOut, token);
   return {
     side,
     token,
