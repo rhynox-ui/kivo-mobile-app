@@ -267,7 +267,7 @@ function TokenRow({ result, onPress, saved, onToggleSaved }: { result: TokenSear
           </Text>
         </View>
         <View style={styles.priceCol}>
-          <Text style={styles.price}>{result.priceUsd != null ? '}</Text>
+          <Text style={styles.price}>{result.priceUsd != null ? '$' + result.priceUsd.toPrecision(4) : '—'}</Text>
           {result.change24h != null ? <Text style={[styles.change, { color: positive ? kivoTheme.colors.success : kivoTheme.colors.danger }]}>{positive ? '▲' : '▼'} {Math.abs(result.change24h).toFixed(2)}%</Text> : null}
         </View>
       </Pressable>
