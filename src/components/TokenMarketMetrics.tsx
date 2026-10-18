@@ -56,7 +56,9 @@ export function loadSnapshot(chain: string, address: string): Promise<Snapshot> 
       pairs.sort((a, b) => (Number(b.liquidity?.usd) || 0) - (Number(a.liquidity?.usd) || 0));
       const pair = pairs[0];
       if (!pair) return (await fromGeckoTerminal(chain, address)) ?? (chain.toLowerCase() === 'solana' ? await fromJupiter(address) : null) ?? { marketCapUsd: null, change24h: null };
-      return { marketCapUsd: Number.isFinite(pair?.marketCap) && Number(pair?.marketCap) > 0 ? Number(pair?.marketCap) : null, change24h: Number.isFinite(pair?.priceChange?.h24) ? Number(pair?.priceChange?.h24) : null, imageUrl: httpsOrNull(pair?.info?.imageUrl) };
+      // DexScreener often lists a pair before it has the logo: borrow it from GeckoTerminal or Jupiter.
+      const imageUrl = httpsOrNull(pair?.info?.imageUrl) ?? (await fromGeckoTerminal(chain, address))?.imageUrl ?? (chain.toLowerCase() === 'solana' ? (await fromJupiter(address))?.imageUrl : null) ?? null;
+      return { marketCapUsd: Number.isFinite(pair?.marketCap) && Number(pair?.marketCap) > 0 ? Number(pair?.marketCap) : null, change24h: Number.isFinite(pair?.priceChange?.h24) ? Number(pair?.priceChange?.h24) : null, imageUrl };
     } catch { return { marketCapUsd: null, change24h: null }; }
   })();
   cache.set(key, request);
