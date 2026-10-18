@@ -2,6 +2,8 @@
 import type {KeyValueStorage} from '../storage';
 import type {ProfileSocial, PublicCommunityCard} from './types';
 import type {ApiBan, CallStats, CommunityGate, GateCheck, ApiCommunity, ApiConversation, ApiMember, ApiMessage, ApiProfile, AuthChallenge, AuthSession, CommunityKind, CommunitySettingsInput, ProfileApprovalChallenge, ProfileLinks, SyncResponse} from './types';
+
+export type WatchlistToken = {chainKey: string; tokenAddress: string; symbol: string; name: string; imageUrl: string | null; savedAt: number};
 import {kivoUserIdForWallet, normalizeWalletAddress} from './types';
 
 export type FeedPost = {
@@ -183,6 +185,9 @@ export class KivoApi {
   }
 
   me() { return this.request<ApiProfile>('GET', '/api/me'); }
+  watchlist() { return this.request<WatchlistToken[]>('GET', '/api/watchlist'); }
+  saveWatchlistToken(token: Pick<WatchlistToken, 'chainKey' | 'tokenAddress' | 'symbol' | 'name' | 'imageUrl'>) { return this.request<{token: WatchlistToken}>('PUT', '/api/watchlist', token); }
+  removeWatchlistToken(chainKey: string, tokenAddress: string) { return this.request<{removed: boolean}>('DELETE', `/api/watchlist?chain=${encodeURIComponent(chainKey)}&address=${encodeURIComponent(tokenAddress)}`); }
   requestProfileApproval(input: {username: string; bio: string; avatarAction: 'keep' | 'remove' | 'upload'; links?: ProfileLinks}) {
     return this.request<ProfileApprovalChallenge>('POST', '/api/profile/approval-challenge', input);
   }
