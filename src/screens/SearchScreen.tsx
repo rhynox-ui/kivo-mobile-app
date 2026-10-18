@@ -7,8 +7,13 @@ import { nativeKivoToken, toKivoToken, type KivoToken } from '@kivo/trading/kivo
 import type { ChainKey } from '@kivo/trading/core/chainData';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { TOKEN_SORT_OPTIONS, sortTokens, type TokenSortKey } from '@kivo/trading/kivo/sort';
+import type { WatchlistToken } from '@kivo/shared/api/client';
+import { api } from '../state/session';
 
 type TokenSearchResult = KivoToken;
+
+const tokenKey = (token: Pick<KivoToken, 'chainKey' | 'tokenAddress'>) => `${token.chainKey}:${/^0x[0-9a-fA-F]{40}$/.test(token.tokenAddress) ? token.tokenAddress.toLowerCase() : token.tokenAddress}`;
+const savedToToken = (token: WatchlistToken): KivoToken => toKivoToken({chainKey: token.chainKey as ChainKey, tokenAddress: token.tokenAddress, symbol: token.symbol, name: token.name, imageUrl: token.imageUrl, priceUsd: null, change24h: null, marketCapUsd: null});
 
 /** Network coins offered alongside tokens, so ETH, SOL, BNB… can be bought and sold like any token. */
 const NATIVE_COIN_CHAINS: ChainKey[] = ['solana', 'base', 'ethereum', 'bnb', 'arbitrum', 'avalanche', 'robinhood', 'unichain', 'ink'];
@@ -25,6 +30,11 @@ export const TRADE_CHAIN_ORDER: TradeChain[] = (['solana', 'base', 'ethereum', '
 
 export function SearchScreen({ onSelectToken, initialChain }: { onSelectToken?: (result: TokenSearchResult) => void; initialChain?: TradeChain | null }) {
   const [query, setQuery] = useState('');
+  const [watchlistMode, setWatchlistMode] = useState(false);
+  const [savedTokens, setSavedTokens] = useState<WatchlistToken[]>([]);
+  const [watchlistResults, setWatchlistResults] = useState<KivoToken[]>([]);
+  const [watchlistError, setWatchlistError] = useState('');
+  const [watchlistLoading, setWatchlistLoading] = useState(false);
   const [results, setResults] = useState<TokenSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -65,12 +75,44 @@ export function SearchScreen({ onSelectToken, initialChain }: { onSelectToken?: 
     });
     return () => { active = false; };
   }, [chainFilter]);
+  useEffect(() => {
+    let active = true;
+    const loadWatchlist = async () => {
+      if (!api.isSignedIn()) { if (active) { setSavedTokens([]); setWatchlistResults([]); } return; }
+      try {
+        const saved = await api.watchlist();
+        if (!active) return;
+        setSavedTokens(saved);
+        setWatchlistResults(saved.map(savedToToken));
+        setWatchlistError('');
+        // Refresh market quotes in small batches without dropping saved entries when a provider has no quote.
+        for (let i = 0; i < saved.length; i += 5) {
+          const batch = await Promise.all(saved.slice(i, i + 5).map(async item => {
+            try {
+              const found = await searchTokens(item.tokenAddress);
+              return found.map(toKivoToken).find(token => tokenKey(token) === tokenKey({chainKey: item.chainKey as ChainKey, tokenAddress: item.tokenAddress})) ?? null;
+            } catch { return null; }
+          }));
+          if (!active) return;
+          const byKey = new Map(batch.filter((token): token is KivoToken => Boolean(token)).map(token => [tokenKey(token), token]));
+          setWatchlistResults(current => current.map(token => byKey.get(tokenKey(token)) ?? token));
+        }
+      } catch (error) {
+        if (active) setWatchlistError(error instanceof Error ? error.message : 'Could not load your Watchlist.');
+      }
+    };
+    const unsubscribe = api.onSessionChange(() => { void loadWatchlist(); });
+    if (api.isSignedIn()) void loadWatchlist();
+    return () => { active = false; unsubscribe(); };
+  }, []);
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef(0);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const trimmed = query.trim();
+    if (watchlistMode) { setLoading(false); setSearched(false); return; }
 
     if (!trimmed) {
       setResults([]);
@@ -101,19 +143,28 @@ export function SearchScreen({ onSelectToken, initialChain }: { onSelectToken?: 
       if (debounceRef.current) clearTimeout(debounceRef.current);
       requestIdRef.current += 1;
     };
-  }, [query, retry]);
+  }, [query, retry, watchlistMode]);
 
   const chainList = chainFilter !== 'All' && chainTrending?.chain === chainFilter ? chainTrending.tokens : null;
   // A search for "eth", "sol", "bnb"… also lists the network coins themselves.
   const needle = query.trim().toLowerCase();
   const nativeMatches = needle ? NATIVE_COINS.filter(coin => coin.symbol.toLowerCase().startsWith(needle) || tradeChainLabel(coin.chainKey).toLowerCase().startsWith(needle)) : [];
-  const source = query.trim() ? [...nativeMatches, ...results] : chainList ?? trending;
+  const source = watchlistMode ? watchlistResults.filter(token => !query.trim() || token.symbol.toLowerCase().includes(query.trim().toLowerCase()) || token.name.toLowerCase().includes(query.trim().toLowerCase()) || token.tokenAddress.toLowerCase().includes(query.trim().toLowerCase())) : query.trim() ? [...nativeMatches, ...results] : chainList ?? trending;
   const filtered = chainFilter === 'All' ? source : source.filter(item => item.chainKey === chainFilter);
   const visibleResults = sortTokens(filtered, sort);
 
   return (
     <View style={styles.root}>
       <View style={styles.filterBar} onLayout={event => setMenuTop(event.nativeEvent.layout.y + event.nativeEvent.layout.height + 4)}>
+        <Pressable onPress={() => {
+          if (!api.isSignedIn()) { setWatchlistError('Sign in to your Kivo account to sync your Watchlist across devices.'); return; }
+          setWatchlistError('');
+          setWatchlistMode(value => !value);
+          if (!watchlistMode) { setWatchlistLoading(true); api.watchlist().then(saved => { setSavedTokens(saved); setWatchlistResults(saved.map(savedToToken)); setWatchlistError(''); }).catch(error => setWatchlistError(error instanceof Error ? error.message : 'Could not load your Watchlist.')).finally(() => setWatchlistLoading(false)); }
+        }} style={styles.watchlistButton} accessibilityRole="button" accessibilityLabel={watchlistMode ? 'Show trending tokens' : 'Open Watchlist'} accessibilityState={{ selected: watchlistMode }}>
+          <Text style={[styles.watchlistStar, watchlistMode && styles.watchlistStarSaved]}>{watchlistMode ? '★' : '☆'}</Text>
+          <Text numberOfLines={1} style={styles.watchlistButtonText}>{watchlistMode ? 'Trending' : 'Watchlist'}</Text>
+        </Pressable>
         <Pressable onPress={() => setSortOpen(open => !open)} style={[styles.sortButton, sort !== 'default' && styles.sortButtonActive]} accessibilityRole="button" accessibilityLabel="Sort tokens" hitSlop={4}>
           <View style={[styles.sortLine, { width: 14 }]} /><View style={[styles.sortLine, { width: 10 }]} /><View style={[styles.sortLine, { width: 6 }]} />
         </Pressable>
@@ -148,10 +199,13 @@ export function SearchScreen({ onSelectToken, initialChain }: { onSelectToken?: 
           <Text style={styles.hint}>Try a token name, ticker, or another search term.</Text>
         </View>
       )}
+      {watchlistMode && !watchlistLoading && !visibleResults.length && !watchlistError ? <View style={styles.state}><Text style={styles.stateTitle}>Your Watchlist is empty</Text><Text style={styles.hint}>Tap a star beside any token to save it here.</Text></View> : null}
 
-      {!loading && !query.trim() && (
-        <Text style={styles.sectionTitle}>{chainFilter !== 'All' ? (chainList ? (chainList.length ? `Trending on ${tradeChainLabel(chainFilter)}` : chainTrending?.error || 'No trending tokens on this network right now.') : `Loading ${tradeChainLabel(chainFilter)}…`) : trending.length ? 'Trending tokens' : trendingError || 'Loading trending tokens…'}</Text>
+      {watchlistError ? <Text style={styles.watchlistMessage}>{watchlistError}</Text> : null}
+      {!loading && (watchlistMode || !query.trim()) && (
+        <Text style={styles.sectionTitle}>{watchlistMode ? 'Watchlist' : chainFilter !== 'All' ? (chainList ? (chainList.length ? `Trending on ${tradeChainLabel(chainFilter)}` : chainTrending?.error || 'No trending tokens on this network right now.') : `Loading ${tradeChainLabel(chainFilter)}…`) : trending.length ? 'Trending tokens' : trendingError || 'Loading trending tokens…'}</Text>
       )}
+      {watchlistMode && watchlistLoading ? <ActivityIndicator size="small" color={kivoTheme.colors.accent} /> : null}
 
       {visibleResults.length > 0 && (
         <FlatList
@@ -159,7 +213,19 @@ export function SearchScreen({ onSelectToken, initialChain }: { onSelectToken?: 
           keyExtractor={item => `${item.chainKey}:${item.tokenAddress}`}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.list}
-          renderItem={({ item }) => <TokenRow result={item} onPress={() => onSelectToken?.(item)} />}
+          renderItem={({ item }) => <TokenRow result={item} onPress={() => onSelectToken?.(item)} saved={savedTokens.some(saved => tokenKey({chainKey: saved.chainKey as ChainKey, tokenAddress: saved.tokenAddress}) === tokenKey(item))} onToggleSaved={() => {
+            if (!api.isSignedIn()) { setWatchlistError('Sign in to your Kivo account to save tokens across devices.'); return; }
+            setWatchlistError('');
+            const existing = savedTokens.some(saved => tokenKey({chainKey: saved.chainKey as ChainKey, tokenAddress: saved.tokenAddress}) === tokenKey(item));
+            if (existing) {
+              setSavedTokens(current => current.filter(saved => tokenKey({chainKey: saved.chainKey as ChainKey, tokenAddress: saved.tokenAddress}) !== tokenKey(item)));
+              setWatchlistResults(current => current.filter(saved => tokenKey(saved) !== tokenKey(item)));
+              void api.removeWatchlistToken(item.chainKey, item.tokenAddress).catch(error => { setWatchlistError(error instanceof Error ? error.message : 'Could not remove token.'); void api.watchlist().then(saved => { setSavedTokens(saved); setWatchlistResults(saved.map(savedToToken)); }).catch(() => {}); });
+            } else {
+              const entry = {chainKey: item.chainKey, tokenAddress: item.tokenAddress, symbol: item.symbol, name: item.name, imageUrl: item.imageUrl ?? null};
+              void api.saveWatchlistToken(entry).then(({token}) => { setSavedTokens(current => [...current.filter(saved => tokenKey({chainKey: saved.chainKey as ChainKey, tokenAddress: saved.tokenAddress}) !== tokenKey(item)), token]); setWatchlistResults(current => [...current.filter(saved => tokenKey(saved) !== tokenKey(item)), item]); setWatchlistError(''); }).catch(error => setWatchlistError(error instanceof Error ? error.message : 'Could not save token.'));
+            }
+          }} />
         />
       )}
 
@@ -181,43 +247,44 @@ export function SearchScreen({ onSelectToken, initialChain }: { onSelectToken?: 
   );
 }
 
-function TokenRow({ result, onPress }: { result: TokenSearchResult; onPress: () => void }) {
+function TokenRow({ result, onPress, saved, onToggleSaved }: { result: TokenSearchResult; onPress: () => void; saved: boolean; onToggleSaved: () => void }) {
   const positive = (result.change24h ?? 0) >= 0;
   const marketCap = fmtCompactUsd(result.marketCapUsd);
 
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
-      {result.imageUrl ? (
-        <Image source={{ uri: result.imageUrl }} style={styles.icon} />
-      ) : (
-        <View style={styles.iconFallback}><Text style={styles.iconLetter}>{result.symbol.slice(0, 1).toUpperCase()}</Text></View>
-      )}
-
-      <View style={styles.copy}>
-        <Text style={styles.symbol} numberOfLines={1}>{result.symbol}</Text>
-        <Text style={styles.meta} numberOfLines={1}>
-          {tradeChainLabel(result.chainKey)}
-          {marketCap ? ` · ${marketCap} MC` : ''}
-        </Text>
-      </View>
-
-      <View style={styles.priceCol}>
-        <Text style={styles.price}>
-          {result.priceUsd != null ? `$${result.priceUsd.toPrecision(4)}` : '—'}
-        </Text>
-        {result.change24h != null && (
-          <Text style={[styles.change, { color: positive ? kivoTheme.colors.success : kivoTheme.colors.danger }]}>
-            {positive ? '▲' : '▼'} {Math.abs(result.change24h).toFixed(2)}%
-          </Text>
+    <View style={styles.row}>
+      <Pressable onPress={onPress} style={({ pressed }) => [styles.tokenMain, pressed && styles.rowPressed]}>
+        {result.imageUrl ? (
+          <Image source={{ uri: result.imageUrl }} style={styles.icon} />
+        ) : (
+          <View style={styles.iconFallback}><Text style={styles.iconLetter}>{result.symbol.slice(0, 1).toUpperCase()}</Text></View>
         )}
-      </View>
-    </Pressable>
+        <View style={styles.copy}>
+          <Text style={styles.symbol} numberOfLines={1}>{result.symbol}</Text>
+          <Text style={styles.meta} numberOfLines={1}>
+            {tradeChainLabel(result.chainKey)}
+            {marketCap ? ` · ${marketCap} MC` : ''}
+          </Text>
+        </View>
+        <View style={styles.priceCol}>
+          <Text style={styles.price}>{result.priceUsd != null ? `${result.priceUsd.toPrecision(4)}` : '—'}</Text>
+          {result.change24h != null ? <Text style={[styles.change, { color: positive ? kivoTheme.colors.success : kivoTheme.colors.danger }]}>{positive ? '▲' : '▼'} {Math.abs(result.change24h).toFixed(2)}%</Text> : null}
+      </Pressable>
+      <Pressable onPress={onToggleSaved} style={styles.rowStarButton} accessibilityRole="button" accessibilityLabel={saved ? 'Remove from Watchlist' : 'Add to Watchlist'} accessibilityState={{ selected: saved }} hitSlop={8}>
+        <Text style={[styles.rowStar, saved && styles.rowStarSaved]}>{saved ? '★' : '☆'}</Text>
+      </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: kivoTheme.colors.background, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 0 },
   filterBar: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  watchlistButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 5, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: kivoTheme.colors.border, backgroundColor: kivoTheme.colors.surface, flexShrink: 0 },
+  watchlistButtonText: { color: kivoTheme.colors.text, fontSize: 10, fontWeight: '800' },
+  watchlistStar: { color: kivoTheme.colors.textMuted, fontSize: 15, lineHeight: 17 },
+  watchlistStarSaved: { color: kivoTheme.colors.accent },
+  watchlistMessage: { color: kivoTheme.colors.textMuted, fontSize: 11, paddingVertical: 4 },
   filterScroll: { flexGrow: 0, flexShrink: 1 },
   sortButton: { width: 30, height: 28, borderRadius: 10, borderWidth: 1, borderColor: kivoTheme.colors.border, backgroundColor: kivoTheme.colors.surface, alignItems: 'center', justifyContent: 'center', gap: 2.5 },
   sortButtonActive: { borderColor: kivoTheme.colors.accent },
@@ -245,6 +312,10 @@ const styles = StyleSheet.create({
   list: { paddingTop: 4, paddingBottom: 28 },
   sectionTitle: { color: kivoTheme.colors.text, fontSize: 15, fontWeight: '800', marginTop: 6, marginBottom: 0 },
   row: { minHeight: 64, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: kivoTheme.colors.border, paddingVertical: 8 },
+  tokenMain: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center' },
+  rowStarButton: { width: 28, alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch' },
+  rowStar: { color: kivoTheme.colors.textMuted, fontSize: 23, lineHeight: 26 },
+  rowStarSaved: { color: kivoTheme.colors.accent },
   rowPressed: { opacity: 0.72 },
   icon: { width: 40, height: 40, borderRadius: 13, backgroundColor: kivoTheme.colors.surfaceRaised },
   iconFallback: { width: 40, height: 40, borderRadius: 13, backgroundColor: kivoTheme.colors.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
