@@ -267,7 +267,66 @@ function TokenRow({ result, onPress, saved, onToggleSaved }: { result: TokenSear
           </Text>
         </View>
         <View style={styles.priceCol}>
-          <Text style={styles.price}>{result.priceUsd != null ? `${result.priceUsd.toPrecision(4)}` : '—'}</Text>
+          <Text style={styles.price}>{result.priceUsd != null ? '}</Text>
+          {result.change24h != null ? <Text style={[styles.change, { color: positive ? kivoTheme.colors.success : kivoTheme.colors.danger }]}>{positive ? '▲' : '▼'} {Math.abs(result.change24h).toFixed(2)}%</Text> : null}
+      </Pressable>
+      <Pressable onPress={onToggleSaved} style={styles.rowStarButton} accessibilityRole="button" accessibilityLabel={saved ? 'Remove from Watchlist' : 'Add to Watchlist'} accessibilityState={{ selected: saved }} hitSlop={8}>
+        <Text style={[styles.rowStar, saved && styles.rowStarSaved]}>{saved ? '★' : '☆'}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: kivoTheme.colors.background, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 0 },
+  filterBar: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  watchlistButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 5, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: kivoTheme.colors.border, backgroundColor: kivoTheme.colors.surface, flexShrink: 0 },
+  watchlistButtonText: { color: kivoTheme.colors.text, fontSize: 10, fontWeight: '800' },
+  watchlistStar: { color: kivoTheme.colors.textMuted, fontSize: 15, lineHeight: 17 },
+  watchlistStarSaved: { color: kivoTheme.colors.accent },
+  watchlistMessage: { color: kivoTheme.colors.textMuted, fontSize: 11, paddingVertical: 4 },
+  filterScroll: { flexGrow: 0, flexShrink: 1 },
+  sortButton: { width: 30, height: 28, borderRadius: 10, borderWidth: 1, borderColor: kivoTheme.colors.border, backgroundColor: kivoTheme.colors.surface, alignItems: 'center', justifyContent: 'center', gap: 2.5 },
+  sortButtonActive: { borderColor: kivoTheme.colors.accent },
+  sortLine: { height: 1.5, borderRadius: 1, backgroundColor: kivoTheme.colors.cream },
+  sortBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20 },
+  sortMenu: { position: 'absolute', left: 16, right: 16, zIndex: 21, elevation: 12, borderRadius: kivoTheme.radius.lg, backgroundColor: kivoTheme.colors.surface, borderWidth: 1, borderColor: kivoTheme.colors.border, paddingVertical: 10 },
+  sortHeading: { color: kivoTheme.colors.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 1.2, paddingHorizontal: 18, paddingTop: 4, paddingBottom: 6 },
+  sortItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 11 },
+  sortItemText: { color: kivoTheme.colors.text, fontSize: 14.5, fontWeight: '700' },
+  sortItemTextActive: { color: kivoTheme.colors.accent },
+  sortCheck: { color: kivoTheme.colors.accent, fontSize: 16, fontWeight: '900' },
+  filters: { flexDirection: 'row', gap: 6, paddingRight: 16 },
+  filter: { paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999, backgroundColor: kivoTheme.colors.surface, borderWidth: 1, borderColor: kivoTheme.colors.border },
+  filterActive: { backgroundColor: kivoTheme.colors.cream, borderColor: kivoTheme.colors.cream },
+  filterText: { color: kivoTheme.colors.textMuted, fontSize: 10, fontWeight: '700' },
+  filterTextActive: { color: kivoTheme.colors.backgroundDeep },
+  searchBox: { minHeight: 38, borderRadius: 12, borderWidth: 1, borderColor: kivoTheme.colors.border, backgroundColor: kivoTheme.colors.surface, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 },
+  searchGlyph: { color: kivoTheme.colors.textMuted, fontSize: 18, lineHeight: 21, marginRight: 6 },
+  input: { flex: 1, color: kivoTheme.colors.text, fontSize: 14, paddingVertical: 6 },
+  state: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28, paddingBottom: 100 },
+  stateTitle: { color: kivoTheme.colors.text, fontSize: 18, fontWeight: '800', marginBottom: 7 },
+  hint: { color: kivoTheme.colors.textMuted, fontSize: 13, lineHeight: 20, textAlign: 'center' },
+  retry: { marginTop: 14, paddingHorizontal: 18, height: 38, borderRadius: 19, backgroundColor: kivoTheme.colors.surfaceRaised, justifyContent: 'center' },
+  retryText: { color: kivoTheme.colors.cream, fontWeight: '800' },
+  list: { paddingTop: 4, paddingBottom: 28 },
+  sectionTitle: { color: kivoTheme.colors.text, fontSize: 15, fontWeight: '800', marginTop: 6, marginBottom: 0 },
+  row: { minHeight: 64, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: kivoTheme.colors.border, paddingVertical: 8 },
+  tokenMain: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center' },
+  rowStarButton: { width: 28, alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch' },
+  rowStar: { color: kivoTheme.colors.textMuted, fontSize: 23, lineHeight: 26 },
+  rowStarSaved: { color: kivoTheme.colors.accent },
+  rowPressed: { opacity: 0.72 },
+  icon: { width: 40, height: 40, borderRadius: 13, backgroundColor: kivoTheme.colors.surfaceRaised },
+  iconFallback: { width: 40, height: 40, borderRadius: 13, backgroundColor: kivoTheme.colors.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
+  iconLetter: { color: kivoTheme.colors.cream, fontWeight: '800', fontSize: 15 },
+  copy: { flex: 1, minWidth: 0, marginLeft: 10, marginRight: 8 },
+  symbol: { color: kivoTheme.colors.text, fontSize: 15, fontWeight: '800' },
+  meta: { color: kivoTheme.colors.textMuted, fontSize: 11, marginTop: 2 },
+  priceCol: { alignItems: 'flex-end' },
+  price: { color: kivoTheme.colors.text, fontSize: 13.5, fontWeight: '800' },
+  change: { fontSize: 11, fontWeight: '800', marginTop: 2 },
+}); + result.priceUsd.toPrecision(4) : '—'}</Text>
           {result.change24h != null ? <Text style={[styles.change, { color: positive ? kivoTheme.colors.success : kivoTheme.colors.danger }]}>{positive ? '▲' : '▼'} {Math.abs(result.change24h).toFixed(2)}%</Text> : null}
       </Pressable>
       <Pressable onPress={onToggleSaved} style={styles.rowStarButton} accessibilityRole="button" accessibilityLabel={saved ? 'Remove from Watchlist' : 'Add to Watchlist'} accessibilityState={{ selected: saved }} hitSlop={8}>
