@@ -117,7 +117,7 @@ export function SearchScreen({ onSelectToken, initialChain }: { onSelectToken?: 
   const openWatchlist = async () => {
     if (!watchlistMode && !socialReady()) {
       try { await enableSocial(); }
-      catch (error) { setWatchlistError(error instanceof Error ? error.message : 'Sign in to use your Watchlist.'); return; }
+      catch (error) { setWatchlistError(error instanceof Error ? error.message : 'Sign in to use your Watchlist.'); setWatchlistMode(true); return; }
     }
     setWatchlistError('');
     setWatchlistMode(value => !value);
