@@ -10,6 +10,7 @@ import { getWalletSession, subscribeToWallet, type WalletSession } from '../stat
 import { api, storage, useSocialReady } from '../state/session';
 import { useChatState } from '../state/useChat';
 import { updateSettings, useSettings } from '../state/settingsStore';
+import { referralLink, referralShareMessage } from '../state/referrals';
 import { hasProfileLinks, type ProfileLinks, type ProfileSocial } from '@kivo/shared/api/types';
 import { ProfileLinkChips } from '../components/ProfileLinks';
 import { CallStatsCard } from '../components/CallStatsCard';
@@ -309,7 +310,7 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
           </Pressable>
           <View style={styles.identityActions}>
             <Pressable onPress={onOpenNotifications} style={styles.iconButton} accessibilityLabel="Notifications"><Text style={styles.iconButtonText}>🔔</Text></Pressable>
-            <Pressable onPress={() => Share.share({ message: `@${profile.username} on Kivo · https://kivo-web.pages.dev/u/${encodeURIComponent(profile.userId)}` }).catch(() => {})} style={styles.iconButton} accessibilityLabel="Share profile"><Text style={styles.iconButtonText}>⇪</Text></Pressable>
+            <Pressable onPress={() => Share.share({ message: `${referralShareMessage(referralLink(profile.username))}\n\n@${profile.username} on Kivo · https://kivo-web.pages.dev/u/${encodeURIComponent(profile.userId)}` }).catch(() => {})} style={styles.iconButton} accessibilityLabel="Share profile"><Text style={styles.iconButtonText}>⇪</Text></Pressable>
           </View>
         </View>
         <View style={styles.usernameRow}>
