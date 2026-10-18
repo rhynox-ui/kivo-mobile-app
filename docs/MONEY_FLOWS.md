@@ -59,15 +59,25 @@ never has to think about networks.
 
 Users never need SOL or ETH for gas.
 
-- **Kivo app fee:** 0.5% of the trade, capped at $50
-  (`trading/core/fees.ts`, `appFeeBps`). Waived on withdrawals and for Kivo's own wallets.
+- **Kivo app fee** (`trading/core/fees.ts`, `kivoFeeUsd` — the one place it is
+  computed; `kivoFeeBps` derives the bps sent to Relay/1Click/aggregators).
+  "pct" is 0.5%, or 0.45% for referred users.
+  - **Solana** (Kivo pays the network fee): `max(pct × amount, min(2% × amount, $0.95))`.
+    $10 → $0.20, $25 → $0.50, $50–$190 → $0.95, $250 → $1.25, $500 → $2.50, $1,000 → $5.00.
+  - **Every other chain** (Base, BNB, Ethereum, Arbitrum, Robinhood, NEAR…): `pct × amount`.
+  - **Blue chips** (SOL/wSOL, ETH/WETH, WBTC/cbBTC/BTCB, BNB/WBNB — explicit
+    per-chain list `BLUE_CHIP_TOKENS`, `isBlueChip`): 0.05% (0.045% referred), no minimum.
+  - Classified by the token bought or sold (never the USDC side), on its own
+    chain; capped at $50 per trade. Waived on withdrawals and for Kivo's own wallets.
 - **EVM gas:** sponsored through Relay (gasless EIP-7702 + Calibur batch). The
   Kivo server keeps the sponsored cost at or below 80% of the app fee and
   raises that trade's fee if needed, never above 5%.
-- **Solana fees:** Kivo's fee payer (`2ApuoL…amki`) pays the network fee, new
-  token-account rent and priority fee up front, and recovers the cost **plus a
-  25% margin** in the same transaction, in USDC (falling back to SOL)
-  (`trading/core/executeRelayQuote.ts`, `SPONSORSHIP_RECOVERY_MARGIN_PCT`).
+- **Solana fees:** Kivo's fee payer (`2ApuoL…amki`) pays the network fee,
+  priority fee and new token-account rent up front. Kivo **absorbs the network
+  and priority fee** (no margin). Only the one-time token-account rent (the
+  user's refundable deposit) and any SOL top-up are recovered at cost (+1%
+  USDC→SOL conversion buffer) in the same transaction, in USDC (falling back to
+  SOL) (`trading/core/executeRelayQuote.ts`, `estimateRecoverableRentLamports`).
 - **Kivo's fee wallets can't sponsor themselves.** Trading from the fee wallet
   without SOL shows: "This is Kivo's fee wallet, so Kivo can't cover its
   fees…". Test with a separate wallet; keep the fee wallets as treasury only.

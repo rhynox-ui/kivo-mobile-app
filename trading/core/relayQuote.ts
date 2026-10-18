@@ -14,7 +14,7 @@
 // from the REQUEST body, never read back out of the response, or the
 // check would be circular and worthless.
 //
-// Fee: Kivo's app fee stays at its normal 0.5% rate. Sponsorship is
+// Fee: Kivo's app fee stays at its normal rate (fees.ts kivoFeeUsd). Sponsorship is
 // independent from the app fee: Relay's granular sponsorship API lets us
 // sponsor execution only, so we do not inflate the user's app fee to hide
 // sponsorship losses or accidentally sponsor Kivo's own app fee.
@@ -49,7 +49,7 @@ import {formatUnits} from 'viem';
 import {currencyAddress, MAINNET_CHAIN_IDS, type ChainKey} from './chainData.ts';
 import {getViemChain} from './chainRegistry.ts';
 import {assertRelayGaslessEvmAvailable} from './relayGaslessEvm.ts';
-import {appFeeBps, feeRecipientForQuote, isFeeExemptWallet, maxSubsidizationAmountUsdcUnits} from './fees.ts';
+import {feeRecipientForQuote, feeTokenForTrade, isFeeExemptWallet, kivoFeeBps, maxSubsidizationAmountUsdcUnits, type FeeToken} from './fees.ts';
 import {buildTransactionIntent, type TransactionIntent} from './txIntentFirewall.ts';
 
 // Where quotes go and whether sponsorship is requested are set by each
@@ -118,6 +118,13 @@ export type GetRelayQuoteParams = {
   userAddress: string;
   recipientAddress?: string;
   originAmountUsd?: number | null;
+  /**
+   * The token this trade's fee is classified by (the token bought or sold,
+   * on its own chain). Omit to infer it from the two sides with
+   * feeTokenForTrade() — the non-USDC side; for a cross-chain trade, the
+   * chain where that token lives.
+   */
+  feeToken?: FeeToken;
   /** Basis-points string ("50" = 0.5%), or omit entirely for Auto — Relay's own front-running-aware default. Never a client-side guess: when set, this is the literal bound Relay quotes against and the number shown back in details.slippageTolerance.total. */
   slippageTolerance?: string;
   /** Extra origin gas reserved for Relay's Calibur/EIP-7702 gasless wrapper. Only set when Relay gasless execution is enabled. */
@@ -283,10 +290,16 @@ function isBetterExactInputQuote(candidate: RelayQuote, current: RelayQuote): bo
 
 export async function getRelayQuote(params: GetRelayQuoteParams): Promise<RelayQuote> {
   await assertQuoteOriginGaslessCapability(params);
-  const {fromChainKey, toChainKey, fromAsset, toAsset, originCurrency, destinationCurrency, amountBaseUnits, userAddress, recipientAddress, originAmountUsd, slippageTolerance, originGasOverhead, waiveAppFee, fundingTransfer, sweepHome} = params;
+  const {fromChainKey, toChainKey, fromAsset, toAsset, originCurrency, destinationCurrency, amountBaseUnits, userAddress, recipientAddress, originAmountUsd, feeToken, slippageTolerance, originGasOverhead, waiveAppFee, fundingTransfer, sweepHome} = params;
 
   const resolvedOriginCurrency = originCurrency ?? (fromAsset ? currencyAddress(fromChainKey, fromAsset) : undefined);
   const resolvedDestinationCurrency = destinationCurrency ?? (toAsset ? currencyAddress(toChainKey, toAsset) : undefined);
+  // Fee classification: the token being bought or sold, on its own chain
+  // (never the USDC/pay side). See fees.ts kivoFeeUsd().
+  const tradeFeeToken = feeToken ?? feeTokenForTrade(
+    {chainKey: fromChainKey, tokenAddress: resolvedOriginCurrency},
+    {chainKey: toChainKey, tokenAddress: resolvedDestinationCurrency},
+  );
   if (!resolvedOriginCurrency || !resolvedDestinationCurrency) {
     throw new Error('getRelayQuote requires either an explicit currency address or a resolvable asset symbol for both sides.');
   }
@@ -303,7 +316,7 @@ export async function getRelayQuote(params: GetRelayQuoteParams): Promise<RelayQ
   const feeExempt = isFeeExemptWallet(userAddress);
   const sponsorshipRequested = !waiveAppFee && RELAY_SPONSORSHIP_ENABLED && !feeExempt;
   // On expensive chains, a tiny outright-sponsored trade can cost Kivo
-  // more than the user's 0.5% app fee. Keep the gasless UX where it is
+  // more than the user's app fee. Keep the gasless UX where it is
   // economically sane; otherwise let Relay quote the normal user-paid
   // execution cost instead of silently turning Kivo into the gas payer.
   // Kivo's trading contract is the Fomo-style UX: Relay sponsorship is
@@ -324,7 +337,7 @@ export async function getRelayQuote(params: GetRelayQuoteParams): Promise<RelayQ
     // toChainKey, not fromChainKey — Relay's sponsorship (and the fee
     // floor protecting it) is priced against the chain whose fees
     // actually get sponsored: the destination, per Relay's own docs.
-    appFees: [{recipient: feeRecipientForQuote(), fee: waiveAppFee || feeExempt || fundingTransfer ? '0' : sweepHome ? '1' : appFeeBps(originAmountUsd)}],
+    appFees: [{recipient: feeRecipientForQuote(), fee: waiveAppFee || feeExempt || fundingTransfer ? '0' : sweepHome ? '1' : kivoFeeBps({amountUsd: originAmountUsd, ...tradeFeeToken})}],
     ...(fundingTransfer && RELAY_SPONSORSHIP_ENABLED ? {subsidizeFees: true, kivoFunding: true} : {}),
     ...(sponsorshipActive && !fundingTransfer
       ? {

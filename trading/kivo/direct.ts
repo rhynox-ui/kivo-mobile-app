@@ -8,7 +8,7 @@ import {formatUnits, getAddress, parseUnits, type Address} from 'viem';
 import {privateKeyToAccount} from 'viem/accounts';
 import {TOKEN_ADDRESSES} from '../core/chainData.ts';
 import {viemChainForChainId} from '../core/chainRegistry.ts';
-import {appFeeBps, isFeeExemptWallet, DEV_FEE_WALLET, DEV_FEE_WALLET_SOLANA} from '../core/fees.ts';
+import {kivoFeeUsd, isFeeExemptWallet, DEV_FEE_WALLET, DEV_FEE_WALLET_SOLANA} from '../core/fees.ts';
 import {executeJupiterSwap, quoteJupiter, type JupiterQuote} from '../core/jupiter.ts';
 import {SolanaSpendGuardError} from '../core/solanaSpendGuard.ts';
 import {buildDirectUniswapCalls, directUniswapSupports, quoteDirectUniswap, type DirectCall, type DirectQuote} from '../core/directUniswap.ts';
@@ -24,9 +24,21 @@ const QUOTE_TTL_MS = 30_000;
 /** Most Kivo ever takes from one trade (matches the server's ceiling). */
 const MAX_FEE_BPS = 500n;
 
-function feeUnits(total: bigint, amountUsd: number, extraFeeUsd: number | undefined, decimals: number, exempt = false): bigint {
+/**
+ * Kivo's fee (fees.ts kivoFeeUsd, classified by the token traded on its own
+ * chain) as a share of `units`, the USDC side worth `amountUsd`. Exact to
+ * 1 ppm, never rounded up.
+ */
+function kivoFeeOn(units: bigint, amountUsd: number, token: Pick<KivoToken, 'chainKey' | 'tokenAddress'>): bigint {
+  if (!(amountUsd > 0) || units <= 0n) return 0n;
+  const feeUsd = kivoFeeUsd({amountUsd, chainKey: token.chainKey, tokenAddress: token.tokenAddress});
+  const ppm = BigInt(Math.max(0, Math.floor((feeUsd / amountUsd) * 1_000_000)));
+  return (units * ppm) / 1_000_000n;
+}
+
+function feeUnits(total: bigint, amountUsd: number, token: Pick<KivoToken, 'chainKey' | 'tokenAddress'>, extraFeeUsd: number | undefined, decimals: number, exempt = false): bigint {
   if (exempt) return 0n;
-  const base = (total * BigInt(appFeeBps(amountUsd))) / 10_000n;
+  const base = kivoFeeOn(total, amountUsd, token);
   const extra = extraFeeUsd && extraFeeUsd > 0 ? parseUnits(extraFeeUsd.toFixed(6), decimals) : 0n;
   const cap = (total * MAX_FEE_BPS) / 10_000n;
   return base + extra < cap ? base + extra : cap > base ? cap : base;
@@ -77,7 +89,7 @@ async function planSameNetwork(params: Parameters<typeof planDirectTrade>[0]): P
     const row = params.cash?.find(r => r.chainKey === chainKey);
     if (!row || row.status !== 'ok' || row.balance.amount + 1e-9 < amount) return null; // USDC isn't on this network
     const total = parseUnits(amount.toFixed(Math.min(usdcDec, 6)), usdcDec);
-    const fee = feeUnits(total, amount, params.extraFeeUsd, usdcDec, exempt);
+    const fee = feeUnits(total, amount, token, params.extraFeeUsd, usdcDec, exempt);
     const quote = await quoteDirectUniswap({chainKey, tokenIn: usdc, tokenOut: token.tokenAddress, amountIn: total - fee});
     if (!quote) return null;
     const minAmountOut = (quote.amountOut * (10_000n - slippageBps)) / 10_000n;
@@ -95,7 +107,7 @@ async function planSameNetwork(params: Parameters<typeof planDirectTrade>[0]): P
   if (!quote) return null;
   const minAmountOut = (quote.amountOut * (10_000n - slippageBps)) / 10_000n;
   const outUsd = Number(formatUnits(quote.amountOut, usdcDec));
-  const fee = exempt ? 0n : (minAmountOut * BigInt(appFeeBps(outUsd))) / 10_000n;
+  const fee = exempt ? 0n : kivoFeeOn(minAmountOut, outUsd, token);
   return {kind: 'uniswap', side, quote, minAmountOut, fee: {usdc, amount: fee, when: 'after'},
     view: viewFor({side, token, payAmount: amount, payUsd: token.priceUsd != null ? amount * token.priceUsd : outUsd, receiveAmount: outUsd - Number(formatUnits(fee, usdcDec)), receiveUsd: outUsd - Number(formatUnits(fee, usdcDec)),
       minimum: formatUnits(minAmountOut - fee, usdcDec), feeUsd: Number(formatUnits(fee, usdcDec)), slippageBps, payDecimals: balance.decimals, receiveDecimals: usdcDec, usdc})};
@@ -122,7 +134,7 @@ async function planJupiterTrade(params: {
     const row = params.cash?.find(r => r.chainKey === 'solana');
     if (!row || row.status !== 'ok' || row.balance.amount + 1e-9 < amount) return null; // USDC isn't on Solana
     const total = parseUnits(amount.toFixed(6), 6);
-    const fee = feeUnits(total, amount, params.extraFeeUsd, 6);
+    const fee = feeUnits(total, amount, token, params.extraFeeUsd, 6);
     const quote = await quoteJupiter({inputMint: usdcMint, outputMint: token.tokenAddress, amount: total - fee, slippageBps: slippage});
     if (!quote) return null;
     const out = Number(formatUnits(BigInt(quote.outAmount), params.tokenDecimals));
@@ -139,7 +151,7 @@ async function planJupiterTrade(params: {
   if (!quote) return null;
   const minAmountOut = BigInt(quote.otherAmountThreshold);
   const outUsd = Number(formatUnits(BigInt(quote.outAmount), 6));
-  const fee = (minAmountOut * BigInt(appFeeBps(outUsd))) / 10_000n;
+  const fee = kivoFeeOn(minAmountOut, outUsd, token);
   const net = outUsd - Number(formatUnits(fee, 6));
   return {kind: 'jupiter', side, quote, inputMint: token.tokenAddress, outputMint: usdcMint, amountIn: sellUnits, minAmountOut, fee: {usdc: usdcMint, amount: fee, when: 'after'},
     view: viewFor({side, token, payAmount: amount, payUsd: token.priceUsd != null ? amount * token.priceUsd : outUsd, receiveAmount: net, receiveUsd: net,

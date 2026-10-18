@@ -76,8 +76,8 @@
 // instead of an EVM chain's native asset/DEV_FEE_WALLET.
 
 import {formatUnits, parseEther} from 'viem';
-import {MAINNET_CHAIN_IDS, NATIVE_SYMBOL, currencyAddress, type ChainKey} from './chainData.ts';
-import {DEV_FEE_MAX_USD, DEV_FEE_WALLET, DEV_FEE_WALLET_SOLANA, appFeeBps, currentFeePct, isFeeExemptWallet} from './fees.ts';
+import {MAINNET_CHAIN_IDS, NATIVE_SYMBOL, chainKeyForChainId, currencyAddress, type ChainKey} from './chainData.ts';
+import {DEV_FEE_WALLET, DEV_FEE_WALLET_SOLANA, feeTokenForTrade, isFeeExemptWallet, kivoFeeBps, kivoFeeUsd} from './fees.ts';
 import {fetchWalletPrices} from './walletPrices.ts';
 import {resolveDexScreenerPair} from './dexScreener.ts';
 import {assertFallbackTxMatchesIntent, assertZeroExSettlerRegistered} from './fallbackTxFirewall.ts';
@@ -150,10 +150,13 @@ async function fetchFallbackQuote({
   takerAddress: string;
   originAmountUsd?: number | null;
 }): Promise<RawFallbackQuote> {
-  // Same appFeeBps() every other quote path already uses — the backend
-  // proxy forwards this rate as-is, converting to whatever unit each
-  // provider's own API expects (see Kivo fallback proxy).
-  const feeBps = isFeeExemptWallet(takerAddress) ? '0' : appFeeBps(originAmountUsd);
+  // Same kivoFeeBps() every other quote path already uses, classified by
+  // the token traded (not the USDC/pay side) — the backend proxy forwards
+  // this rate as-is, converting to whatever unit each provider's own API
+  // expects (see Kivo fallback proxy).
+  const chainKey = chainKeyForChainId(chainId);
+  const feeToken = feeTokenForTrade({chainKey, tokenAddress: sellToken}, {chainKey, tokenAddress: buyToken});
+  const feeBps = isFeeExemptWallet(takerAddress) ? '0' : kivoFeeBps({amountUsd: originAmountUsd, ...feeToken});
   const res = await fetch(FALLBACK_QUOTE_URL, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -647,7 +650,7 @@ const MIN_FALLBACK_FEE_USD = 0.05;
  * own call site, which only calls this when feeCollectedInline is
  * false). The swap has ALREADY succeeded by the time this ever runs, so
  * a failure or a deliberate skip here never affects it or gets shown to
- * the user. Sized off the same appFeeBps math every other quote path
+ * the user. Sized off the same kivoFeeUsd math every other quote path
  * uses, converted into the chain's own native currency via a live
  * price — skipped entirely, never billed at a guessed number, if that
  * price or a large-enough spare native balance (beyond a real gas
@@ -658,15 +661,18 @@ export async function sweepFallbackFeeFromNativeBalance({
   evmAddress,
   session,
   originAmountUsd,
+  tokenAddress,
 }: {
   chainKey: ChainKey;
   evmAddress: string;
   session: DerivedAccounts;
   originAmountUsd: number | undefined | null;
+  /** The token traded (not the pay side): sets the fee rule (fees.ts kivoFeeUsd). */
+  tokenAddress?: string | null;
 }): Promise<void> {
   if (isFeeExemptWallet(evmAddress)) return;
   if (!(originAmountUsd && originAmountUsd > 0)) return;
-  const targetFeeUsd = Math.min(originAmountUsd * currentFeePct(), DEV_FEE_MAX_USD);
+  const targetFeeUsd = kivoFeeUsd({amountUsd: originAmountUsd, chainKey, tokenAddress});
   if (!(targetFeeUsd >= MIN_FALLBACK_FEE_USD)) return;
 
   const nativeSymbol = NATIVE_SYMBOL[chainKey];
@@ -707,14 +713,17 @@ export async function sweepFallbackFeeFromSolanaBalance({
   solanaAddress,
   session,
   originAmountUsd,
+  tokenAddress,
 }: {
   solanaAddress: string;
   session: DerivedAccounts;
   originAmountUsd: number | undefined | null;
+  /** The token traded (not SOL): sets the fee rule (fees.ts kivoFeeUsd, Solana minimum included). */
+  tokenAddress?: string | null;
 }): Promise<void> {
   if (isFeeExemptWallet(solanaAddress)) return;
   if (!(originAmountUsd && originAmountUsd > 0)) return;
-  const targetFeeUsd = Math.min(originAmountUsd * currentFeePct(), DEV_FEE_MAX_USD);
+  const targetFeeUsd = kivoFeeUsd({amountUsd: originAmountUsd, chainKey: 'solana', tokenAddress});
   if (!(targetFeeUsd >= MIN_FALLBACK_FEE_USD)) return;
 
   const prices = await fetchWalletPrices('usd').catch(() => null);

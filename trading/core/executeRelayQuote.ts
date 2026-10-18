@@ -289,16 +289,16 @@ export {rewriteAccountCreationFundingInstructions} from './solanaAccountCreation
 // all recover cost with an SPL transfer to the fee payer's own account,
 // executed INSIDE the same sponsored transaction, not a quote-time %):
 //
-//  1. RECOVER REAL COST, PLUS KIVO'S MARGIN. The amount is this
-//     transaction's own measured lamports cost (base fee, priority fee,
-//     rent for every new account this fee payer funds, any setup
-//     top-up — read from the ORIGINAL, pre-rewrite instructions, not
-//     guessed), priced live via walletPrices.ts's SOL/USD feed, plus
-//     SPONSORSHIP_RECOVERY_BUFFER_PCT (the eventual USDC->SOL conversion
-//     when this wallet's USDC is swept back into SOL) and
-//     SPONSORSHIP_RECOVERY_MARGIN_PCT (product decision: gas-free trading
-//     is a service, so sponsorship earns a margin instead of only
-//     breaking even).
+//  1. RECOVER THE RENT ONLY. Kivo absorbs the Solana network fee and
+//     priority fee of every sponsored trade (its fee already covers them;
+//     fees.ts kivoFeeUsd's Solana minimum), with no margin. What is still
+//     recovered is the one-time rent for every new token account this fee
+//     payer funds (the user's own refundable deposit: closing the account
+//     returns it to them) plus any SOL top-up the route needs — read from
+//     the ORIGINAL, pre-rewrite instructions, not guessed — priced live via
+//     walletPrices.ts's SOL/USD feed, plus SPONSORSHIP_RECOVERY_BUFFER_PCT
+//     (the eventual USDC->SOL conversion when this wallet's USDC is swept
+//     back into SOL).
 //
 //  2. NEVER IN THE WAY OF THE TRADE. Recovery is denominated in USDC and
 //     paid from whatever USDC the user's wallet already holds (checked
@@ -345,9 +345,9 @@ const COMPUTE_BUDGET_SET_UNIT_LIMIT_DISCRIMINANT = 2;
 // Covers converting this wallet's accumulated USDC back into the SOL it
 // needs to keep sponsoring trades (see this section's header, point 1).
 const SPONSORSHIP_RECOVERY_BUFFER_PCT = 0.01;
-// Kivo's margin on top of what sponsoring the transaction really cost.
-export const SPONSORSHIP_RECOVERY_MARGIN_PCT = 0.25;
-const RECOVERY_MULTIPLIER = 1 + SPONSORSHIP_RECOVERY_BUFFER_PCT + SPONSORSHIP_RECOVERY_MARGIN_PCT;
+// No margin: Kivo recovers only rent (and SOL top-ups) at cost, plus the
+// conversion buffer. Network and priority fees are Kivo's.
+const RECOVERY_MULTIPLIER = 1 + SPONSORSHIP_RECOVERY_BUFFER_PCT;
 // Simulate-then-correct margin over the REAL measured compute units —
 // never a guessed absolute number. See this section's own header,
 // point 3.
@@ -387,6 +387,21 @@ export function estimateSponsorshipLamportsCost(
   }
   if (needsTokenAccountRent) rentCost += tokenAccountRentExemptLamports * (newTokenAccounts ?? 1);
   return Math.max(0, numRequiredSignatures) * LAMPORTS_PER_SIGNATURE + rentCost + priorityFeeLamports(instructions);
+}
+
+/**
+ * The part of a sponsored transaction's cost Kivo recovers from the user:
+ * rent for the accounts the fee payer funds (token accounts — the user's
+ * refundable deposit). The network fee and priority fee are not included:
+ * Kivo absorbs them. Pure, no network I/O.
+ */
+export function estimateRecoverableRentLamports(
+  instructions: InstanceType<typeof import('@solana/web3.js').TransactionInstruction>[],
+  tokenAccountRentExemptLamports: number,
+  /** New token accounts this transaction really creates (default: one when any ATA create is present). */
+  newTokenAccounts?: number,
+): number {
+  return estimateSponsorshipLamportsCost(instructions, 0, tokenAccountRentExemptLamports, newTokenAccounts) - priorityFeeLamports(instructions);
 }
 
 // ComputeBudget SetComputeUnitPrice variant (u64 micro-lamports per unit).
@@ -601,8 +616,6 @@ export async function signAndSendSponsoredSolanaStep(
   try {
     const usdcMintAddress = TOKEN_ADDRESSES.USDC?.solana;
     if (usdcMintAddress) {
-      const probeMessage = new TransactionMessage({payerKey: feePayerPubkey, instructions: baseInstructions, recentBlockhash: blockhash}).compileToV0Message(lookupTables);
-      const numRequiredSignatures = probeMessage.header.numRequiredSignatures;
       const usdcMint = new PublicKey(usdcMintAddress);
       // Rent that comes back through a WSOL close is not a cost to recover.
       const costedInstructions = instructions.filter(ix => !(ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID && ix.keys.length >= 2 && closedBackAtas.has(ix.keys[1].pubkey.toBase58())));
@@ -612,7 +625,8 @@ export async function signAndSendSponsoredSolanaStep(
       const ataTargets = [...new Set(costedInstructions.filter(ix => ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID && ix.keys.length >= 2).map(ix => ix.keys[1].pubkey.toBase58()))];
       const ataInfos = ataTargets.length ? await connection.getMultipleAccountsInfo(ataTargets.map(a => new PublicKey(a)), 'confirmed').catch(() => null) : [];
       const newTokenAccounts = ataInfos ? ataInfos.filter(info => !info).length : undefined;
-      const lamportsCost = estimateSponsorshipLamportsCost(costedInstructions, numRequiredSignatures, tokenAccountRentExemptLamports, newTokenAccounts) + topUpLamports;
+      // Rent (the user's refundable deposit) and any SOL top-up; never the network or priority fee.
+      const lamportsCost = estimateRecoverableRentLamports(costedInstructions, tokenAccountRentExemptLamports, newTokenAccounts) + topUpLamports;
       sponsoredLamportsCost = lamportsCost;
 
       const prices = await fetchWalletPrices().catch(() => ({}) as Record<string, number>);

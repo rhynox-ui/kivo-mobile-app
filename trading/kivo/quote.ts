@@ -30,8 +30,8 @@ export type KivoTradeRequest = {
   amountUsd?: number;
   /**
    * USD the app fee is computed on. A buy split across networks passes the
-   * whole order here, so Kivo's fee is charged once per order (0.5%, or the
-   * small-trade minimum) and shared across the legs, not once per leg.
+   * whole order here, so Kivo's fee is charged once per order (fees.ts kivoFeeUsd,
+   * including the Solana minimum) and shared across the legs, not once per leg.
    */
   feeBasisUsd?: number;
   /** Sell: where the proceeds land (Kivo's home: USDC on Solana). Defaults to cash on the token's network. */
@@ -134,6 +134,8 @@ export async function requestKivoQuote(request: KivoTradeRequest): Promise<KivoQ
     ?? (request.side === 'buy' ? request.amountUsd ?? amountNumber : amountNumber != null && request.token.priceUsd != null ? amountNumber * request.token.priceUsd : null);
   const quote = await getRelayQuote({
     fromChainKey: input.chainKey, toChainKey: output.chainKey, originCurrency: input.address, destinationCurrency: output.address,
+    // Kivo's fee is classified by the token traded, on its own chain (fees.ts kivoFeeUsd).
+    feeToken: {chainKey: request.token.chainKey, tokenAddress: request.token.tokenAddress},
     amountBaseUnits, userAddress: request.userAddress, recipientAddress: request.recipientAddress, originAmountUsd,
     ...(request.slippageBps ? {slippageTolerance: String(request.slippageBps)} : {}),
     // EVM/Calibur-only parameter; Solana-origin quotes must not carry it.

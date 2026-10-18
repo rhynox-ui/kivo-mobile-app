@@ -38,11 +38,11 @@
 // so a fee changed in transit would still verify. The echo check below
 // compares them to what was requested anyway.
 //
-// FEE. Same 0.5% (capped at $50) as every Relay trade — appFeeBps() in
-// fees.ts is the one source of that rate. 1Click pays it out inside NEAR
+// FEE. Same model as every Relay trade — kivoFeeUsd()/kivoFeeBps() in
+// fees.ts are the one source of that rate. 1Click pays it out inside NEAR
 // Intents to ONE_CLICK_FEE_ACCOUNT. No 1Click partner JWT is used, so
 // 1Click adds its own small fee on top, paid by the user — Mango keeps
-// its full 0.5%.
+// its full fee.
 //
 // NEAR receive/deposit UI is wired through Profile and Convert; token trades use
 // the dedicated NEAR trade path, while cross-chain USDC moves use 1Click.
@@ -51,7 +51,7 @@ import {ed25519} from '@noble/curves/ed25519.js';
 import {sha256} from '@noble/hashes/sha2.js';
 import bs58 from 'bs58';
 import type {ChainKey} from './chainData';
-import {appFeeBps} from './fees.ts';
+import {kivoFeeBps, type FeeToken} from './fees.ts';
 
 // 1Click's production quote-signing key, as pinned in the official SDK
 // (@defuse-protocol/one-click-sdk-typescript, src/quote-signature.ts).
@@ -201,16 +201,17 @@ export function isNearIntentsAccountId(value: unknown): value is string {
 }
 
 /**
- * Mango's app fee as 1Click appFees: 0.5%, reduced only as far as the
- * $50 cap requires (appFeeBps). Pass the same array to the quote request
- * and to assertOneClickQuoteSafeToFund's expectation. Throws while no
- * fee account is configured rather than quoting without the fee.
+ * Kivo's app fee as 1Click appFees (fees.ts kivoFeeBps), classified by the
+ * token being traded on its own chain (`feeToken`; NEAR when omitted).
+ * Pass the same array to the quote request and to
+ * assertOneClickQuoteSafeToFund's expectation. Throws while no fee account
+ * is configured rather than quoting without the fee.
  */
-export function oneClickAppFees(originAmountUsd?: number | null, feeAccount: string | null = ONE_CLICK_FEE_ACCOUNT): OneClickAppFee[] {
+export function oneClickAppFees(originAmountUsd?: number | null, feeAccount: string | null = ONE_CLICK_FEE_ACCOUNT, feeToken: FeeToken = {chainKey: 'near', tokenAddress: null}): OneClickAppFee[] {
   if (!isNearIntentsAccountId(feeAccount)) {
     throw new Error("NEAR routes aren't available yet — Mango's NEAR fee account isn't set up.");
   }
-  return [{recipient: feeAccount, fee: Number(appFeeBps(originAmountUsd))}];
+  return [{recipient: feeAccount, fee: Number(kivoFeeBps({amountUsd: originAmountUsd, ...feeToken}))}];
 }
 
 // ---------------------------------------------------------------------

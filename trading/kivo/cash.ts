@@ -84,14 +84,14 @@ async function sendSolanaUsdc(
     let sponsoredInstructions = instructions;
     if (!toAtaInfo) {
       // Kivo pays the recipient's one-time USDC account rent and recovers it
-      // (plus its margin) from this wallet's USDC in the same transaction. A
+      // (at cost; Kivo absorbs the network fee) from this wallet's USDC in the same transaction. A
       // "send everything" leaves exactly that much behind so it is never lost.
       const [rent, prices, held] = await Promise.all([
         connection.getMinimumBalanceForRentExemption(165),
         fetchWalletPrices().catch(() => ({}) as Record<string, number>),
         connection.getTokenAccountBalance(fromAta, 'confirmed').then(r => BigInt(r.value.amount)).catch(() => null),
       ]);
-      const recovery = BigInt(sponsorshipRecoveryUsdcUnits(rent + 10_000, prices.SOL ?? 0));
+      const recovery = BigInt(sponsorshipRecoveryUsdcUnits(rent, prices.SOL ?? 0));
       if (held !== null && recovery > 0n && held < sendRaw + recovery) {
         sendRaw = held - recovery;
         if (sendRaw <= 0n) throw new Error('Not enough USDC to cover this new address\'s one-time account fee. Nothing was sent.');
@@ -151,7 +151,8 @@ export async function sendUsdc(chainKey: ChainKey, account: LocalAccount, to: st
  * delivered straight to `to`. USDC->USDC carries no Relay platform fee and
  * no Kivo fee; Relay's own execution cost (≈$0.02 + destination gas) comes
  * out of the amount and is shown before confirming. The Solana network fee
- * is paid by Kivo's fee payer and recovered in the same transaction.
+ * is paid (and absorbed) by Kivo's fee payer; only new token-account rent is
+ * recovered in the same transaction.
  */
 function homeWithdrawalParams(chainKey: ChainKey, solanaAddress: string, to: string, amount: string) {
   const usdcSolana = TOKEN_ADDRESSES.USDC?.solana;

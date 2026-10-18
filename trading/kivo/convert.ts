@@ -8,7 +8,7 @@
 //
 // Fees: a pure cash move (USDC/USDG -> USDC/USDG) stays free, exactly as
 // before (moves to Base are sponsored as funding transfers). A conversion
-// that changes asset is a swap and pays Kivo's normal fee (0.5%, max $50).
+// that changes asset is a swap and pays Kivo's normal fee (fees.ts kivoFeeUsd, max $50).
 
 import {CHAIN_LABEL, MAINNET_CHAIN_IDS, type ChainKey} from '../core/chainData';
 import type {getRelayQuote} from '../core/relayQuote';

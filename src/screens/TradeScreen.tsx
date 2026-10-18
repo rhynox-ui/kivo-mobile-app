@@ -25,7 +25,7 @@ import { addNotification } from '../state/notificationStore';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { TokenChartPanel } from '../components/TokenChartPanel';
 import { MAINNET_CHAIN_IDS } from '@kivo/trading/core/chainData';
-import { MIN_TRADE_USD } from '@kivo/trading/core/fees';
+import { MIN_TRADE_USD, formatKivoFee } from '@kivo/trading/core/fees';
 import { checkSolanaTokenSecurity, checkTokenSecurity } from '@kivo/trading/core/goplusTokenSecurity';
 import { NearTradePanel } from './NearTradePanel';
 import { normalizeAmountInput } from '../utils/amountInput';
@@ -418,7 +418,8 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   const view = plan?.view;
   const expired = view ? isQuoteExpired(view, now) : false;
 
-  const feePct = view && view.fees.appUsd != null && view.pay.usd ? (view.fees.appUsd / view.pay.usd) * 100 : null;
+  // Kivo's own fee in dollars and percent of the trade, e.g. "$0.95 (1.9%)".
+  const kivoFeeText = view && view.fees.appUsd != null ? formatKivoFee(view.fees.appUsd, view.pay.usd) : null;
   const cashTotal = spendable ? totalSpendableUsd(spendable) : cash ? totalCashUsd(cash).total : null;
   // The route's own USD value decides the minimum when the token had no live price.
   const quotedUsd = view ? (side === 'buy' ? view.pay.usd : view.receive.usd) : null;
@@ -588,7 +589,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
 
             <View style={styles.feeRow}>
               <View style={[styles.dot, view && styles.dotLive]} />
-              <Text style={styles.feeStrong}>{view ? `Fee ${feePct != null ? feePct.toFixed(1) + '%' : formatUsd(view.totalFeeUsd)}` : 'Fee —'}</Text>
+              <Text style={styles.feeStrong}>{view ? (kivoFeeText ? `Kivo fee ${kivoFeeText}` : `Fee ${formatUsd(view.totalFeeUsd)}`) : 'Fee —'}</Text>
               <Text style={[styles.small, styles.flex]}>{!gaslessTradingEnabled ? '  ·  Network fee from your wallet' : gasSponsored === false ? '  ·  Gas in route fees' : '  ·  Gas free'}{view?.etaSeconds != null ? `  ·  ETA ${view.etaSeconds < 60 ? `~${view.etaSeconds}s` : `~${Math.round(view.etaSeconds / 60)} min`}` : ''}</Text>
               {view ? <Pressable onPress={() => setShowDetails(value => !value)} hitSlop={8}><Text style={styles.detailsLink}>{showDetails ? 'Hide' : 'Details'}</Text></Pressable> : null}
             </View>
@@ -596,6 +597,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
               <View style={styles.details}>
                 <QuoteRow label="Minimum received" value={view.minimumReceived ? `${formatAmount(Number(view.minimumReceived))} ${cashLabel(view.receive.symbol)}` : 'Not provided by route'} />
                 <QuoteRow label="Price impact" value={view.priceImpactPct == null ? '—' : `${view.priceImpactPct.toFixed(2)}%`} danger={view.priceImpactPct != null && Math.abs(view.priceImpactPct) >= 5} />
+                <QuoteRow label="Kivo fee" value={kivoFeeText ?? '—'} />
                 <QuoteRow label="Route fees" value={formatUsd(view.totalFeeUsd)} />
                 <QuoteRow label="Network gas" value={gasLabel} />
                 <QuoteRow label="Max slippage" value={view.slippagePct == null ? 'Auto' : `${view.slippagePct}%`} />
@@ -724,6 +726,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
                 <Text style={styles.chevron}>›</Text>
                 <View style={[styles.flex, styles.right]}><Text style={styles.small}>Minimum received</Text><Text style={styles.summaryValue}>{view.minimumReceived ? formatAmount(Number(view.minimumReceived)) : '—'} {cashLabel(view.receive.symbol)}</Text><Text style={styles.small}>{CHAIN_LABEL[view.receive.chainKey]}</Text></View>
               </View>
+              <QuoteRow label="Kivo fee" value={kivoFeeText ?? '—'} />
               <QuoteRow label="Route fees" value={formatUsd(view.totalFeeUsd)} />
               <QuoteRow label="Network gas" value={gasLabel} />
               <QuoteRow label="Signing wallet" value={signingWallets} />
