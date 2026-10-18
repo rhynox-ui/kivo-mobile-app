@@ -225,7 +225,7 @@ export function SearchScreen({ onSelectToken, initialChain }: { onSelectToken?: 
               const entry = {chainKey: item.chainKey, tokenAddress: item.tokenAddress, symbol: item.symbol, name: item.name, imageUrl: item.imageUrl ?? null};
               void api.saveWatchlistToken(entry).then(({token}) => { setSavedTokens(current => [...current.filter(saved => tokenKey({chainKey: saved.chainKey as ChainKey, tokenAddress: saved.tokenAddress}) !== tokenKey(item)), token]); setWatchlistResults(current => [...current.filter(saved => tokenKey(saved) !== tokenKey(item)), item]); setWatchlistError(''); }).catch(error => setWatchlistError(error instanceof Error ? error.message : 'Could not save token.'));
             }
-          }} />
+          }} />}
         />
       )}
 
