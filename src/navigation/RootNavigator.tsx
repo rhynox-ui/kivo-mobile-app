@@ -27,6 +27,7 @@ import { MainShell } from '../screens/MainShell';
 import { kivoTheme } from '../theme/kivoTheme';
 import { getWalletSession, clearLocalWallet, lockWalletSession } from '../state/walletStore';
 import { api, hasExistingProfile, startKivoSession } from '../state/session';
+import { startReferralSync } from '../state/referrals';
 import {
   getLegacyMnemonic,
   hasVault,
@@ -73,6 +74,7 @@ function SplashRoute({ navigation }: NativeStackScreenProps<RootStackParamList, 
     (async () => {
       try {
         await startKivoSession();
+        startReferralSync();
         const vault = await hasVault();
         if (!mounted) return;
         if (!vault) {

@@ -16,6 +16,7 @@ import { quoteSponsorshipStatus } from '@kivo/trading/core/relayQuote';
 import { haptic } from '../utils/haptics';
 import bs58 from 'bs58';
 import { recordTrade } from '@kivo/trading/kivo/history';
+import { reportReferralTrade } from '../state/referrals';
 import { markOwnAction } from '../wallet/depositWatcher';
 import { describeQuoteError, isQuoteExpired, parseAmountInput, requestKivoQuote, sellProceedsAsset } from '@kivo/trading/kivo/quote';
 import { chainLabel, formatAmount, formatBalanceUsd, formatUsd, isNativeToken, shortAddress, tradeSupportFor, type KivoToken, type TradeSide } from '@kivo/trading/kivo/tokens';
@@ -311,11 +312,12 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
           solana: {address: solana ? solana.publicKey.toBase58() : '', privateKey: solana ? bs58.encode(solana.secretKey) : ''},
           authMethod: 'seed' as const,
         };
-        const done = { status: 'success' as 'success' | 'pending' | 'refunded', txHashes: [] as string[], chainIds: [] as number[], requestId: null as string | null, partial: null as { view: typeof view; message: string } | null };
+        const done = { status: 'success' as 'success' | 'pending' | 'refunded', txHashes: [] as string[], chainIds: [] as number[], requestId: null as string | null, partial: null as { view: typeof view; message: string } | null, referralReports: [] as { chain: string; txHash: string; requestId: string | null; pending: boolean }[] };
         if (plan.direct) {
           setUpdate({stage: 'awaiting-signature', step: 1, totalSteps: 1, txHashes: [], requestId: null, message: 'Processing trade…'});
           const sent = await executeDirectPlan(plan.direct, session);
-          return { ...done, txHashes: sent.txHashes, chainIds: sent.chainIds, requestId: sent.requestId };
+          const lastHash = sent.txHashes[sent.txHashes.length - 1];
+          return { ...done, txHashes: sent.txHashes, chainIds: sent.chainIds, requestId: sent.requestId, referralReports: lastHash ? [{ chain: token.chainKey, txHash: lastHash, requestId: sent.requestId, pending: false }] : [] };
         }
         // Every network runs at once (this one confirmation covers them all);
         // legs on the same network go one after another.
@@ -350,6 +352,9 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
           done.chainIds.push(...Array.from(new Set(legChainIds)));
           const legRequestId = (leg.quote.quote.steps ?? []).map(step => step.requestId).find(Boolean) ?? null;
           done.requestId = done.requestId ?? legRequestId;
+          // One referral report per leg: its origin network, its last (deposit) transaction and Relay request.
+          const legHash = legResult.txHashes[legResult.txHashes.length - 1];
+          if (legHash && legResult.status !== 'refunded') done.referralReports.push({ chain: leg.chainKey, txHash: legHash, requestId: legResult.requestId ?? legRequestId, pending: legResult.status === 'pending' });
         });
         if (!completed.length) throw new KivoExecutionError(failed[0]?.message ?? 'Trade failed.', [...new Set(done.txHashes)]);
         if (failed.length) {
@@ -374,6 +379,9 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       // Bookkeeping must never turn a sent trade into an error.
       void markOwnAction(address!).catch(() => {});
       recordTrade({ side, token: tokenInfo, pay: { amount: done.pay.amount, symbol: done.pay.symbol, chainKey: done.pay.chainKey }, receive: { amount: done.receive.amount, symbol: done.receive.symbol, chainKey: done.receive.chainKey }, txHashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId, status: outcome.status });
+      // Referral rewards: the server verifies each trade on-chain (no-op without a referrer). A leg
+      // Relay is still settling is reported a little later.
+      outcome.referralReports.forEach(report => reportReferralTrade(report, report.pending ? 90_000 : 0));
       addNotification(outcome.status === 'success' ? (side === 'buy' ? `Bought ${token.symbol}` : `Sold ${token.symbol}`) : outcome.status === 'refunded' ? 'Trade refunded' : 'Trade submitted', `${payLabel(done.pay)}${done.receive.amount ? ` → ${Number(done.receive.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${cashLabel(done.receive.symbol)}` : ''} on ${chainLabel(token.chainKey)}`);
     } catch (error) {
       const hashes = error instanceof KivoExecutionError ? error.txHashes : [];

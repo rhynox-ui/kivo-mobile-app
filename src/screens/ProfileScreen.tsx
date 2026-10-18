@@ -113,8 +113,10 @@ function shouldHideSmallHolding(holding: Portfolio['holdings'][number]): boolean
 }
 
 /** Mango Pro profile layout with Kivo graphics: identity + social row, portfolio chart, cash, positions, joined groups. */
-export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onOpenNotifications, onEditProfile, onOpenChat, onOpenCommunities, onOpenTrade, onOpenChats, onOpenVerification, onOpenToken }: {
+export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onOpenHistory, onOpenNotifications, onEditProfile, onOpenChat, onOpenCommunities, onOpenTrade, onOpenChats, onOpenVerification, onOpenToken }: {
   onOpenSettings: () => void;
+  /** Referral rewards (own profile only). */
+  onOpenRewards?: () => void;
   onOpenWallet: (action?: 'deposit' | 'withdraw') => void;
   onOpenHistory?: () => void;
   onOpenNotifications?: () => void;
@@ -294,6 +296,7 @@ export function ProfileScreen({ onOpenSettings, onOpenWallet, onOpenHistory, onO
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(true); }} tintColor={kivoTheme.colors.accent} />}>
       <View style={styles.corner}>
+        {onOpenRewards ? <Pressable onPress={onOpenRewards} style={styles.rewardsButton} accessibilityRole="button" accessibilityLabel="Rewards"><Text style={styles.rewardsText}>🎁 Rewards</Text></Pressable> : null}
         <Pressable onPress={onOpenHistory} hitSlop={10} accessibilityLabel="Trade history"><Text style={styles.cornerIcon}>◷</Text></Pressable>
         <Pressable onPress={onOpenSettings} hitSlop={10} accessibilityLabel="Settings"><Text style={styles.cornerIcon}>⚙</Text></Pressable>
       </View>
@@ -467,6 +470,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   corner: { height: 40, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 22 },
   cornerIcon: { color: c.cream, fontSize: 21 },
+  rewardsButton: { marginRight: 'auto', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, backgroundColor: 'rgba(183,226,123,0.14)', borderWidth: 1, borderColor: 'rgba(183,226,123,0.4)' },
+  rewardsText: { color: c.text, fontSize: 13, fontWeight: '800' },
   identity: { paddingHorizontal: 20, gap: 6 },
   avatarRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   avatarWrap: { width: 76, height: 76 },

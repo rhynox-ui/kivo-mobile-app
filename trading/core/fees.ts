@@ -41,6 +41,18 @@ export function isFeeExemptWallet(address?: string | null): boolean {
 
 export const DEV_FEE_PCT = 0.005;
 export const DEV_FEE_MAX_USD = 50;
+/** Fee for users who joined through a referral: 10% off DEV_FEE_PCT, for life. */
+export const REFERRAL_FEE_PCT = 0.0045;
+
+let referralFeeDiscount = false;
+/** Set from /api/referrals/me (feeBps === 45) after sign-in/app start and after a successful claim. */
+export function setReferralFeeDiscount(on: boolean): void {
+  referralFeeDiscount = on === true;
+}
+/** The fee rate this user pays right now: REFERRAL_FEE_PCT when referred, else DEV_FEE_PCT. */
+export function currentFeePct(): number {
+  return referralFeeDiscount ? REFERRAL_FEE_PCT : DEV_FEE_PCT;
+}
 /**
  * Smallest trade the mobile app accepts, in USD. The fee is a flat 0.5%
  * (capped at $50) on every size; the server drops gas sponsorship that would
@@ -58,11 +70,12 @@ export const MIN_TRADE_USD = 2;
  * without a real number to cap against.
  */
 export function appFeeBps(originAmountUsd?: number | null): string {
-  const flatBps = Math.round(DEV_FEE_PCT * 10000);
+  const feePct = currentFeePct();
+  const flatBps = Math.round(feePct * 10000);
   if (!(typeof originAmountUsd === 'number' && originAmountUsd > 0)) {
     return String(flatBps);
   }
-  const flatFeeUsd = originAmountUsd * DEV_FEE_PCT;
+  const flatFeeUsd = originAmountUsd * feePct;
   if (flatFeeUsd <= DEV_FEE_MAX_USD) {
     return String(flatBps);
   }

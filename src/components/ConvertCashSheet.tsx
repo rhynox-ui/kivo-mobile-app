@@ -16,6 +16,7 @@ import {getTradeHistory} from '@kivo/trading/kivo/history';
 import {clearSpendableBalanceCache, fetchSpendableBalance, type SpendableAsset, type SpendableBalance} from '@kivo/trading/kivo/spendable';
 import {convertQuoteParams, convertSources, convertTargets, sameAsset, type ConvertAsset} from '@kivo/trading/kivo/convert';
 import {recordTrade} from '@kivo/trading/kivo/history';
+import {reportReferralTrade} from '../state/referrals';
 import {markOwnAction} from '../wallet/depositWatcher';
 import {formatAmount, formatBalanceUsd, formatUsd, shortAddress} from '@kivo/trading/kivo/tokens';
 import {getWalletSession, withDeviceAccounts, type WalletSession} from '../state/walletStore';
@@ -124,6 +125,8 @@ export function ConvertCashSheet({visible,onClose,onConverted,moveHome=false}:{v
    setSent({paid:`${amount} ${from.symbol}`,received:quote.receivedAmountFormatted?`${formatAmount(Number(quote.receivedAmountFormatted))} ${to.symbol}`:null});
    void markOwnAction(wallet.address).catch(()=>{});
    recordTrade({side:historySide,token:tokenInfo,pay:{amount,symbol:from.symbol,chainKey:from.chain as ChainKey},receive:{amount:quote.receivedAmountFormatted??null,symbol:to.symbol,chainKey:to.chain as ChainKey},txHashes:result.txHashes,chainIds:[],requestId:result.requestId??null,status:settled});
+   // Referral rewards (fire-and-forget; the server verifies on-chain and ignores trades without a referrer).
+   if(settled!=='refunded')reportReferralTrade({chain:from.chain,txHash:result.txHashes[result.txHashes.length-1],requestId:result.requestId??null},settled==='pending'?90_000:0);
  }catch(e){setExecute(null);setNearSending(false);const partial=getPartialTxHashes(e);if(partial.length){setHashes(partial);recordTrade({side:historySide,token:tokenInfo,pay:{amount,symbol:from.symbol,chainKey:from.chain as ChainKey},receive:{amount:null,symbol:to.symbol,chainKey:to.chain as ChainKey},txHashes:partial,chainIds:[],requestId:null,status:'failed',error:e instanceof Error?e.message:'Conversion failed after a transaction was broadcast.'});}setError(e instanceof Error?e.message:'Conversion failed. Nothing was confirmed.');setOutcome({tone:'error',from,to,message:e instanceof Error?e.message:'Conversion failed. Nothing was confirmed.'});}
  finally{busyRef.current=false;
    // Balances changed (or may have): read them fresh.

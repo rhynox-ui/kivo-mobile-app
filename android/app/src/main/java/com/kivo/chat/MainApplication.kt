@@ -16,6 +16,7 @@ class MainApplication : Application(), ReactApplication {
         add(ScreenSecurityPackage())
         add(LocalNotifyPackage())
         add(MediaSavePackage())
+        add(InstallReferrerPackage())
       },
     )
   }

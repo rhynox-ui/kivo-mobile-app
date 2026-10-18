@@ -217,7 +217,7 @@ let solanaLinkInFlight: Promise<boolean> | null = null;
  * plain-text message with the Solana key; the key itself never leaves the
  * phone. Remembered per account, so it happens once.
  */
-export function ensureSolanaLinked({ interactive = false }: { interactive?: boolean } = {}): Promise<boolean> {
+export function ensureSolanaLinked({ interactive = false, force = false }: { interactive?: boolean; force?: boolean } = {}): Promise<boolean> {
   if (solanaLinkInFlight) return solanaLinkInFlight;
   const run = async () => {
     const wallet = getWalletSession();
@@ -225,7 +225,8 @@ export function ensureSolanaLinked({ interactive = false }: { interactive?: bool
     if (!wallet || wallet.source !== 'local' || !wallet.solanaAddress || !userId || !socialReady()) return false;
     const solanaAddress = wallet.solanaAddress;
     const key = SOLANA_LINK_KEY + userId;
-    if (await Promise.resolve(storage.getItem(key)).catch(() => null) === solanaAddress) return true;
+    // force: the server said no wallet is linked, so the remembered link is stale.
+    if (!force && await Promise.resolve(storage.getItem(key)).catch(() => null) === solanaAddress) return true;
     // Never pop a biometric prompt on our own: background linking waits for an unlocked wallet.
     if (!interactive && !walletUnlockedOnDevice()) return false;
     const signature = await withDeviceAccounts('Link your Solana wallet', async ({ solana }) => {

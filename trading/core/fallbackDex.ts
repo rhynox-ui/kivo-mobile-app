@@ -77,7 +77,7 @@
 
 import {formatUnits, parseEther} from 'viem';
 import {MAINNET_CHAIN_IDS, NATIVE_SYMBOL, currencyAddress, type ChainKey} from './chainData.ts';
-import {DEV_FEE_MAX_USD, DEV_FEE_PCT, DEV_FEE_WALLET, DEV_FEE_WALLET_SOLANA, appFeeBps, isFeeExemptWallet} from './fees.ts';
+import {DEV_FEE_MAX_USD, DEV_FEE_WALLET, DEV_FEE_WALLET_SOLANA, appFeeBps, currentFeePct, isFeeExemptWallet} from './fees.ts';
 import {fetchWalletPrices} from './walletPrices.ts';
 import {resolveDexScreenerPair} from './dexScreener.ts';
 import {assertFallbackTxMatchesIntent, assertZeroExSettlerRegistered} from './fallbackTxFirewall.ts';
@@ -666,7 +666,7 @@ export async function sweepFallbackFeeFromNativeBalance({
 }): Promise<void> {
   if (isFeeExemptWallet(evmAddress)) return;
   if (!(originAmountUsd && originAmountUsd > 0)) return;
-  const targetFeeUsd = Math.min(originAmountUsd * DEV_FEE_PCT, DEV_FEE_MAX_USD);
+  const targetFeeUsd = Math.min(originAmountUsd * currentFeePct(), DEV_FEE_MAX_USD);
   if (!(targetFeeUsd >= MIN_FALLBACK_FEE_USD)) return;
 
   const nativeSymbol = NATIVE_SYMBOL[chainKey];
@@ -714,7 +714,7 @@ export async function sweepFallbackFeeFromSolanaBalance({
 }): Promise<void> {
   if (isFeeExemptWallet(solanaAddress)) return;
   if (!(originAmountUsd && originAmountUsd > 0)) return;
-  const targetFeeUsd = Math.min(originAmountUsd * DEV_FEE_PCT, DEV_FEE_MAX_USD);
+  const targetFeeUsd = Math.min(originAmountUsd * currentFeePct(), DEV_FEE_MAX_USD);
   if (!(targetFeeUsd >= MIN_FALLBACK_FEE_USD)) return;
 
   const prices = await fetchWalletPrices('usd').catch(() => null);

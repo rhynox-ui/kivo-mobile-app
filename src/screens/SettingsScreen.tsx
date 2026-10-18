@@ -12,16 +12,17 @@ type SettingsItem = {
   icon: string;
   value?: string;
   destructive?: boolean;
-  action: 'wallet' | 'profile' | 'haptics' | 'notifications' | 'language' | 'security' | 'legal' | 'taxes' | 'help' | 'docs' | 'x' | 'telegram' | 'logout' | 'delete';
+  action: 'wallet' | 'rewards' | 'profile' | 'haptics' | 'notifications' | 'language' | 'security' | 'legal' | 'taxes' | 'help' | 'docs' | 'x' | 'telegram' | 'logout' | 'delete';
 };
 
-export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecurity, onLogout }: { onBack:()=>void; onOpenWallet?:()=>void; onOpenProfile?:()=>void; onOpenSecurity?:()=>void; onLogout?:()=>void }) {
+export function SettingsScreen({ onBack, onOpenWallet, onOpenRewards, onOpenProfile, onOpenSecurity, onLogout }: { onBack:()=>void; onOpenWallet?:()=>void; onOpenRewards?:()=>void; onOpenProfile?:()=>void; onOpenSecurity?:()=>void; onLogout?:()=>void }) {
   const settings = useSettings();
   const [showAppearance, setShowAppearance] = React.useState(false);
   const [deletion, setDeletion] = React.useState<{status: 'pending' | 'processing'; executeAt: number} | null>(null);
   React.useEffect(() => { let active = true; api.accountDeletionStatus().then(result => { if (active && result.pending && result.status && result.executeAt) setDeletion({status: result.status, executeAt: result.executeAt}); }).catch(() => {}); return () => { active = false; }; }, []);
   const items: SettingsItem[] = [
     { label:'Profile and Account',icon:'♙',action:'profile' },
+    { label:'Rewards',icon:'🎁',value:'Who referred you?',action:'rewards' },
     { label:'Appearance and Haptics',icon:'◐',value:settings.haptics?'On':'Off',action:'haptics' },
     { label:'Language',icon:'◎',value:settings.language,action:'language' },
     { label:'Notifications',icon:'♧',value:settings.notifications?'On':'Off',action:'notifications' },
@@ -40,6 +41,7 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenProfile, onOpenSecu
   const handlePress=(item:SettingsItem)=>{
     switch(item.action){
       case 'wallet': onOpenWallet?.(); return;
+      case 'rewards': onOpenRewards?.(); return;
       case 'profile': onOpenProfile?.(); return;
       case 'haptics': setShowAppearance(true); return;
       case 'notifications':

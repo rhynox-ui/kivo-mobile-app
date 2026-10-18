@@ -12,6 +12,17 @@ export type FeedPost = {
 export type FeedReply = {id: string; postId: string; userId: string; username: string; avatarUrl: string | null; body: string; createdAt: number};
 export type FeedPostNotification = {id: string; kind: 'post' | 'like' | 'dislike' | 'reply'; postId: string; actorId: string; actorUsername: string; postPreview: string; createdAt: number; readAt: number | null};
 
+export type ReferralUser = {userId: string; username: string; avatarUrl: string | null; verified: boolean};
+export type ReferralSource = 'install' | 'manual';
+export type ReferralsMe = {
+  username: string; link: string; feeBps: number; referredBy: ReferralUser | null; canSetReferrer: boolean;
+  referralCount: number; tradedCount: number; clickCount?: number; totalEarnedUsd: number; thisWeekUsd: number; pendingUsd: number; paidUsd: number;
+  referrals: (ReferralUser & {joinedAt: number; feesUsd: number; earnedUsd: number})[];
+  recentRewards: {referredUsername: string; referredAvatarUrl: string | null; feeUsd: number; rewardUsd: number; chain: string; txHash: string; createdAt: number}[];
+  payouts: {amountUsd: number; chain: string; txHash: string; createdAt: number}[];
+};
+export type ReferralTradeResult = {recorded: boolean; rewardUsd?: number; needsSolanaLink?: boolean};
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) { super(message); this.status = status; }
@@ -281,5 +292,9 @@ export class KivoApi {
   setCommunityGate(communityId: string, gate: {chain: string; address: string; minAmount: string} | null) { return this.request<{gate: CommunityGate | null}>('PUT', `/api/communities/${encodeURIComponent(communityId)}/gate`, gate ?? {gate: null}); }
   checkCommunityGate(communityId: string, fresh = false) { return this.request<GateCheck | null>('GET', `/api/communities/${encodeURIComponent(communityId)}/gate/check${fresh ? '?fresh=1' : ''}`); }
   linkSolanaWallet(address: string, signature: string) { return this.request<{address: string}>('POST', '/api/wallet/link-solana', {address, signature}); }
+  referralsMe() { return this.request<ReferralsMe>('GET', '/api/referrals/me'); }
+  lookupReferrer(username: string) { return this.request<ReferralUser>('GET', `/api/referrals/lookup?username=${encodeURIComponent(username)}`); }
+  claimReferral(username: string, source: ReferralSource = 'manual') { return this.request<{referredBy: ReferralUser}>('POST', '/api/referrals/claim', {username, source}); }
+  reportReferralTrade(input: {chain: string; txHash: string; requestId?: string}) { return this.request<ReferralTradeResult>('POST', '/api/referrals/trade', input); }
   sync(since: number) { return this.request<SyncResponse>('GET', `/api/sync?since=${since}`); }
 }

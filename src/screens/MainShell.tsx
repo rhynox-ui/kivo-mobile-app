@@ -17,6 +17,9 @@ import { VerificationScreen } from './VerificationScreen';
 import { SecurityScreen } from './SecurityScreen';
 import { DiscoverScreen } from './DiscoverScreen';
 import { NotificationScreen } from './NotificationScreen';
+import { RewardsScreen } from './RewardsScreen';
+import { consumePendingReferralLink, refreshReferrals, subscribeReferralLinks } from '../state/referrals';
+import { socialReady } from '../state/session';
 import { ActivityScreen } from './ActivityScreen';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useChatState } from '../state/useChat';
@@ -33,7 +36,7 @@ type View_ =
   | { name: 'communities'; kind: CommunityKind }
   | { name: 'person'; userId: string }
   | { name: 'verification'; subjectType: 'profile' | 'channel'; subjectId: string; subjectName: string }
-  | { name: 'wallet'; action?: 'deposit' | 'withdraw' } | { name: 'editProfile' } | { name: 'settings' } | { name: 'notifications' } | { name: 'activity' } | { name: 'security' };
+  | { name: 'wallet'; action?: 'deposit' | 'withdraw' } | { name: 'editProfile' } | { name: 'settings' } | { name: 'notifications' } | { name: 'activity' } | { name: 'security' } | { name: 'rewards'; prefill?: string };
 
 const TAB_GLYPH: Record<Tab, string> = { Chats: '💬', Feed: '▤', Discover: '◎', Trade: '⇄', Profile: '◯' };
 
@@ -82,6 +85,19 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
     });
     return () => subscription.remove();
   }, [stack.length, back]);
+  // A referral link (kivotrade.site/r/<username>) opened while signed in: offer
+  // "Who referred you?" pre-filled, only while the account can still set one.
+  useEffect(() => {
+    const open = (code: string) => {
+      if (!socialReady()) return;
+      void refreshReferrals().then(me => {
+        if (me?.canSetReferrer) setStack(s => [...s.filter(v => v.name !== 'rewards'), { name: 'rewards', prefill: code }]);
+      });
+    };
+    const pending = consumePendingReferralLink();
+    if (pending) open(pending);
+    return subscribeReferralLinks(open);
+  }, []);
   const openChat = (id: string) => push({ name: 'conversation', id });
   const openCommunity = (id: string) => push({ name: 'community', id });
   // Tokens open straight in Trade (chart, price, MC, links, holders, contract); the separate token page was retired.
@@ -99,7 +115,8 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
     case 'notifications': return <NotificationScreen onBack={back} onOpenPost={postId => { back(); setPendingFeedPostId(postId); changeTab('Feed'); }} />;
     case 'activity': return <ActivityScreen onBack={back} />;
     case 'security': return <SecurityScreen onBack={back} />;
-    case 'settings': return <SettingsScreen onBack={back} onOpenWallet={() => push({ name: 'wallet' })} onOpenProfile={() => push({ name: 'editProfile' })} onOpenSecurity={() => push({ name: 'security' })} onLogout={onLogout} />;
+    case 'rewards': return <RewardsScreen onBack={back} prefillReferrer={view.prefill ?? null} onOpenPerson={userId => push({ name: 'person', userId })} />;
+    case 'settings': return <SettingsScreen onBack={back} onOpenRewards={() => push({ name: 'rewards' })} onOpenWallet={() => push({ name: 'wallet' })} onOpenProfile={() => push({ name: 'editProfile' })} onOpenSecurity={() => push({ name: 'security' })} onLogout={onLogout} />;
     default: break;
   }
 
@@ -113,6 +130,7 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
         {tab === 'Profile' && <ProfileScreen
           onOpenWallet={(action?: 'deposit' | 'withdraw') => push({ name: 'wallet', action })}
           onOpenSettings={() => push({ name: 'settings' })}
+          onOpenRewards={() => push({ name: 'rewards' })}
           onOpenHistory={() => push({ name: 'activity' })}
           onOpenNotifications={() => push({ name: 'notifications' })}
           onEditProfile={() => push({ name: 'editProfile' })}
