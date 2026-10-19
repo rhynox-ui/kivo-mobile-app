@@ -84,16 +84,43 @@ function pinnedPreview(message: LocalMessage): string {
 }
 
 function renderLinkedText(text: string, myUsername?: string | null, onMention?: (username: string) => void): React.ReactNode[] {
-  const nodes: React.ReactNode[]=[]; const pattern= /https?:\/\/[^\s<>"']+|www\.[^\s<>"']+|#[\p{L}\p{N}_]+|\$[A-Za-z][A-Za-z0-9_]*|@[A-Za-z0-9_]+/gu; let cursor=0; let key=0; const mine=myUsername?.replace(/^@/,'').toLowerCase();
-  for(const match of text.matchAll(pattern)){const raw=match[0];const start=match.index??0;
-    // @mentions: only at a word start (so emails stay plain text); the viewer's own handle is stronger.
-    if(raw.startsWith('@')){if(start>0&&/[\w.]/.test(text[start-1]))continue;if(start>cursor)nodes.push(text.slice(cursor,start));nodes.push(<Text key={`mention-${key++}`} accessibilityRole={onMention?'link':undefined} onPress={onMention?()=>onMention(raw.slice(1)):undefined} style={mine&&raw.slice(1).toLowerCase()===mine?styles.messageMentionMe:styles.messageMention}>{raw}</Text>);cursor=start+raw.length;continue;}
-    if(start>cursor)nodes.push(text.slice(cursor,start));let url:string;let style:TextStyle=styles.messageLink;
-    if(raw.startsWith('#')){url='https://x.com/hashtag/'+encodeURIComponent(raw.slice(1));style=styles.messageHashtag;}
-    else if(raw.startsWith('$')){url='https://dexscreener.com/search?q='+encodeURIComponent(raw.slice(1));style=styles.messageTicker;}
-    else{const clean=raw.replace(/[),.!?;:]+$/,'');url=clean.startsWith('www.')?'https://'+clean:clean;nodes.push(<Text key={`link-${key++}`} accessibilityRole="link" onPress={()=>Linking.openURL(url).catch(()=>kivoAlert('Link','Could not open this link.'))} style={style}>{clean}</Text>);const tail=raw.slice(clean.length);if(tail)nodes.push(tail);cursor=start+raw.length;continue;}
-    nodes.push(<Text key={`link-${key++}`} accessibilityRole="link" onPress={()=>Linking.openURL(url).catch(()=>kivoAlert('Link','Could not open this link.'))} style={style}>{raw}</Text>);cursor=start+raw.length;
-  } if(cursor<text.length)nodes.push(text.slice(cursor));return nodes.length?nodes:[text];
+  const nodes: React.ReactNode[] = [];
+  // Match Web's full EVM addresses and Solana public keys, as well as existing links and tags.
+  const pattern = /https?:\/\/[^\s<>"']+|www\.[^\s<>"']+|(?<![1-9A-HJ-NP-Za-km-z])(?:0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})(?![1-9A-HJ-NP-Za-km-z])|#[\p{L}\p{N}_]+|\$[A-Za-z][A-Za-z0-9_]*|@[A-Za-z0-9_]+/gu;
+  let cursor = 0; let key = 0; const mine = myUsername?.replace(/^@/, '').toLowerCase();
+  for (const match of text.matchAll(pattern)) {
+    const raw = match[0]; const start = match.index ?? 0;
+    if (raw.startsWith('@') && start > 0 && /[\w.]/.test(text[start - 1])) continue;
+    if (start > cursor) nodes.push(text.slice(cursor, start));
+    if (/^0x[a-fA-F0-9]{40}$/.test(raw) || /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(raw)) {
+      nodes.push(<React.Fragment key={'address-' + key++}>
+        <Text selectable>{raw}</Text>
+        <Text accessibilityRole="button" accessibilityLabel="Copy address" onPress={() => {
+          Clipboard.setString(raw);
+          kivoAlert('Address copied', 'Address copied to clipboard.');
+        }} style={styles.messageLink}> ⧉</Text>
+      </React.Fragment>);
+      cursor = start + raw.length;
+      continue;
+    }
+    if (raw.startsWith('@')) {
+      nodes.push(<Text key={'mention-' + key++} accessibilityRole={onMention ? 'link' : undefined} onPress={onMention ? () => onMention(raw.slice(1)) : undefined} style={mine && raw.slice(1).toLowerCase() === mine ? styles.messageMentionMe : styles.messageMention}>{raw}</Text>);
+      cursor = start + raw.length;
+      continue;
+    }
+    let url: string; let style: TextStyle = styles.messageLink;
+    if (raw.startsWith('#')) { url = 'https://x.com/hashtag/' + encodeURIComponent(raw.slice(1)); style = styles.messageHashtag; }
+    else if (raw.startsWith('$')) { url = 'https://dexscreener.com/search?q=' + encodeURIComponent(raw.slice(1)); style = styles.messageTicker; }
+    else {
+      const clean = raw.replace(/[),.!?;:]+$/, ''); url = clean.startsWith('www.') ? 'https://' + clean : clean;
+      nodes.push(<Text key={'link-' + key++} accessibilityRole="link" onPress={() => Linking.openURL(url).catch(() => kivoAlert('Link', 'Could not open this link.'))} style={style}>{clean}</Text>);
+      const tail = raw.slice(clean.length); if (tail) nodes.push(tail); cursor = start + raw.length; continue;
+    }
+    nodes.push(<Text key={'link-' + key++} accessibilityRole="link" onPress={() => Linking.openURL(url).catch(() => kivoAlert('Link', 'Could not open this link.'))} style={style}>{raw}</Text>);
+    cursor = start + raw.length;
+  }
+  if (cursor < text.length) nodes.push(text.slice(cursor));
+  return nodes.length ? nodes : [text];
 }
 
 /**
@@ -161,6 +188,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   type MenuItem = { text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void };
   const [optionsMenu, setOptionsMenu] = useState<MenuItem[] | null>(null);
+  const [optionsMessage, setOptionsMessage] = useState<LocalMessage | null>(null);
   const [selectedTextMessageId, setSelectedTextMessageId] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<LocalMessage | null>(null);
   const [viewing, setViewing] = useState<LocalMessage | null>(null);
@@ -435,11 +463,11 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
       return;
     }
     if (message.status !== 'sent' || message.deleted) return;
-    // Same options as the web app, in a Kivo-styled sheet instead of the system dialog.
+    // Match Web: show quick reactions in the same message-options sheet.
+    setOptionsMessage(message);
     setOptionsMenu([
       ...(message.text ? [{ text: 'Select text', onPress: () => setSelectedTextMessageId(message.id) }] : []),
       ...(canPost ? [{ text: 'Reply', onPress: () => { setEditingMessageId(null); setReplyingTo(message); } }] : []),
-      ...(canReact ? [{ text: 'React', onPress: () => setReactingTo(message) }] : []),
       ...(canPin ? (() => { const isPinned = pins.some(p => p.id === message.id); return [{ text: isPinned ? 'Unpin message' : 'Pin message', onPress: () => setPin(message.id, !isPinned) }]; })() : []),
       ...(message.senderId === me ? [{ text: 'Edit message', onPress: () => { setReplyingTo(null); setEditingMessageId(message.id); setDraft(message.text); } }] : []),
       { text: 'Forward message', onPress: () => setForwardingMessage(message) },
@@ -697,14 +725,29 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           </View>
         </View>
       </KivoModal>
-      <BottomSheet visible={!!optionsMenu} onClose={() => setOptionsMenu(null)}>
+      <BottomSheet visible={!!optionsMenu} onClose={() => { setOptionsMenu(null); setOptionsMessage(null); }}>
         <Text style={styles.sheetTitle}>Message options</Text>
+        {optionsMessage && canReact && (
+          <View style={styles.webParityReactionSection}>
+            <Text style={styles.webParityReactionLabel}>React</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.webParityReactionRow}>
+              {REACTIONS.map(emoji => {
+                const selected = extras?.reactions[optionsMessage.id]?.mine === emoji;
+                return <Pressable key={emoji} style={[styles.reactionOption, selected && styles.reactionOptionMine]} accessibilityRole="button" accessibilityLabel={`React with ${emoji}`} accessibilityState={{ selected }} onPress={() => {
+                  const target = optionsMessage;
+                  setOptionsMenu(null); setOptionsMessage(null);
+                  if (target) react(target.id, emoji);
+                }}><Text style={styles.reactionOptionText}>{emoji}</Text></Pressable>;
+              })}
+            </ScrollView>
+          </View>
+        )}
         {(optionsMenu ?? []).map(item => (
-          <Pressable key={item.text} style={styles.sheetRow} accessibilityRole="button" onPress={() => { setOptionsMenu(null); item.onPress?.(); }}>
+          <Pressable key={item.text} style={styles.sheetRow} accessibilityRole="button" onPress={() => { setOptionsMenu(null); setOptionsMessage(null); item.onPress?.(); }}>
             <Text style={[styles.sheetRowText, item.style === 'destructive' && styles.sheetRowDanger]}>{item.text}</Text>
           </Pressable>
         ))}
-        <Pressable style={styles.sheetRow} accessibilityRole="button" onPress={() => setOptionsMenu(null)}><Text style={styles.sheetCancel}>Cancel</Text></Pressable>
+        <Pressable style={styles.sheetRow} accessibilityRole="button" onPress={() => { setOptionsMenu(null); setOptionsMessage(null); }}><Text style={styles.sheetCancel}>Cancel</Text></Pressable>
       </BottomSheet>
       <BottomSheet visible={!!reactingTo} onClose={() => setReactingTo(null)}>
         <Text style={styles.sheetTitle}>React</Text>
@@ -793,6 +836,9 @@ const styles = StyleSheet.create({
   reactionChipMine: { backgroundColor: 'rgba(37,137,245,0.28)', borderColor: '#2589F5' },
   reactionChipText: { color: c.text, fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
   reactionChipTextMine: { color: '#FFFFFF' },
+  webParityReactionSection: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 12, gap: 10 },
+  webParityReactionLabel: { color: kivoTheme.colors.textMuted, fontSize: 13 },
+  webParityReactionRow: { flexDirection: 'row', gap: 8, paddingRight: 4 },
   reactionPicker: { flexDirection: 'row', gap: 4, paddingVertical: 12 },
   reactionOption: { flex: 1, aspectRatio: 1, maxWidth: 52, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface },
   reactionOptionMine: { backgroundColor: 'rgba(37,137,245,0.28)', borderWidth: 1, borderColor: '#2589F5' },
