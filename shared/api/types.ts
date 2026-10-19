@@ -113,6 +113,8 @@ export type ApiConversation = {
   unreadMentions?: number;
 };
 
+import type { ChatPollPayload } from '../polls/types';
+
 export type ApiMessage = {
   seq: number;
   id: string;
