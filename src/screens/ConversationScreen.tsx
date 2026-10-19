@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { AppState, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
+import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { kivoAlert } from '../components/KivoAlert';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { API_LIMITS, messageCharLimit, messageLength, shortWallet, type ApiMessage } from '@kivo/shared/api/types';
@@ -25,6 +26,25 @@ type ReactionState = { counts: { emoji: string; count: number }[]; mine: string 
 // `mentions`: ids of messages mentioning the viewer that are still unread, oldest first.
 type Extras = { pinned: LocalMessage | null; pins: LocalMessage[]; reactions: Record<string, ReactionState>; unreadMentions: number; mentions: string[] };
 const EMPTY_EXTRAS: Extras = { pinned: null, pins: [], reactions: {}, unreadMentions: 0, mentions: [] };
+
+type AttachmentSymbolKind = 'photo' | 'poll' | 'token';
+function AttachmentSymbol({ kind, color }: { kind: AttachmentSymbolKind; color: string }) {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      {kind === 'photo' ? <>
+        <Rect x={3} y={3} width={18} height={18} rx={2.5} />
+        <Circle cx={15.5} cy={8.5} r={1.5} />
+        <Path d="M4 17l5-5 3.5 3.5 2-2L20 19" />
+      </> : kind === 'poll' ? <>
+        <Path d="M4 20V13M10 20V9M16 20V5M22 20H2" />
+        <Path d="M3 11l6-5 4 3 8-7" />
+      </> : <>
+        <Path d="M3 17l6-6 4 4 8-9" />
+        <Path d="M15 6h6v6" />
+      </>}
+    </Svg>
+  );
+}
 const asPins = (pins: ApiMessage[] | undefined, pinned: ApiMessage | null): LocalMessage[] => (pins ?? (pinned ? [pinned] : [])).map(m => ({ ...m, status: 'sent' as const }));
 /** Telegram-style segmented bar: oldest at the top; shows at most 4 segments, windowed around the shown pin. */
 function PinIndicator({ count, position }: { count: number; position: number }) {
@@ -131,6 +151,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const profile = useProfile();
   const [draft, setDraft] = useState('');
   const [tokenAttachmentOpen, setTokenAttachmentOpen] = useState(false);
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   // Set by the picker once the pasted token has a live market (null while checking or empty).
   const [verifiedTokenAttachment, setVerifiedTokenAttachment] = useState<VerifiedToken|null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -583,11 +604,27 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           </Pressable>)}
         </ScrollView>}
         {tokenAttachmentOpen && <TokenAttachmentPicker onChange={setVerifiedTokenAttachment} onClose={() => setTokenAttachmentOpen(false)} />}
-        <View style={styles.composer}>
-          <Pressable onPress={() => setTokenAttachmentOpen(value => !value)} hitSlop={8} style={styles.attach} accessibilityLabel="Attach token"><Text style={styles.attachText}>◇</Text></Pressable>
-          <Pressable onPress={attach} hitSlop={8} style={styles.attach} accessibilityLabel="Attach photo"><Text style={styles.attachText}>＋</Text></Pressable>
-          <TextInput value={draft} onChangeText={setDraft} selection={forcedSelection ?? undefined} onSelectionChange={event => setSelection(event.nativeEvent.selection)} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={messageCharLimit(true) * 2} style={styles.input} />
-          <Pressable disabled={(!draft.trim() && !verifiedTokenAttachment) || sending} onPress={send} style={[styles.send, ((!draft.trim() && !verifiedTokenAttachment) || overLimit || sending) && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
+        <View style={styles.composerArea}>
+          {attachmentMenuOpen && <View style={styles.attachmentMenu} accessibilityLabel="Attachment options">
+            <Pressable onPress={() => { setAttachmentMenuOpen(false); void attach(); }} style={({ pressed }) => [styles.attachmentTile, pressed && styles.attachmentTilePressed]} accessibilityRole="button" accessibilityLabel="Attach photo">
+              <AttachmentSymbol kind="photo" color={kivoTheme.colors.accent} />
+              <Text style={styles.attachmentLabel}>Photo</Text>
+            </Pressable>
+            <View style={[styles.attachmentTile, styles.attachmentTileDisabled]} accessibilityLabel="Poll coming soon">
+              <AttachmentSymbol kind="poll" color={kivoTheme.colors.accent} />
+              <Text style={styles.attachmentLabel}>Poll</Text>
+              <Text style={styles.attachmentHint}>Soon</Text>
+            </View>
+            <Pressable onPress={() => { setAttachmentMenuOpen(false); setTokenAttachmentOpen(true); }} style={({ pressed }) => [styles.attachmentTile, pressed && styles.attachmentTilePressed]} accessibilityRole="button" accessibilityLabel="Attach token card">
+              <AttachmentSymbol kind="token" color={kivoTheme.colors.accent} />
+              <Text style={styles.attachmentLabel}>Token card</Text>
+            </Pressable>
+          </View>}
+          <View style={styles.composer}>
+            <Pressable onPress={() => { setTokenAttachmentOpen(false); setAttachmentMenuOpen(value => !value); }} hitSlop={8} style={styles.attach} accessibilityLabel="Attachments" accessibilityState={{ expanded: attachmentMenuOpen }}><Text style={styles.attachText}>＋</Text></Pressable>
+            <TextInput value={draft} onChangeText={setDraft} selection={forcedSelection ?? undefined} onSelectionChange={event => setSelection(event.nativeEvent.selection)} placeholder={editingMessageId ? 'Edit message' : 'Message'} placeholderTextColor={kivoTheme.colors.textMuted} multiline maxLength={messageCharLimit(true) * 2} style={styles.input} />
+            <Pressable disabled={(!draft.trim() && !verifiedTokenAttachment) || sending} onPress={send} style={[styles.send, ((!draft.trim() && !verifiedTokenAttachment) || overLimit || sending) && styles.sendDisabled]} accessibilityLabel={editingMessageId ? 'Save edit' : 'Send'}><Text style={styles.sendText}>{editingMessageId ? '✓' : '➤'}</Text></Pressable>
+          </View>
         </View>
         </View>
       ) : (
@@ -797,13 +834,20 @@ const styles = StyleSheet.create({
   mentionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8 },
   mentionRowPressed: { backgroundColor: c.surfaceRaised },
   mentionName: { flex: 1, color: c.text, fontWeight: '700', fontSize: 14 },
-  composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background },
-  attach: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
-  attachText: { color: c.cream, fontSize: 26 },
-  input: { flex: 1, minHeight: 44, maxHeight: 140, borderRadius: 22, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11, backgroundColor: c.surface, color: c.text, fontSize: 15 },
-  send: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#2FD67B', alignItems: 'center', justifyContent: 'center' },
+  composerArea: { position: 'relative' },
+  attachmentMenu: { position: 'absolute', zIndex: 20, left: 10, bottom: 62, width: 250, maxWidth: '90%', flexDirection: 'row', gap: 5, padding: 6, borderRadius: 14, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, elevation: 8 },
+  attachmentTile: { flex: 1, minWidth: 0, minHeight: 48, paddingVertical: 5, paddingHorizontal: 2, borderRadius: 10, alignItems: 'center', justifyContent: 'center', gap: 3, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+  attachmentTilePressed: { backgroundColor: c.background },
+  attachmentTileDisabled: { opacity: 0.58 },
+  attachmentLabel: { color: c.text, fontSize: 10.5, lineHeight: 12, fontWeight: '700', textAlign: 'center' },
+  attachmentHint: { color: c.textMuted, fontSize: 9, lineHeight: 10 },
+  composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 5, paddingHorizontal: 8, paddingVertical: 8, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background },
+  attach: { width: 28, height: 40, alignItems: 'center', justifyContent: 'center' },
+  attachText: { color: c.cream, fontSize: 23 },
+  input: { flex: 1, minWidth: 0, minHeight: 40, maxHeight: 140, borderRadius: 22, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, backgroundColor: c.surface, color: c.text, fontSize: 15 },
+  send: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#2FD67B', alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
   sendDisabled: { opacity: 0.45 },
-  sendText: { color: c.backgroundDeep, fontSize: 18, fontWeight: '900' },
+  sendText: { color: c.backgroundDeep, fontSize: 16, fontWeight: '900' },
   readonly: { padding: 14, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background, alignItems: 'center' },
   readonlyText: { color: c.textMuted, fontSize: 13 },
 });
