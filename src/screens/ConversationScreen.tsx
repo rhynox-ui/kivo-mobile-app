@@ -551,7 +551,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           const mine = message.senderId === me && !isChannel;
           return (
             <View style={[styles.bubbleRow, mine && styles.bubbleRowMine, conversation?.kind === 'group' && !mine && styles.bubbleRowGroupIncoming]}>
-              {conversation?.kind !== 'dm' && item.showAvatar ? <View style={styles.avatarColumn}><Avatar name={message.senderId === me ? '@' + (profile.username || 'You') : displayName(message.senderId)} uri={message.senderId === me ? (profile.avatarUri ?? state.profiles[message.senderId]?.avatarUrl) : state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /></View> : null}
+              {conversation?.kind !== 'dm' && item.showAvatar && !mine ? <View style={styles.avatarColumn}><Avatar name={displayName(message.senderId)} uri={state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /></View> : null}
               <Pressable onLongPress={selectedTextMessageId === message.id ? undefined : () => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted, unreadMentionSet.has(message.id) && styles.bubbleMention, message.id === highlightedId && styles.bubbleHighlight]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{message.senderId === me && message.poll ? '@' + (profile.username || 'You') : displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
@@ -582,6 +582,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                 })()}
                 <Text style={[styles.meta, inlineMeta(message) && styles.metaInline]}>{metaLabel(message)}</Text>
               </Pressable>
+              {conversation?.kind !== 'dm' && item.showAvatar && mine && message.poll && <View style={[styles.avatarColumn, { marginRight: 0, marginLeft: 8 }]}><Avatar name={'@' + (profile.username || 'You')} uri={profile.avatarUri ?? state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /></View>}
             </View>
           );
         }}
