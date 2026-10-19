@@ -4,6 +4,7 @@
 import {formatUnits, parseUnits} from 'viem';
 import {CHAIN_LABEL, TOKEN_ADDRESSES, assetDecimalsForChain, currencyAddress, type ChainKey} from '../core/chainData';
 import {getRelayQuote, intentForQuote, summarizeQuote, type RelayQuote} from '../core/relayQuote';
+import {isBlueChip, isFeeExemptWallet} from '../core/fees';
 import {usdcDecimals} from './balances';
 import {nativeSymbol, type KivoToken, type TradeSide} from './tokens';
 
@@ -132,15 +133,28 @@ export async function requestKivoQuote(request: KivoTradeRequest): Promise<KivoQ
   const amountNumber = parseAmountInput(request.amount);
   const originAmountUsd = request.feeBasisUsd
     ?? (request.side === 'buy' ? request.amountUsd ?? amountNumber : amountNumber != null && request.token.priceUsd != null ? amountNumber * request.token.priceUsd : null);
-  const quote = await getRelayQuote({
+  const ask = (usd: number | null) => getRelayQuote({
     fromChainKey: input.chainKey, toChainKey: output.chainKey, originCurrency: input.address, destinationCurrency: output.address,
     // Kivo's fee is classified by the token traded, on its own chain (fees.ts kivoFeeUsd).
     feeToken: {chainKey: request.token.chainKey, tokenAddress: request.token.tokenAddress},
-    amountBaseUnits, userAddress: request.userAddress, recipientAddress: request.recipientAddress, originAmountUsd,
+    amountBaseUnits, userAddress: request.userAddress, recipientAddress: request.recipientAddress, originAmountUsd: usd,
     ...(request.slippageBps ? {slippageTolerance: String(request.slippageBps)} : {}),
     // EVM/Calibur-only parameter; Solana-origin quotes must not carry it.
     ...(request.execution === 'gasless' && input.chainKey !== 'solana' ? {originGasOverhead: '80000'} : {}),
   });
+  let quote = await ask(originAmountUsd);
+  // No live price (e.g. selling a token Kivo can't price): the fee was asked
+  // without a trade size, which skips the Solana minimum and the $50 cap.
+  // Size it from Relay's own dollar value of what is spent and quote again;
+  // when the size still matters and nobody can value it, refuse.
+  if (originAmountUsd == null && !isFeeExemptWallet(request.userAddress)) {
+    const relayUsd = num(quote.details?.currencyIn?.amountUsd);
+    if (relayUsd != null && relayUsd > 0) {
+      quote = await ask(relayUsd);
+    } else if (request.token.chainKey === 'solana' && !isBlueChip(request.token.chainKey, request.token.tokenAddress)) {
+      throw new Error("Kivo couldn't value this trade in dollars, so its fee can't be set. Nothing was sent. Try again in a moment.");
+    }
+  }
   return {request, quote, input, output, view: buildQuoteView(request, quote, input, output)};
 }
 
