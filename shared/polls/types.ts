@@ -11,8 +11,9 @@ export type PollOptionResult = PollOption & { voteCount: number; voterNames?: st
 export type PollPayload = { question: string; description: string; options: PollOption[]; settings: PollSettings; endsAt: number | null };
 export type PollResults = { options: PollOptionResult[]; totalVoters: number; viewerOptionIds: string[]; closed: boolean };
 export type FeedPoll = PollPayload & PollResults & { postId: string; pollId: string };
-export type ChatPollPayload = PollPayload;
-export type ChatPollResults = PollResults & { messageId: string; conversationId: string; poll: ChatPollPayload };
+export type ChatPollPayload = { question: string; description: string; options: string[]; settings: PollSettings; endsAt: number | null };
+export type ChatPollMessage = PollPayload;
+export type ChatPollResults = PollResults & { messageId: string; conversationId: string; poll: ChatPollMessage };
 export const DEFAULT_POLL_SETTINGS: Readonly<PollSettings> = Object.freeze({
   showVoters: false, allowMultiple: false, allowAddingOptions: false, allowRevoting: true, shuffleOptions: false,
 });
