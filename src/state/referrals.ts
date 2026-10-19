@@ -111,10 +111,14 @@ export function startReferralSync() {
 // ---------------------------------------------------------------------------
 // Referral links
 
-/** "https://kivotrade.site/r/alice" → "alice" (strict username check), else null. */
+/**
+ * "https://kivotrade.site/r/alice" → "alice" (strict username check), else null.
+ * Only the host the App Link filter (AndroidManifest) and assetlinks.json
+ * verify: a www link never opens the app, so it is not accepted here either.
+ */
 export function parseReferralUrl(url: string | null | undefined): string | null {
   if (typeof url !== 'string') return null;
-  const match = /^https:\/\/(?:www\.)?kivotrade\.site\/r\/([^/?#]+)\/?(?:[?#].*)?$/i.exec(url.trim());
+  const match = /^https:\/\/kivotrade\.site\/r\/([^/?#]+)\/?(?:[?#].*)?$/i.exec(url.trim());
   if (!match) return null;
   let value: string;
   try { value = decodeURIComponent(match[1]).trim().replace(/^@/, ''); } catch { return null; }
