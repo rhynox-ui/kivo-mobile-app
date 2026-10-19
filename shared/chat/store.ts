@@ -8,6 +8,7 @@
 
 import type {KivoApi} from '../api/client';
 import type {ApiConversation, ApiMessage, ApiProfile} from '../api/types';
+import type {ChatPollPayload} from '../polls/types';
 import {kivoUserIdForWallet, messageCharLimit, messageLength, normalizeWalletAddress, shortWallet, walletAddressOfUserId} from '../api/types';
 import type {KeyValueStorage} from '../storage';
 
@@ -328,6 +329,22 @@ async function deliver(local: LocalMessage, payload: {text: string; mediaKey?: s
  * card while it sends; the server looks the token up itself and its answer
  * replaces them.
  */
+/** Sends a poll only to Groups and Channels; the server remains authoritative for permissions. */
+export async function sendPoll(conversationId: string, poll: ChatPollPayload) {
+  if (!opts || !opts.api.isSignedIn(state.owner)) throw new Error('Connect your wallet to chat.');
+  const conversation = state.conversations.find(item => item.id === conversationId);
+  if (!conversation || (conversation.kind !== 'group' && conversation.kind !== 'channel')) {
+    throw new Error('Polls are available in Groups and Channels, not direct messages.');
+  }
+  const sent = await opts.api.send(conversationId, {text: '', poll, clientId: clientId()});
+  const list = [...(state.messages[conversationId] ?? [])].filter(message => message.id !== sent.id);
+  list.push({...sent, status: 'sent'});
+  list.sort((a, b) => a.createdAt - b.createdAt || (a.seq || Number.MAX_SAFE_INTEGER) - (b.seq || Number.MAX_SAFE_INTEGER));
+  state = {...state, messages: {...state.messages, [conversationId]: cap(list)}, lastRead: {...state.lastRead, [conversationId]: Math.max(state.lastRead[conversationId] ?? 0, sent.seq)}};
+  state = {...state, conversations: state.conversations.map(item => item.id === sent.conversationId ? {...item, lastSeq: sent.seq, lastPreview: '📊 ' + sent.poll?.question, lastSenderId: sent.senderId, lastActivityAt: sent.createdAt} : item).sort(byPinnedThenRecent)};
+  emit();
+}
+
 export async function sendText(conversationId: string, text: string, replyTo?: string, token?: {chain: string; address: string; symbol?: string; name?: string; imageUrl?: string | null}) {
   const trimmed = text.normalize('NFC').trim();
   if (!trimmed && !token) return;

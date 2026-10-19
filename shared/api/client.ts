@@ -1,6 +1,7 @@
 // Typed client for the Kivo social API, shared by web and mobile.
 import type {KeyValueStorage} from '../storage';
 import type {ProfileSocial, PublicCommunityCard} from './types';
+import type {ChatPollPayload, ChatPollResults, FeedPoll, PollSettingsWithDuration} from '../polls/types';
 import type {ApiBan, CallStats, CommunityGate, GateCheck, ApiCommunity, ApiConversation, ApiMember, ApiMessage, ApiProfile, AuthChallenge, AuthSession, CommunityKind, CommunitySettingsInput, ProfileApprovalChallenge, ProfileLinks, SyncResponse} from './types';
 
 export type WatchlistToken = {chainKey: string; tokenAddress: string; symbol: string; name: string; imageUrl: string | null; savedAt: number};
@@ -9,7 +10,7 @@ import {kivoUserIdForWallet, normalizeWalletAddress} from './types';
 export type FeedPost = {
   id: string; userId: string; username: string; avatarUrl: string | null; body: string; imageUrl: string | null; createdAt: number;
   token: null | {chain: string; address: string; symbol: string; name: string; imageUrl: string | null; entryMarketCapUsd: number | null};
-  likeCount: number; dislikeCount: number; replyCount: number; likedByViewer: boolean; dislikedByViewer: boolean; pinned: boolean; nextCursor?: string;
+  likeCount: number; dislikeCount: number; replyCount: number; likedByViewer: boolean; dislikedByViewer: boolean; pinned: boolean; pollId?: string | null; nextCursor?: string;
 };
 export type FeedReply = {id: string; postId: string; userId: string; username: string; avatarUrl: string | null; body: string; createdAt: number};
 export type FeedPostNotification = {id: string; kind: 'post' | 'like' | 'dislike' | 'reply'; postId: string; actorId: string; actorUsername: string; postPreview: string; createdAt: number; readAt: number | null};
@@ -261,6 +262,10 @@ export class KivoApi {
   moderationStatus() { return this.request<{cooldownUntil: number; reason: string}>('GET', '/api/moderation/status'); }
   feedPosts(cursor?: string, following = false) { const params = new URLSearchParams(); if (cursor) params.set('cursor', cursor); if (following) params.set('following', '1'); const query = params.toString(); return this.request<FeedPost[]>('GET', `/api/feed${query ? `?${query}` : ''}`); }
   createFeedPost(input: {body: string; imageKey?: string | null; token?: {chain: string; address: string} | null}) { return this.request<FeedPost>('POST', '/api/feed', input); }
+  createFeedPoll(input: {question: string; description?: string; options: string[]; settings?: Partial<PollSettingsWithDuration>}) { return this.request<FeedPost>('POST', '/api/feed/polls', input); }
+  feedPoll(postId: string) { return this.request<FeedPoll>('GET', `/api/feed/${encodeURIComponent(postId)}/poll`); }
+  voteFeedPoll(postId: string, optionIds: string[]) { return this.request<FeedPoll>('POST', `/api/feed/${encodeURIComponent(postId)}/poll/vote`, {optionIds}); }
+  addFeedPollOption(postId: string, label: string) { return this.request<FeedPoll>('POST', `/api/feed/${encodeURIComponent(postId)}/poll/options`, {label}); }
   setFeedReaction(postId: string, reaction: 'like' | 'dislike' | null) { return this.request<{reaction: 'like' | 'dislike' | null; likeCount: number; dislikeCount: number}>('POST', `/api/feed/${encodeURIComponent(postId)}/reaction`, {reaction}); }
   deleteFeedPost(postId: string) { return this.request<{deleted: true}>('DELETE', `/api/feed/${encodeURIComponent(postId)}`); }
   /** Posts the viewer scrolled past, so For You shows new ones first. */
@@ -277,7 +282,10 @@ export class KivoApi {
   conversations() { return this.request<ApiConversation[]>('GET', '/api/conversations'); }
   openDm(address: string) { return this.request<{id: string}>('POST', '/api/conversations/dm', {address}); }
   history(conversationId: string, before?: number) { return this.request<ApiMessage[]>('GET', `/api/conversations/${encodeURIComponent(conversationId)}/messages${before ? `?before=${before}` : ''}`); }
-  send(conversationId: string, input: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; token?: {chain: string; address: string}; replyTo?: string; clientId: string}) { return this.request<ApiMessage>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/messages`, input); }
+  send(conversationId: string, input: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; token?: {chain: string; address: string}; poll?: ChatPollPayload; replyTo?: string; clientId: string}) { return this.request<ApiMessage>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/messages`, input); }
+  chatPoll(messageId: string) { return this.request<ChatPollResults>('GET', `/api/messages/${encodeURIComponent(messageId)}/poll`); }
+  voteChatPoll(messageId: string, optionIds: string[]) { return this.request<ChatPollResults>('POST', `/api/messages/${encodeURIComponent(messageId)}/poll/vote`, {optionIds}); }
+  addChatPollOption(messageId: string, label: string) { return this.request<ChatPollResults>('POST', `/api/messages/${encodeURIComponent(messageId)}/poll/options`, {label}); }
   editMessage(id: string, text: string) { return this.request<ApiMessage>('PATCH', `/api/messages/${encodeURIComponent(id)}`, {text}); }
   forwardMessage(id: string, conversationId: string) { return this.request<ApiMessage>('POST', `/api/messages/${encodeURIComponent(id)}/forward`, {conversationId}); }
   blockedUsers() { return this.request<string[]>('GET', '/api/blocks'); }

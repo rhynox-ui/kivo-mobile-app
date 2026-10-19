@@ -113,6 +113,8 @@ export type ApiConversation = {
   unreadMentions?: number;
 };
 
+import type { ChatPollMessage } from '../polls/types';
+
 export type ApiMessage = {
   seq: number;
   id: string;
@@ -127,6 +129,8 @@ export type ApiMessage = {
   deleted: boolean;
   editedAt?: number | null;
   forwardedFrom?: string | null;
+  /** Interactive poll payload on Group/Channel messages; DMs do not support polls. */
+  poll?: ChatPollMessage | null;
 };
 
 export type SyncResponse = {messages: ApiMessage[]; cursor: number; more: boolean};
