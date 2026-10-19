@@ -19,6 +19,7 @@ import { chartTotal, closedPositions, computePortfolioChange, fetchPortfolio, fi
 import { formatAmount, formatBalanceUsd, formatUsd, type KivoToken } from '@kivo/trading/kivo/tokens';
 import { ConvertCashSheet } from '../components/ConvertCashSheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getReferrals, refreshReferrals, referralLink, shareReferralLink } from '../state/referrals';
 
 const RANGES: PortfolioRange[] = ['24h', '7d', '30d', 'All'];
 type PositionTab = 'open' | 'closed';
@@ -309,7 +310,10 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
           </Pressable>
           <View style={styles.identityActions}>
             <Pressable onPress={onOpenNotifications} style={styles.iconButton} accessibilityLabel="Notifications"><Text style={styles.iconButtonText}>🔔</Text></Pressable>
-            <Pressable onPress={() => Share.share({ message: `@${profile.username} on Kivo · https://kivo-web.pages.dev/u/${encodeURIComponent(profile.userId)}` }).catch(() => {})} style={styles.iconButton} accessibilityLabel="Share profile"><Text style={styles.iconButtonText}>⇪</Text></Pressable>
+            <Pressable onPress={async () => {
+              const me = getReferrals() ?? await refreshReferrals();
+              shareReferralLink(referralLink(profile.username, me));
+            }} style={styles.iconButton} accessibilityLabel="Share profile"><Text style={styles.iconButtonText}>⇪</Text></Pressable>
           </View>
         </View>
         <View style={styles.usernameRow}>
