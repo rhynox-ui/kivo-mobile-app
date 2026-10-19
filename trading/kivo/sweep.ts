@@ -2,7 +2,7 @@
 // coin (USDC on Base, ETH, BNB, SOL…) are moved to the user's USDC on Solana
 // without the user doing anything, like a CEX balance. Each asset is one
 // Relay route straight to Solana USDC. Costs: USDC->USDC has no Relay
-// platform fee; Kivo sponsors the gas and, if that costs more than the
+// platform fee and a token Kivo fee; other coins pay Kivo's normal fee; Kivo sponsors the gas and, if that costs more than the
 // tiny app fee carried, the server raises that move's fee just enough to
 // recover it. Native coins pay their own gas from the reserve kept on them.
 
@@ -48,7 +48,10 @@ export async function sweepToHome({balance, accounts, onlyUpToUsd}: {balance: Sp
       userAddress: asset.chainKey === 'solana' ? solana : accounts.evm.address,
       recipientAddress: solana,
       originAmountUsd: asset.valueUsd,
-      sweepHome: true,
+      // Only a cash -> cash move (USDC/USDG to Solana USDC) keeps the token
+      // 1 bps sweep fee. ETH, BNB, USDT… are swaps: Kivo's normal fee
+      // (fees.ts kivoFeeBps, classified by the coin sold).
+      ...(asset.kind === 'cash' ? {sweepHome: true} : {}),
       ...(evmGasless ? {originGasOverhead: '80000'} : {}),
     };
     try {
