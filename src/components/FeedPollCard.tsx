@@ -9,7 +9,7 @@ type Props={postId:string; onError?:(message:string)=>void};
 export function FeedPollCard({postId,onError}:Props){
  const [poll,setPoll]=useState<FeedPoll|null>(null),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[selected,setSelected]=useState<string[]>([]),[suggestion,setSuggestion]=useState('');
  const refresh=useCallback(async()=>{setLoading(true);try{const result=await api.feedPoll(postId);setPoll(result);setSelected(result.viewerOptionIds??[]);}catch(e){onError?.(e instanceof Error?e.message:'Could not load poll results.');}finally{setLoading(false);}},[postId,onError]);
- useEffect(()=>{let live=true;void api.feedPoll(postId).then(result=>{if(live){setPoll(result);setSelected(result.viewerOptionIds??[]);}}).catch(e=>{if(live)onError?.(e instanceof Error?e.message:'Could not load poll results.');}).finally(()=>{if(live)setLoading(false);});return()=>{live=false;};},[postId,onError]);
+ useEffect(()=>{let live=true;void api.feedPoll(postId).then(result=>{if(live){setPoll(result);setSelected(result.viewerOptionIds??[]);}}).catch(e=>{if(live)onError?.(e instanceof Error?e.message:'Could not load poll results.');}).finally(()=>{if(live)setLoading(false);});return()=>{live=false;};},[postId]);
  const act=async(fn:()=>Promise<FeedPoll>)=>{if(busy)return;setBusy(true);try{const result=await fn();setPoll(result);setSelected(result.viewerOptionIds??[]);}catch(e){onError?.(e instanceof Error?e.message:'Poll action failed.');}finally{setBusy(false);}};
  const vote=()=>{if(!poll||poll.closed||!selected.length)return;void act(()=>api.voteFeedPoll(postId,selected));};
  const addOption=()=>{if(!suggestion.trim())return;void act(()=>api.addFeedPollOption(postId,suggestion.trim()).then(result=>{setSuggestion('');return result;}));};
