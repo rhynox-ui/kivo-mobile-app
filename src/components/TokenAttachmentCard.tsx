@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { kivoTheme } from '../theme/kivoTheme';
-import { TokenMarketMetrics, loadSnapshot } from './TokenMarketMetrics';
+import { TokenMarketMetrics, loadSnapshot, loadTokenLogo } from './TokenMarketMetrics';
 import { kivoAlert } from './KivoAlert';
 
 // The one token attachment card for feed posts, groups, channels and DMs,
@@ -23,16 +23,27 @@ export function TokenAttachmentCard({ token, onPress, compact = false }: { token
   const [liveCap, setLiveCap] = useState<number | null>(null);
   // Cards saved without a logo use the one from the live market data.
   const [liveLogo, setLiveLogo] = useState<string | null>(null);
-  useEffect(() => { let active = true; setLiveCap(null); setLiveLogo(null); void loadSnapshot(token.chain, token.address).then(value => { if (active) { setLiveCap(value.marketCapUsd); setLiveLogo(value.imageUrl ?? null); } }); return () => { active = false; }; }, [token.chain, token.address]);
-  const logo = token.imageUrl || liveLogo;
+  useEffect(() => { let active = true; setLiveCap(null); void loadSnapshot(token.chain, token.address).then(value => { if (active) setLiveCap(value.marketCapUsd); }); return () => { active = false; }; }, [token.chain, token.address]);
+  // The saved logo first; when it is missing or fails to load, the live one.
+  const [savedFailed, setSavedFailed] = useState(false);
+  useEffect(() => { setSavedFailed(false); }, [token.imageUrl]);
+  const needLive = !token.imageUrl || savedFailed;
+  useEffect(() => {
+    let active = true;
+    setLiveLogo(null);
+    if (needLive) void loadTokenLogo(token.chain, token.address).then(url => { if (active) setLiveLogo(url && url !== token.imageUrl ? url : null); });
+    return () => { active = false; };
+  }, [token.chain, token.address, token.imageUrl, needLive]);
+  const logo = token.imageUrl && !savedFailed ? token.imageUrl : liveLogo;
   useEffect(() => { setLogoFailed(false); }, [logo]);
+  const onLogoError = () => { if (logo === token.imageUrl && token.imageUrl) setSavedFailed(true); else setLogoFailed(true); };
   const sinceCall = liveCap != null && token.entryMarketCapUsd != null && Number.isFinite(token.entryMarketCapUsd) && token.entryMarketCapUsd > 0 ? (liveCap / token.entryMarketCapUsd - 1) * 100 : null;
   const entry = token.entryMarketCapUsd != null && Number.isFinite(token.entryMarketCapUsd) && token.entryMarketCapUsd > 0 ? compactUsd(token.entryMarketCapUsd) : '—';
   const short = token.address.length > 12 ? token.address.slice(0, compact ? 5 : 7) + '…' + token.address.slice(-5) : token.address;
   return (
     <Pressable onPress={onPress} disabled={!onPress} accessibilityRole="button" accessibilityLabel={`Open ${token.symbol ? '$' + token.symbol : 'token'} in Trade`} style={({ pressed }) => [styles.card, compact && styles.compact, pressed && styles.pressed]}>
       <View style={styles.top}>
-        {logo && !logoFailed ? <Image source={{ uri: logo }} onError={() => setLogoFailed(true)} style={[styles.icon, compact && styles.iconCompact]} resizeMode="cover" /> : <View style={[styles.icon, compact && styles.iconCompact, styles.iconFallback]}><Text style={styles.iconGlyph}>{token.symbol ? token.symbol.slice(0, 1).toUpperCase() : '◈'}</Text></View>}
+        {logo && !logoFailed ? <Image source={{ uri: logo }} onError={onLogoError} style={[styles.icon, compact && styles.iconCompact]} resizeMode="cover" /> : <View style={[styles.icon, compact && styles.iconCompact, styles.iconFallback]}><Text style={styles.iconGlyph}>{token.symbol ? token.symbol.slice(0, 1).toUpperCase() : '◈'}</Text></View>}
         <View style={styles.title}>
           <Text style={styles.symbol} numberOfLines={1}>{token.symbol ? '$' + token.symbol : 'Token'}</Text>
           {token.name ? <Text style={styles.name} numberOfLines={1}>{token.name}</Text> : null}
