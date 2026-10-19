@@ -3,7 +3,9 @@ import { ActivityIndicator, AppState, Image, Pressable, RefreshControl, ScrollVi
 import type { ReferralUser } from '@kivo/shared/api/client';
 import { kivoAlert } from '../components/KivoAlert';
 import { kivoTheme } from '../theme/kivoTheme';
-import { api, enableSocial, useSocialReady } from '../state/session';
+import { api, enableSocial, useSocialReady, useUsernamePublishState } from '../state/session';
+import { publicUsername, userLabel } from '@kivo/shared/api/types';
+import { PublishUsernamePrompt } from '../components/PublishUsernamePrompt';
 import { claimReferrer, getSuggestedReferrer, lookupReferrer, referralLink, refreshReferrals, shareReferralLink, shortReferralLink, subscribeReferralLinks, useReferrals } from '../state/referrals';
 import { useProfile } from '../state/profileStore';
 
@@ -74,8 +76,8 @@ function WhoReferredYou({ prefill }: { prefill: string | null }) {
     const unchanged = Boolean(prefillRef.current) && input.trim().replace(/^@/, '').toLowerCase() === prefillRef.current!.toLowerCase();
     setBusy(true); setError(null);
     try {
-      const who = await claimReferrer(preview.username, unchanged ? 'install' : 'manual');
-      kivoAlert('Referral saved', `@${who.username} referred you. You now follow them, and you pay 10% less in trading fees.`);
+      const who = await claimReferrer(publicUsername(preview.username) ?? input, unchanged ? 'install' : 'manual');
+      kivoAlert('Referral saved', `${userLabel(who.username, who.userId)} referred you. You now follow them, and you pay 10% less in trading fees.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save your referral. Try again.');
     } finally { setBusy(false); }
@@ -107,10 +109,10 @@ function WhoReferredYou({ prefill }: { prefill: string | null }) {
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {preview ? (
         <View style={styles.preview}>
-          <ReferralAvatar name={preview.username} uri={preview.avatarUrl} size={40} verified={preview.verified} />
+          <ReferralAvatar name={publicUsername(preview.username) ?? ''} uri={preview.avatarUrl} size={40} verified={preview.verified} />
           <View style={{ flex: 1 }}>
-            <View style={styles.nameRow}><Text style={styles.name}>{preview.username}</Text>{preview.verified ? <Star /> : null}</View>
-            <Text style={styles.muted}>@{preview.username}</Text>
+            <View style={styles.nameRow}><Text style={styles.name}>{publicUsername(preview.username) ?? userLabel(null, preview.userId)}</Text>{preview.verified ? <Star /> : null}</View>
+            <Text style={styles.muted}>{userLabel(preview.username, preview.userId)}</Text>
           </View>
           <Pressable disabled={busy} onPress={() => { void confirm(); }} style={[styles.confirm, busy && styles.disabled]}>
             {busy ? <ActivityIndicator color={c.backgroundDeep} /> : <Text style={styles.confirmText}>Confirm</Text>}
@@ -125,6 +127,7 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
   const me = useReferrals();
   const ready = useSocialReady();
   const profile = useProfile();
+  const publishState = useUsernamePublishState();
   const [refreshing, setRefreshing] = useState(false);
   const [loaded, setLoaded] = useState(Boolean(me));
   const [prefill, setPrefill] = useState<string | null>(prefillReferrer ?? null);
@@ -149,8 +152,9 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
   }, [prefillReferrer]);
   useEffect(() => { if (prefillReferrer) setPrefill(prefillReferrer); }, [prefillReferrer]);
 
-  const username = me?.username || profile.username;
-  const link = referralLink(username, me);
+  // No referral link (and no Share) until the username is on Kivo's server.
+  const link = referralLink(me, profile.username, publishState === 'published');
+  const needsPublish = !link && (me ? !publicUsername(me.username) : publishState === 'local-only');
   const [whole, cents] = usdParts(me?.totalEarnedUsd);
   const empty = me ? me.referralCount === 0 && me.recentRewards.length === 0 : false;
 
@@ -164,6 +168,7 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
         <View style={styles.center}>
           <Text style={styles.muted}>Sign in to Kivo with your wallet to see your rewards and invite friends.</Text>
           <Pressable style={[styles.share, { marginTop: 18 }]} onPress={() => { void enableSocial().catch(e => kivoAlert('Sign in', e instanceof Error ? e.message : 'Could not sign in.')); }}><Text style={styles.shareText}>Sign in</Text></Pressable>
+          {publishState === 'local-only' ? <PublishUsernamePrompt username={profile.username} /> : null}
         </View>
       ) : !me && !loaded ? (
         <View style={styles.center}><ActivityIndicator color={c.accent} /></View>
@@ -174,17 +179,20 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
           <Text style={styles.total}>{whole}<Text style={styles.cents}>{cents}</Text></Text>
           <Text style={styles.week}>+{usd(me?.thisWeekUsd)} this week</Text>
 
-          <Pressable accessibilityRole="button" onPress={() => shareReferralLink(link)} style={styles.share}><Text style={styles.shareText}>⇪  Share</Text></Pressable>
+          {link ? <Pressable accessibilityRole="button" onPress={() => shareReferralLink(link)} style={styles.share}><Text style={styles.shareText}>⇪  Share</Text></Pressable> : null}
+          {needsPublish ? <PublishUsernamePrompt username={profile.username} onPublished={() => { void load(); }} /> : null}
 
           <View style={styles.banner}>
             <Text style={styles.bannerTitle}>🎁 Refer and earn 25% of your friends' fees</Text>
-            <Text style={styles.bannerBody}>Friends who join with your link get 10% off their fees. Rewards are paid weekly in USDC.</Text>
+            <Text style={styles.bannerBody}>Friends who join with your link get 10% off their fees. Rewards are paid in USDC on Solana once at least $1 is owed; each reward becomes payable 7 days after the trade.</Text>
           </View>
 
-          <View style={styles.linkRow}>
-            <Text selectable numberOfLines={1} style={styles.link}>{shortReferralLink(link)}</Text>
-            <Pressable accessibilityLabel="Share your link" hitSlop={10} onPress={() => shareReferralLink(link)}><Text style={styles.linkShare}>⇪</Text></Pressable>
-          </View>
+          {link ? (
+            <View style={styles.linkRow}>
+              <Text selectable numberOfLines={1} style={styles.link}>{shortReferralLink(link)}</Text>
+              <Pressable accessibilityLabel="Share your link" hitSlop={10} onPress={() => shareReferralLink(link)}><Text style={styles.linkShare}>⇪</Text></Pressable>
+            </View>
+          ) : null}
           {me ? <Text style={styles.clicks}>{me.clickCount ?? 0} {(me.clickCount ?? 0) === 1 ? 'click' : 'clicks'} → {me.referralCount} {me.referralCount === 1 ? 'sign-up' : 'sign-ups'}</Text> : null}
 
           <View style={styles.cards}>
@@ -196,15 +204,15 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
             <View style={styles.statCard}>
               <Text style={styles.statLabel}>Paid out</Text>
               <Text style={styles.statValue}>{usd(me?.paidUsd)}</Text>
-              <Text style={styles.muted}>{me && me.pendingUsd > 0 ? `${usd(me.pendingUsd)} pending` : 'Weekly in USDC'}</Text>
+              <Text style={styles.muted}>{me && me.pendingUsd > 0 ? `${usd(me.pendingUsd)} pending` : 'USDC on Solana'}</Text>
             </View>
           </View>
 
           {me?.canSetReferrer ? <WhoReferredYou prefill={prefill} /> : null}
           {me?.referredBy ? (
             <Pressable style={styles.referredBy} onPress={() => onOpenPerson(me.referredBy!.userId)}>
-              <ReferralAvatar name={me.referredBy.username} uri={me.referredBy.avatarUrl} size={32} verified={me.referredBy.verified} />
-              <Text style={[styles.muted, { flex: 1 }]}>Referred by <Text style={styles.name}>@{me.referredBy.username}</Text>{me.feeBps === 45 ? ' · you pay 0.45% fees' : ''}</Text>
+              <ReferralAvatar name={publicUsername(me.referredBy.username) ?? ''} uri={me.referredBy.avatarUrl} size={32} verified={me.referredBy.verified} />
+              <Text style={[styles.muted, { flex: 1 }]}>Referred by <Text style={styles.name}>{userLabel(me.referredBy.username, me.referredBy.userId)}</Text>{me.feeBps === 45 ? ' · you pay 0.45% fees' : ''}</Text>
               {me.referredBy.verified ? <Star /> : null}
             </Pressable>
           ) : null}
@@ -218,9 +226,9 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
               <Text style={styles.sectionTitle}>People you referred</Text>
               {me.referrals.map(person => (
                 <Pressable key={person.userId} style={styles.row} onPress={() => onOpenPerson(person.userId)}>
-                  <ReferralAvatar name={person.username} uri={person.avatarUrl} size={40} verified={person.verified} />
+                  <ReferralAvatar name={publicUsername(person.username) ?? ''} uri={person.avatarUrl} size={40} verified={person.verified} />
                   <View style={{ flex: 1 }}>
-                    <View style={styles.nameRow}><Text style={styles.name} numberOfLines={1}>@{person.username}</Text>{person.verified ? <Star /> : null}</View>
+                    <View style={styles.nameRow}><Text style={styles.name} numberOfLines={1}>{userLabel(person.username, person.userId)}</Text>{person.verified ? <Star /> : null}</View>
                     <Text style={styles.muted}>Joined {ago(person.joinedAt)} · {usd(person.feesUsd)} fees</Text>
                   </View>
                   <Text style={styles.earned}>+{usd(person.earnedUsd)}</Text>
@@ -232,10 +240,10 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
           {me && me.recentRewards.length > 0 ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Recent rewards</Text>
-              {me.recentRewards.map(reward => (
-                <View key={`${reward.chain}:${reward.txHash}`} style={styles.row}>
-                  <ReferralAvatar name={reward.referredUsername} uri={reward.referredAvatarUrl} size={32} />
-                  <Text style={[styles.rewardText, { flex: 1 }]} numberOfLines={1}><Text style={styles.earned}>+{usd(reward.rewardUsd)}</Text> from @{reward.referredUsername}</Text>
+              {me.recentRewards.map((reward, index) => (
+                <View key={`${reward.chain}:${reward.txHash ?? index}:${reward.createdAt}`} style={styles.row}>
+                  <ReferralAvatar name={publicUsername(reward.referredUsername) ?? ''} uri={reward.referredAvatarUrl} size={32} />
+                  <Text style={[styles.rewardText, { flex: 1 }]} numberOfLines={1}><Text style={styles.earned}>+{usd(reward.rewardUsd)}</Text> from {publicUsername(reward.referredUsername) || reward.referredUserId ? userLabel(reward.referredUsername, reward.referredUserId) : 'a friend'}</Text>
                   <Text style={styles.muted}>{ago(reward.createdAt)}</Text>
                 </View>
               ))}

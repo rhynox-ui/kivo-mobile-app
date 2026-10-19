@@ -4,7 +4,7 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { KivoModal } from './KivoModal';
 import { KivoMark } from './KivoMark';
 import { displayName, getChatState, sendText, subscribeChat } from '@kivo/shared/chat/store';
-import type { ApiConversation } from '@kivo/shared/api/types';
+import { userLabel, type ApiConversation } from '@kivo/shared/api/types';
 import { tradeChainLabel, type TradeChain } from '@kivo/trading/core/chainData';
 
 // One "Share" for a finished trade, like FOMO: a Kivo-branded card plus every
@@ -41,7 +41,7 @@ function canPost(conversation: ApiConversation): boolean {
 
 function titleOf(conversation: ApiConversation): string {
   if (conversation.kind !== 'dm') return conversation.title;
-  return conversation.title || (conversation.peer?.username ? '@' + conversation.peer.username : displayName(conversation.peer?.userId));
+  return conversation.title || (conversation.peer ? userLabel(conversation.peer.username, conversation.peer.userId) : displayName(undefined));
 }
 
 export function ShareTradeSheet({ trade, visible, onClose, onShareToFeed }: {

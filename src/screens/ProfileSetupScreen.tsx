@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { KivoMark } from '../components/KivoMark';
 import { kivoTheme } from '../theme/kivoTheme';
 import { validProfileUsername } from '../domain/socialValidation';
 import { updateProfile } from '../state/profileStore';
 import { kivoAlert } from '../components/KivoAlert';
+import { ApiError } from '@kivo/shared/api/client';
+import { publishUsername } from '../state/session';
 import { consumePendingReferralLink, getSuggestedReferrer, queueReferralClaim, subscribeReferralLinks } from '../state/referrals';
 
 export function ProfileSetupScreen({ onDone }: { onDone: () => void }) {
@@ -14,7 +16,9 @@ export function ProfileSetupScreen({ onDone }: { onDone: () => void }) {
   const suggested = useRef<string | null>(null);
   const referrerClean = referrer.trim().replace(/^@/, '');
   const referrerValid = !referrerClean || validProfileUsername(referrerClean);
-  const valid = validProfileUsername(username.trim()) && referrerValid;
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const valid = validProfileUsername(username.trim()) && referrerValid && !busy;
 
   useEffect(() => {
     let active = true;
@@ -26,7 +30,8 @@ export function ProfileSetupScreen({ onDone }: { onDone: () => void }) {
     return () => { active = false; unsubscribe(); };
   }, []);
 
-  const submit = () => {
+  const submit = async () => {
+    if (busyRef.current) return;
     try {
       updateProfile({ username, bio: 'Building on-chain.' });
       if (referrerClean && referrerClean.toLowerCase() !== username.trim().toLowerCase()) {
@@ -34,12 +39,29 @@ export function ProfileSetupScreen({ onDone }: { onDone: () => void }) {
         // Claimed as soon as this account is signed in to Kivo (now, or after the first sign-in).
         void queueReferralClaim(referrerClean, fromLink ? 'install' : 'manual');
       }
+    } catch (error) {
+      kivoAlert('Profile', error instanceof Error ? error.message : 'Unable to create your profile.');
+      return;
+    }
+    // Publish the username to Kivo now (one approval signed on this phone), so
+    // people see @username instead of a wallet and the referral link works.
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await publishUsername();
       onDone();
     } catch (error) {
-      kivoAlert(
-        'Profile',
-        error instanceof Error ? error.message : 'Unable to create your profile.',
-      );
+      const status = error instanceof ApiError ? error.status : 0;
+      if (status >= 400 && status < 500 && status !== 401 && status !== 429) {
+        // Refused (e.g. the username is taken): let them pick another one.
+        kivoAlert('Username', error instanceof Error ? error.message : 'Choose another username.');
+      } else {
+        kivoAlert('Profile', 'Saved on this phone. Kivo will ask you to publish your @username from your profile when you are back online.');
+        onDone();
+      }
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
   };
 
@@ -68,7 +90,7 @@ export function ProfileSetupScreen({ onDone }: { onDone: () => void }) {
           style={styles.input}
         />
       </View>
-      <Text style={styles.hint}>3–32 characters: letters, numbers and underscores.</Text>
+      <Text style={styles.hint}>3–32 characters: letters, numbers and underscores. Kivo asks your wallet to approve publishing it (a signed message, never a transaction).</Text>
       <Text style={styles.label}>Who referred you? <Text style={styles.optional}>(optional)</Text></Text>
       <View style={styles.username}>
         <Text style={styles.at}>@</Text>
@@ -87,11 +109,11 @@ export function ProfileSetupScreen({ onDone }: { onDone: () => void }) {
       </View>
       <Text style={[styles.hint, !referrerValid && styles.invalid]}>{referrerValid ? 'Joined with a friend? They earn rewards and you get 10% off trading fees.' : 'Enter a valid username, or leave it empty.'}</Text>
       <Pressable
-        onPress={submit}
+        onPress={() => { void submit(); }}
         disabled={!valid}
         style={[styles.button, !valid && styles.disabled]}
       >
-        <Text style={styles.buttonText}>Enter Kivo</Text>
+        {busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep} /> : <Text style={styles.buttonText}>Enter Kivo</Text>}
       </Pressable>
     </ScrollView>
   );

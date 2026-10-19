@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { kivoAlert } from '../components/KivoAlert';
-import { API_LIMITS, normalizeWalletAddress, shortWallet, walletAddressOfUserId, type ApiBan, type ApiCommunity, type ApiMember, type CommunitySettingsInput } from '@kivo/shared/api/types';
+import { API_LIMITS, normalizeWalletAddress, shortWallet, userLabel, walletAddressOfUserId, type ApiBan, type ApiCommunity, type ApiMember, type CommunitySettingsInput } from '@kivo/shared/api/types';
 import { canDemoteGroupAdmin, canPromoteGroupAdmin, canRemoveGroupMember } from '@kivo/shared/social/rules';
 import type { KivoGroup } from '@kivo/shared/social/types';
 import { refreshConversations } from '@kivo/shared/chat/store';
@@ -19,7 +19,7 @@ type Detail = { community: ApiCommunity; members: ApiMember[] };
 
 const noun = (c: ApiCommunity) => (c.kind === 'channel' ? 'channel' : 'group');
 function personName(userId: string, profile: ApiMember['profile']) {
-  return profile?.username ? '@' + profile.username : shortWallet(walletAddressOfUserId(userId));
+  return userLabel(profile?.username, userId);
 }
 /** Same link the web app shares: the invite link for private communities, the public page otherwise. */
 export function communityShareLink(c: ApiCommunity): string {

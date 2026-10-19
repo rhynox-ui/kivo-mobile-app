@@ -19,7 +19,7 @@ import { DiscoverScreen } from './DiscoverScreen';
 import { NotificationScreen } from './NotificationScreen';
 import { RewardsScreen } from './RewardsScreen';
 import { consumePendingReferralLink, refreshReferrals, subscribeReferralLinks } from '../state/referrals';
-import { socialReady } from '../state/session';
+import { api, socialReady } from '../state/session';
 import { ActivityScreen } from './ActivityScreen';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useChatState } from '../state/useChat';
@@ -88,15 +88,20 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
   // A referral link (kivotrade.site/r/<username>) opened while signed in: offer
   // "Who referred you?" pre-filled, only while the account can still set one.
   useEffect(() => {
+    // Kept until the Kivo session is ready (sign-in can come after the link opens).
+    let waiting: string | null = null;
     const open = (code: string) => {
-      if (!socialReady()) return;
+      if (!socialReady()) { waiting = code; return; }
+      waiting = null;
       void refreshReferrals().then(me => {
         if (me?.canSetReferrer) setStack(s => [...s.filter(v => v.name !== 'rewards'), { name: 'rewards', prefill: code }]);
       });
     };
     const pending = consumePendingReferralLink();
     if (pending) open(pending);
-    return subscribeReferralLinks(open);
+    const unsubscribeLinks = subscribeReferralLinks(open);
+    const unsubscribeSession = api.onSessionChange(() => { if (waiting && socialReady()) open(waiting); });
+    return () => { unsubscribeLinks(); unsubscribeSession(); };
   }, []);
   const openChat = (id: string) => push({ name: 'conversation', id });
   const openCommunity = (id: string) => push({ name: 'community', id });

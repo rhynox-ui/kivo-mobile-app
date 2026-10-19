@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Image, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { KivoMark } from '../components/KivoMark';
 import { LineChart } from '../components/LineChart';
 import { TokenIcon } from '../components/TokenIcon';
@@ -7,7 +7,10 @@ import { NetworkIcon } from '../wallet/NetworkIcon';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useProfile } from '../state/profileStore';
 import { getWalletSession, subscribeToWallet, type WalletSession } from '../state/walletStore';
-import { api, storage, useSocialReady } from '../state/session';
+import { api, publishUsername, storage, useSocialReady, useUsernamePublishState } from '../state/session';
+import { getReferrals, referralLink, refreshReferrals, shareReferralLink } from '../state/referrals';
+import { PublishUsernamePrompt } from '../components/PublishUsernamePrompt';
+import { kivoAlert } from '../components/KivoAlert';
 import { useChatState } from '../state/useChat';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { hasProfileLinks, type ProfileLinks, type ProfileSocial } from '@kivo/shared/api/types';
@@ -132,6 +135,24 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
   const profile = useProfile();
   const chat = useChatState();
   const socialReady = useSocialReady();
+  const publishState = useUsernamePublishState();
+  // Same link and text as Rewards: "Trade with me on Kivo and get 10% off fees!" + kivotrade.site/r/<username>.
+  const shareProfile = () => {
+    const link = referralLink(getReferrals(), profile.username, publishState === 'published');
+    if (link) { shareReferralLink(link); return; }
+    kivoAlert('Publish your username', `@${profile.username} is only saved on this phone, so there is no link to share yet. Publish it with one wallet approval (a signed message, never a transaction).`, [
+      { text: 'Not now', style: 'cancel' },
+      { text: 'Publish', onPress: () => {
+        void publishUsername()
+          .then(async () => {
+            const fresh = await refreshReferrals();
+            const next = referralLink(fresh, profile.username, true);
+            if (next) shareReferralLink(next);
+          })
+          .catch(error => kivoAlert('Username', error instanceof Error ? error.message : 'Could not publish your username. Try again.'));
+      } },
+    ]);
+  };
   const settings = useSettings();
   const hidden = settings.hideBalances;
   const [wallet, setWallet] = useState<WalletSession | null>(getWalletSession());
@@ -309,13 +330,14 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
           </Pressable>
           <View style={styles.identityActions}>
             <Pressable onPress={onOpenNotifications} style={styles.iconButton} accessibilityLabel="Notifications"><Text style={styles.iconButtonText}>🔔</Text></Pressable>
-            <Pressable onPress={() => Share.share({ message: `@${profile.username} on Kivo · https://kivo-web.pages.dev/u/${encodeURIComponent(profile.userId)}` }).catch(() => {})} style={styles.iconButton} accessibilityLabel="Share profile"><Text style={styles.iconButtonText}>⇪</Text></Pressable>
+            <Pressable onPress={shareProfile} style={styles.iconButton} accessibilityLabel="Share profile"><Text style={styles.iconButtonText}>⇪</Text></Pressable>
           </View>
         </View>
         <View style={styles.usernameRow}>
           <Text style={styles.username}>@{profile.username}</Text>
           {verificationStatus?.isVerified === true ? <Text accessibilityLabel="Blue Star verified" style={styles.blueStarBadge}>★</Text> : null}
         </View>
+        {publishState === 'local-only' ? <PublishUsernamePrompt username={profile.username} compact /> : null}
         {links ? <View style={styles.links}><ProfileLinkChips links={links} /></View> : null}
         {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : <Pressable onPress={onEditProfile}><Text style={styles.addBio}>+ Add a bio</Text></Pressable>}
         <View style={styles.follows}>

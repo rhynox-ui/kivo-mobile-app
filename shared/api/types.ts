@@ -368,3 +368,21 @@ export function ownedCommunityLimitMessage(kind: 'group' | 'channel', verified: 
     ? `You can own up to ${noun(limit)}. Delete one you own to create another.`
     : `Without Blue Star you can own ${noun(limit)}. Get Blue Star to own up to ${noun(ownedCommunityLimit(kind, true))}, or delete the one you own.`;
 }
+
+/**
+ * A real Kivo username, or null. Older servers fill a missing username with
+ * the start of the account id ("kivo:0x246fbc3a043"); that is not a name and
+ * must never be shown as one.
+ */
+export function publicUsername(username: string | null | undefined): string | null {
+  const value = typeof username === 'string' ? username.trim().replace(/^@/, '') : '';
+  return /^[A-Za-z0-9_]{3,32}$/.test(value) ? value : null;
+}
+
+/** "@alice", or the short wallet ("0x246f…73e6") when the user has no username. Never the raw "kivo:…" id. */
+export function userLabel(username: string | null | undefined, userIdOrAddress: string | null | undefined): string {
+  const name = publicUsername(username);
+  if (name) return '@' + name;
+  if (!userIdOrAddress) return 'Unknown';
+  return shortWallet(walletAddressOfUserId(userIdOrAddress));
+}

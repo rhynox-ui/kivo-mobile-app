@@ -72,9 +72,11 @@ function SplashRoute({ navigation }: NativeStackScreenProps<RootStackParamList, 
   useEffect(() => {
     let mounted = true;
     (async () => {
+      // Referral links and claims must work even if the session bootstrap fails
+      // (offline, storage error): start them first and independently.
+      try { startReferralSync(); } catch { /* retried by the listeners it installs */ }
       try {
         await startKivoSession();
-        startReferralSync();
         const vault = await hasVault();
         if (!mounted) return;
         if (!vault) {

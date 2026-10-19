@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { kivoAlert } from '../components/KivoAlert';
-import { hasProfileLinks, normalizeProfileLinks, shortWallet, walletAddressOfUserId, type ApiCommunity, type ApiMember, type GateCheck, type ProfileLinks } from '@kivo/shared/api/types';
+import { hasProfileLinks, normalizeProfileLinks, shortWallet, userLabel, walletAddressOfUserId, type ApiCommunity, type ApiMember, type GateCheck, type ProfileLinks } from '@kivo/shared/api/types';
 import { refreshConversations } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { api, ensureSolanaLinked, socialReady } from '../state/session';
@@ -12,8 +12,7 @@ import { communityShareLink } from './CommunitySettingsScreen';
 import { LinkFields, ProfileLinkChips, linkDraftFrom, type LinkDraft } from '../components/ProfileLinks';
 
 function memberName(member: ApiMember) {
-  if (member.profile?.username) return '@' + member.profile.username;
-  return shortWallet(walletAddressOfUserId(member.userId));
+  return userLabel(member.profile?.username, member.userId);
 }
 
 /** Group/channel info: description, members/team and owner-controlled roles (same rules as web and the API). */

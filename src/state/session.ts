@@ -257,10 +257,98 @@ function autoLinkSolana() {
 async function pullServerProfile() {
   try {
     const me = await api.me();
+    const wallet = getWalletSession();
+    if (wallet && me.address?.toLowerCase() === wallet.address.toLowerCase()) setPublishState(wallet.address, me.username ? 'published' : 'local-only');
     const local = getProfile();
     if (me.username && (me.username !== local.username || me.bio !== local.bio || (me.avatarUrl ?? undefined) !== local.avatarUri)) {
       updateProfile({ username: me.username, bio: me.bio, avatarUri: me.avatarUrl ?? undefined });
     }
     // Never publish a local profile change silently. Profile mutations require an explicit wallet approval from the user.
   } catch { /* offline: keep the local copy */ }
+}
+
+// ---------------------------------------------------------------------------
+// Publishing the username
+//
+// Onboarding chooses a username on the phone. Kivo's server only learns it
+// from a signed profile approval, so until then other people see the wallet
+// (and referral links cannot point at it). Setup publishes it right away; an
+// account that still has a local-only username gets a one-tap prompt.
+
+export type UsernamePublishState = 'unknown' | 'published' | 'local-only';
+let publishState: { address: string; state: UsernamePublishState } | null = null;
+const publishListeners = new Set<() => void>();
+
+function setPublishState(address: string, state: UsernamePublishState) {
+  const key = address.toLowerCase();
+  if (publishState?.address === key && publishState.state === state) return;
+  publishState = { address: key, state };
+  publishListeners.forEach(listener => listener());
+}
+
+/** Whether the active wallet's username is on Kivo's server ('unknown' until checked). */
+export function getUsernamePublishState(): UsernamePublishState {
+  const wallet = getWalletSession();
+  if (!wallet || publishState?.address !== wallet.address.toLowerCase()) return 'unknown';
+  return publishState.state;
+}
+
+let publishCheck: Promise<UsernamePublishState> | null = null;
+/** Asks Kivo's public profile lookup (no signature) whether this wallet has a server username. */
+export function refreshUsernamePublishState(): Promise<UsernamePublishState> {
+  if (publishCheck) return publishCheck;
+  publishCheck = (async () => {
+    const wallet = getWalletSession();
+    if (!wallet) return 'unknown' as const;
+    try {
+      const found = await api.searchProfiles(wallet.address);
+      const mine = found.find(p => p.address?.toLowerCase() === wallet.address.toLowerCase());
+      if (!isCurrentWallet(wallet.address)) return getUsernamePublishState();
+      setPublishState(wallet.address, mine?.username ? 'published' : 'local-only');
+    } catch { /* offline: keep what we know */ }
+    return getUsernamePublishState();
+  })().finally(() => { publishCheck = null; });
+  return publishCheck;
+}
+
+export function useUsernamePublishState(): UsernamePublishState {
+  const [state, setState] = useState(getUsernamePublishState);
+  useEffect(() => {
+    const update = () => setState(getUsernamePublishState());
+    publishListeners.add(update);
+    const unsubWallet = subscribeToWallet(update);
+    update();
+    if (getUsernamePublishState() === 'unknown') void refreshUsernamePublishState();
+    return () => { publishListeners.delete(update); unsubWallet(); };
+  }, []);
+  return state;
+}
+
+let publishInFlight: Promise<void> | null = null;
+/**
+ * Publishes the phone's username (and bio) to Kivo with one wallet approval:
+ * a plain-text profile approval signed on this phone (preceded by Kivo's
+ * sign-in message when the account is not signed in yet). The key never
+ * leaves the phone and nothing on-chain is signed.
+ */
+export function publishUsername(): Promise<void> {
+  if (publishInFlight) return publishInFlight;
+  publishInFlight = (async () => {
+    const wallet = getWalletSession();
+    if (!wallet) throw new Error('Set up a wallet first.');
+    if (wallet.source !== 'local') throw new Error('This wallet is watch-only on this device.');
+    if (!socialReady()) await api.signIn(wallet.address, message => signKivoMessage(message, 'sign-in'));
+    if (!isCurrentWallet(wallet.address)) throw new Error('Wallet changed. Please try again.');
+    const local = getProfile();
+    const username = local.username;
+    const bio = local.bio;
+    const approval = await api.requestProfileApproval({ username, bio, avatarAction: 'keep' });
+    const signature = await signKivoMessage(approval.message, 'profile');
+    const saved = await api.updateProfile({ username, bio, approvalNonce: approval.nonce, approvalSignature: signature, approvalAvatarAction: 'keep' });
+    if (!isCurrentWallet(wallet.address)) return;
+    setPublishState(wallet.address, saved.username ? 'published' : 'local-only');
+    try { updateProfile({ username: saved.username ?? username, bio: saved.bio ?? bio, avatarUri: saved.avatarUrl ?? local.avatarUri }); } catch { /* keep the local copy */ }
+    syncChatForAppState();
+  })().finally(() => { publishInFlight = null; });
+  return publishInFlight;
 }

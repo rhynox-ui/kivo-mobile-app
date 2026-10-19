@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { kivoAlert } from '../components/KivoAlert';
-import { normalizeWalletAddress, shortWallet, type ApiCommunity, type ApiConversation, type ApiProfile } from '@kivo/shared/api/types';
+import { normalizeWalletAddress, publicUsername, shortWallet, userLabel, type ApiCommunity, type ApiConversation, type ApiProfile } from '@kivo/shared/api/types';
 import { displayName, myUserId, openDirectMessage, rememberProfiles, unreadCount } from '@kivo/shared/chat/store';
 import { KivoMark } from '../components/KivoMark';
 import { kivoTheme } from '../theme/kivoTheme';
@@ -169,9 +169,9 @@ function NewChatProfileResult({ profile, onPress }: { profile: ApiProfile; onPre
   }, [profile.userId]);
   return (
     <Pressable onPress={onPress} style={styles.result}>
-      <Avatar name={profile.username ?? profile.address} uri={profile.avatarUrl} size={34} verified={verified} />
+      <Avatar name={publicUsername(profile.username) ?? profile.address} uri={profile.avatarUrl} size={34} verified={verified} />
       <View style={{ flex: 1 }}>
-        <View style={styles.resultTitleLine}><Text style={styles.resultTitle}>{profile.username ? '@' + profile.username : profile.address}</Text>{verified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>
+        <View style={styles.resultTitleLine}><Text style={styles.resultTitle}>{userLabel(profile.username, profile.address)}</Text>{verified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>
         {profile.bio ? <Text style={styles.muted} numberOfLines={1}>{profile.bio}</Text> : null}
       </View>
     </Pressable>

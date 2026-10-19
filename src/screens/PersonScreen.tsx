@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { kivoAlert } from '../components/KivoAlert';
-import { hasProfileLinks, shortWallet, walletAddressOfUserId, type ApiProfile, type ProfileLinks, type ProfileSocial, type PublicCommunityCard } from '@kivo/shared/api/types';
+import { hasProfileLinks, shortWallet, userLabel, walletAddressOfUserId, type ApiProfile, type ProfileLinks, type ProfileSocial, type PublicCommunityCard } from '@kivo/shared/api/types';
 import { openDirectMessage, rememberProfiles } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { api, socialReady } from '../state/session';
@@ -90,7 +90,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
     try { await fn(); } catch (e) { kivoAlert('Kivo', e instanceof Error ? e.message : 'Action failed.'); }
     finally { busyRef.current = false; }
   };
-  const name = person?.username ? '@' + person.username : shortWallet(address);
+  const name = userLabel(person?.username, address);
   return (
     <View style={styles.root}>
       <View style={styles.header}><Pressable onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.headerTitle}>Profile</Text></View>

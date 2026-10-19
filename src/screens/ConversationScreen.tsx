@@ -4,7 +4,7 @@ import { AppState, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platfo
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { kivoAlert } from '../components/KivoAlert';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { API_LIMITS, messageCharLimit, messageLength, shortWallet, type ApiMessage } from '@kivo/shared/api/types';
+import { API_LIMITS, messageCharLimit, messageLength, publicUsername, shortWallet, type ApiMessage } from '@kivo/shared/api/types';
 import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, getChatState, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useActiveConversation, useChatState } from '../state/useChat';
@@ -315,12 +315,12 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   useEffect(() => { setMentionPool(mentionCache.get(id)?.members ?? null); }, [id]);
   useEffect(() => {
     if (!mentionActive || !conversation) return;
-    if (conversation.kind === 'dm') { const peer = conversation.peer; setMentionPool(peer?.username ? [{ userId: peer.userId, username: peer.username, avatarUrl: peer.avatarUrl }] : []); return; }
+    if (conversation.kind === 'dm') { const peer = conversation.peer; setMentionPool(publicUsername(peer?.username) && peer ? [{ userId: peer.userId, username: publicUsername(peer.username)!, avatarUrl: peer.avatarUrl }] : []); return; }
     const cached = mentionCache.get(id);
     if (cached && Date.now() - cached.at < MENTION_TTL_MS) { setMentionPool(cached.members); return; }
     let active = true;
     api.community(id).then(detail => {
-      const members = detail.members.filter(m => m.profile?.username).map(m => ({ userId: m.userId, username: m.profile!.username!, avatarUrl: m.profile!.avatarUrl }));
+      const members = detail.members.filter(m => publicUsername(m.profile?.username)).map(m => ({ userId: m.userId, username: publicUsername(m.profile!.username)!, avatarUrl: m.profile!.avatarUrl }));
       mentionCache.set(id, { at: Date.now(), members });
       if (active) setMentionPool(members);
     }).catch(() => {});

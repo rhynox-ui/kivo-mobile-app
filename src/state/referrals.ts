@@ -8,11 +8,17 @@ import { Linking, NativeModules, Platform, Share } from 'react-native';
 import { setReferralFeeDiscount } from '@kivo/trading/core/fees';
 import { ApiError, type ReferralSource, type ReferralsMe, type ReferralUser } from '@kivo/shared/api/client';
 import { validProfileUsername } from '@kivo/shared/social/validation';
+import { walletAddressOfUserId } from '@kivo/shared/api/types';
 import { api, ensureSolanaLinked, storage } from './session';
+import { getWalletSession } from './walletStore';
 
 const ME_CACHE_PREFIX = 'kivo:referrals:v1:';
 const INSTALL_REFERRER_KEY = 'kivo:install-referrer:v1';
-const PENDING_CLAIM_KEY = 'kivo:referral-pending-claim:v1';
+// Pending claim, per wallet: a referrer typed at sign-up belongs to that account only.
+const PENDING_CLAIM_KEY = 'kivo:referral-pending-claim:v2:';
+const LEGACY_PENDING_CLAIM_KEY = 'kivo:referral-pending-claim:v1';
+// Unreported trades, per wallet (see reportReferralTrade).
+const REPORT_QUEUE_KEY = 'kivo:referral-report-queue:v1:';
 const LINK_CODE_KEY = 'kivo:referral-link-code:v1';
 const REFERRAL_LINK_BASE = 'https://kivotrade.site/r/';
 
@@ -72,7 +78,7 @@ async function onSessionChanged() {
   currentUserId = userId;
   cachedReferred = null;
   emit();
-  if (!userId) { setReferralFeeDiscount(false); return; }
+  if (!userId) { setReferralFeeDiscount(false); clearReportTimer(); return; }
   // The last known fee applies right away, before the network answers.
   try {
     const raw = await storage.getItem(ME_CACHE_PREFIX + userId);
@@ -84,6 +90,9 @@ async function onSessionChanged() {
   } catch { setReferralFeeDiscount(false); }
   await claimPendingReferral();
   await refreshReferrals();
+  // A new session (app launch or sign-in) retries every queued report, even
+  // those whose quick retries are used up.
+  void flushReportQueue(true);
 }
 
 /** Called once at app start: follows sign-in, account switches and sign-out. */
@@ -91,6 +100,8 @@ export function startReferralSync() {
   if (syncStarted) return;
   syncStarted = true;
   api.onSessionChange(() => { void onSessionChanged(); });
+  // The old global pending claim cannot be tied to an account; never let the next account claim it.
+  void Promise.resolve(storage.removeItem?.(LEGACY_PENDING_CLAIM_KEY)).catch(() => {});
   void onSessionChanged();
   // Referral App Links (https://kivotrade.site/r/<username>): cold start and while running.
   void Linking.getInitialURL().then(url => { if (url) handleReferralUrl(url); }).catch(() => {});
@@ -221,8 +232,9 @@ export async function claimReferrer(username: string, source: ReferralSource = '
  */
 export async function queueReferralClaim(username: string, source: ReferralSource): Promise<void> {
   const clean = username.trim().replace(/^@/, '');
-  if (!validProfileUsername(clean)) return;
-  await Promise.resolve(storage.setItem(PENDING_CLAIM_KEY, JSON.stringify({ username: clean, source }))).catch(() => {});
+  const address = getWalletSession()?.address;
+  if (!validProfileUsername(clean) || !address) return;
+  await Promise.resolve(storage.setItem(PENDING_CLAIM_KEY + address.toLowerCase(), JSON.stringify({ username: clean, source }))).catch(() => {});
   await claimPendingReferral();
 }
 
@@ -230,20 +242,23 @@ let pendingClaimInFlight: Promise<void> | null = null;
 function claimPendingReferral(): Promise<void> {
   if (pendingClaimInFlight) return pendingClaimInFlight;
   pendingClaimInFlight = (async () => {
-    if (!api.signedInUserId()) return;
+    const userId = api.signedInUserId();
+    if (!userId) return;
+    const key = PENDING_CLAIM_KEY + walletAddressOfUserId(userId).toLowerCase();
     let pending: { username: string; source: ReferralSource } | null = null;
     try {
-      const raw = await storage.getItem(PENDING_CLAIM_KEY);
+      const raw = await storage.getItem(key);
       pending = raw ? JSON.parse(raw) : null;
     } catch { pending = null; }
     if (!pending?.username) return;
     try {
+      if (api.signedInUserId() !== userId) return;
       await claimReferrer(pending.username, pending.source === 'install' ? 'install' : 'manual');
-      await Promise.resolve(storage.removeItem?.(PENDING_CLAIM_KEY)).catch(() => {});
+      await Promise.resolve(storage.removeItem?.(key)).catch(() => {});
     } catch (error) {
       const status = error instanceof ApiError ? error.status : 0;
       if (status >= 400 && status < 500 && status !== 401 && status !== 429) {
-        await Promise.resolve(storage.removeItem?.(PENDING_CLAIM_KEY)).catch(() => {});
+        await Promise.resolve(storage.removeItem?.(key)).catch(() => {});
       }
     }
   })().finally(() => { pendingClaimInFlight = null; });
@@ -253,8 +268,19 @@ function claimPendingReferral(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Sharing
 
-export function referralLink(username: string, me?: ReferralsMe | null): string {
-  return me?.link || REFERRAL_LINK_BASE + encodeURIComponent(username);
+/**
+ * The account's referral link (https://kivotrade.site/r/<username>), or null
+ * while the username exists only on this phone: a link to a username Kivo's
+ * server does not know would not credit anyone. `published` is whether the
+ * local username is on the server (used when /me has not loaded).
+ */
+export function referralLink(me: ReferralsMe | null | undefined, localUsername?: string | null, published?: boolean): string | null {
+  if (me) {
+    // Older servers answer link "https://kivotrade.site" for an account without a username.
+    if (!me.username || !validProfileUsername(me.username)) return null;
+    return me.link && me.link.startsWith(REFERRAL_LINK_BASE) ? me.link : REFERRAL_LINK_BASE + encodeURIComponent(me.username);
+  }
+  return published && localUsername && validProfileUsername(localUsername) ? REFERRAL_LINK_BASE + encodeURIComponent(localUsername) : null;
 }
 
 /** The link as shown on screen: "kivotrade.site/r/alice". */
@@ -272,41 +298,133 @@ export function shareReferralLink(link: string): void {
 
 // ---------------------------------------------------------------------------
 // Trade reporting
+//
+// Every finished trade is queued on the phone (per wallet) before it is
+// reported, so a report the server cannot check yet ({retry: true}), a network
+// error or a closed app never loses the referrer's reward. Retries back off
+// 1 min, 5 min, 30 min, 2 h, then once per app launch / sign-in, for 7 days.
 
+type QueuedReport = { chain: string; txHash: string; requestId?: string; addedAt: number; attempts: number; nextAt: number };
+const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000];
+const REPORT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_QUEUE = 100;
 const reported = new Set<string>();
+let reportTimer: ReturnType<typeof setTimeout> | null = null;
+let queueWrite: Promise<unknown> = Promise.resolve();
 
-async function traderHasReferrer(): Promise<boolean> {
-  if (!api.signedInUserId()) return false;
+function clearReportTimer() { if (reportTimer) { clearTimeout(reportTimer); reportTimer = null; } }
+
+function queueKey(address: string) { return REPORT_QUEUE_KEY + address.toLowerCase(); }
+
+async function readQueue(address: string): Promise<QueuedReport[]> {
+  try {
+    const raw = await storage.getItem(queueKey(address));
+    const rows = raw ? JSON.parse(raw) as QueuedReport[] : [];
+    return Array.isArray(rows) ? rows.filter(r => r && typeof r.chain === 'string' && typeof r.txHash === 'string') : [];
+  } catch { return []; }
+}
+
+/** Serialized read-modify-write of one wallet's queue. */
+function updateQueue(address: string, change: (rows: QueuedReport[]) => QueuedReport[]): Promise<QueuedReport[]> {
+  const run = queueWrite.then(async () => {
+    const next = change(await readQueue(address)).slice(-MAX_QUEUE);
+    await Promise.resolve(next.length ? storage.setItem(queueKey(address), JSON.stringify(next)) : storage.removeItem?.(queueKey(address))).catch(() => {});
+    return next;
+  });
+  queueWrite = run.catch(() => undefined);
+  return run;
+}
+
+async function traderHasReferrer(): Promise<boolean | null> {
+  if (!api.signedInUserId()) return null;
   const me = getReferrals();
   if (me) return Boolean(me.referredBy);
   if (cachedReferred != null) return cachedReferred;
   const fresh = await refreshReferrals();
-  return Boolean(fresh?.referredBy);
+  return fresh ? Boolean(fresh.referredBy) : null;
 }
 
-/**
- * Fire-and-forget after every successful trade: the server verifies the
- * transaction on-chain and credits the referrer. Only sent when this user
- * has a referrer. When the server needs the Solana wallet linked, it is
- * linked with a signed message (the key never leaves the phone) and the
- * report is retried once.
- */
-export function reportReferralTrade(input: { chain: string; txHash?: string | null; requestId?: string | null }, delayMs = 0): void {
-  const txHash = input.txHash?.trim();
-  if (!txHash || !input.chain) return;
-  const id = `${input.chain}:${txHash}`;
-  if (reported.has(id)) return;
-  reported.add(id);
-  void (async () => {
-    if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
-    if (!(await traderHasReferrer())) return;
-    const body = { chain: input.chain, txHash, ...(input.requestId ? { requestId: input.requestId } : {}) };
+type Outcome = 'done' | 'retry';
+
+async function sendReport(row: QueuedReport): Promise<Outcome> {
+  const hasReferrer = await traderHasReferrer();
+  if (hasReferrer === false) return 'done';
+  if (hasReferrer == null) return 'retry';
+  const body = { chain: row.chain, txHash: row.txHash, ...(row.requestId ? { requestId: row.requestId } : {}) };
+  try {
     let result = await api.reportReferralTrade(body);
     if (result.needsSolanaLink) {
       const linked = await ensureSolanaLinked({ force: true }).catch(() => false);
-      if (!linked) return;
+      if (!linked) return 'retry';
       result = await api.reportReferralTrade(body);
     }
-    if (result.recorded) void refreshReferrals();
-  })().catch(() => { reported.delete(id); });
+    if (result.recorded) { void refreshReferrals(); return 'done'; }
+    return result.retry || result.needsSolanaLink ? 'retry' : 'done';
+  } catch (error) {
+    const status = error instanceof ApiError ? error.status : 0;
+    // Refused for good (not a Kivo trade, already recorded, …): stop. Offline, 401, 408, 429, 5xx: retry.
+    return status >= 400 && status < 500 && status !== 401 && status !== 408 && status !== 429 ? 'done' : 'retry';
+  }
+}
+
+let flushing: Promise<void> | null = null;
+/** Sends due reports for the signed-in wallet. `all`: also those waiting for the next launch. */
+function flushReportQueue(all = false): Promise<void> {
+  if (flushing) return flushing;
+  flushing = (async () => {
+    clearReportTimer();
+    const userId = api.signedInUserId();
+    if (!userId) return;
+    const address = walletAddressOfUserId(userId);
+    const now = Date.now();
+    const rows = await readQueue(address);
+    const results = new Map<string, Outcome>();
+    for (const row of rows) {
+      if (now - row.addedAt > REPORT_MAX_AGE_MS) { results.set(row.chain + ':' + row.txHash, 'done'); continue; }
+      if (!all && row.nextAt > now) continue;
+      if (api.signedInUserId() !== userId) break;
+      results.set(row.chain + ':' + row.txHash, await sendReport(row));
+    }
+    const remaining = await updateQueue(address, current => current.flatMap(row => {
+      const outcome = results.get(row.chain + ':' + row.txHash);
+      if (outcome === 'done') return [];
+      if (outcome !== 'retry') return [row];
+      const attempts = row.attempts + 1;
+      // Quick retries used up: wait for the next launch / sign-in.
+      const nextAt = attempts <= RETRY_DELAYS_MS.length ? Date.now() + RETRY_DELAYS_MS[attempts - 1] : Number.MAX_SAFE_INTEGER;
+      return [{ ...row, attempts, nextAt }];
+    }));
+    if (api.signedInUserId() !== userId) return;
+    const next = Math.min(...remaining.map(r => r.nextAt));
+    if (Number.isFinite(next) && next < Number.MAX_SAFE_INTEGER) {
+      reportTimer = setTimeout(() => { void flushReportQueue(); }, Math.max(1_000, next - Date.now()));
+    }
+  })().catch(() => {}).finally(() => { flushing = null; });
+  return flushing;
+}
+
+/**
+ * Called after every successful trade: queued on the phone, then reported so
+ * the server can verify the transaction on-chain and credit the referrer
+ * (only when this user has a referrer). When the server needs the Solana
+ * wallet linked, it is linked with a signed message (the key never leaves the
+ * phone). `delayMs`: wait before the first attempt (e.g. a pending bridge).
+ */
+export function reportReferralTrade(input: { chain: string; txHash?: string | null; requestId?: string | null }, delayMs = 0): void {
+  const txHash = input.txHash?.trim();
+  const address = getWalletSession()?.address;
+  if (!txHash || !input.chain || !address) return;
+  const id = `${input.chain}:${txHash}`;
+  if (reported.has(id)) return;
+  reported.add(id);
+  const row: QueuedReport = { chain: input.chain, txHash, ...(input.requestId ? { requestId: input.requestId } : {}), addedAt: Date.now(), attempts: 0, nextAt: Date.now() + Math.max(0, delayMs) };
+  void updateQueue(address, rows => rows.some(r => r.chain === row.chain && r.txHash === row.txHash) ? rows : [...rows, row])
+    .then(() => {
+      if (delayMs > 0) {
+        setTimeout(() => { void flushReportQueue(); }, delayMs);
+      } else {
+        void flushReportQueue();
+      }
+    })
+    .catch(() => { reported.delete(id); });
 }

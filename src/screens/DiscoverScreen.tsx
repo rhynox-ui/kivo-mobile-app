@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { kivoUserIdForWallet, normalizeWalletAddress, shortWallet, type ApiCommunity, type ApiProfile } from '@kivo/shared/api/types';
+import { kivoUserIdForWallet, normalizeWalletAddress, publicUsername, shortWallet, userLabel, type ApiCommunity, type ApiProfile } from '@kivo/shared/api/types';
 import { rememberProfiles } from '@kivo/shared/chat/store';
 import type { KivoToken } from '@kivo/trading/kivo/tokens';
 import { SearchScreen } from './SearchScreen';
@@ -94,8 +94,8 @@ function People({ onOpenPerson }: { onOpenPerson: (userId: string) => void }) {
       {wallet && wallet !== me && !people.length && <Pressable onPress={() => onOpenPerson(kivoUserIdForWallet(wallet))} style={styles.card}><Avatar name={wallet.replace(/^0x/, '')} size={42} /><Text style={styles.name}>{shortWallet(wallet)}</Text></Pressable>}
       {people.filter(p => p.address !== me).map(p => (
         <Pressable key={p.userId} onPress={() => onOpenPerson(p.userId)} style={styles.card}>
-          <Avatar name={p.username ?? p.address} uri={p.avatarUrl} size={42} verified={verifiedPeople.has(p.userId)} />
-          <View style={styles.flex}><View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{p.username ? '@' + p.username : p.address}</Text>{verifiedPeople.has(p.userId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>{p.bio ? <Text style={styles.small} numberOfLines={1}>{p.bio}</Text> : null}</View>
+          <Avatar name={publicUsername(p.username) ?? p.address} uri={p.avatarUrl} size={42} verified={verifiedPeople.has(p.userId)} />
+          <View style={styles.flex}><View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{userLabel(p.username, p.address)}</Text>{verifiedPeople.has(p.userId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>{p.bio ? <Text style={styles.small} numberOfLines={1}>{p.bio}</Text> : null}</View>
         </Pressable>
       ))}
     </ScrollView>

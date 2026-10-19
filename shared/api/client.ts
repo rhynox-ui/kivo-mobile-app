@@ -15,16 +15,18 @@ export type FeedPost = {
 export type FeedReply = {id: string; postId: string; userId: string; username: string; avatarUrl: string | null; body: string; createdAt: number};
 export type FeedPostNotification = {id: string; kind: 'post' | 'like' | 'dislike' | 'reply'; postId: string; actorId: string; actorUsername: string; postPreview: string; createdAt: number; readAt: number | null};
 
-export type ReferralUser = {userId: string; username: string; avatarUrl: string | null; verified: boolean};
+export type ReferralUser = {userId: string; username: string | null; avatarUrl: string | null; verified: boolean};
 export type ReferralSource = 'install' | 'manual';
 export type ReferralsMe = {
-  username: string; link: string; feeBps: number; referredBy: ReferralUser | null; canSetReferrer: boolean;
+  /** Null until the account has published a username; then there is no referral link either. */
+  username: string | null; link: string | null; feeBps: number; referredBy: ReferralUser | null; canSetReferrer: boolean;
   referralCount: number; tradedCount: number; clickCount?: number; totalEarnedUsd: number; thisWeekUsd: number; pendingUsd: number; paidUsd: number;
   referrals: (ReferralUser & {joinedAt: number; feesUsd: number; earnedUsd: number})[];
-  recentRewards: {referredUsername: string; referredAvatarUrl: string | null; feeUsd: number; rewardUsd: number; chain: string; txHash: string; createdAt: number}[];
+  recentRewards: {referredUsername: string | null; referredUserId?: string | null; referredAvatarUrl: string | null; feeUsd: number; rewardUsd: number; chain: string; txHash?: string | null; createdAt: number}[];
   payouts: {amountUsd: number; chain: string; txHash: string; createdAt: number}[];
 };
-export type ReferralTradeResult = {recorded: boolean; rewardUsd?: number; needsSolanaLink?: boolean};
+/** `retry`: the server could not check the trade yet (not indexed, price unavailable); report it again later. */
+export type ReferralTradeResult = {recorded: boolean; rewardUsd?: number; needsSolanaLink?: boolean; retry?: boolean; error?: string};
 
 export class ApiError extends Error {
   status: number;

@@ -9,7 +9,7 @@
 import type {KivoApi} from '../api/client';
 import type {ApiConversation, ApiMessage, ApiProfile} from '../api/types';
 import type {ChatPollPayload} from '../polls/types';
-import {kivoUserIdForWallet, messageCharLimit, messageLength, normalizeWalletAddress, shortWallet, walletAddressOfUserId} from '../api/types';
+import {kivoUserIdForWallet, messageCharLimit, messageLength, normalizeWalletAddress, shortWallet, userLabel, walletAddressOfUserId} from '../api/types';
 import type {KeyValueStorage} from '../storage';
 
 export type LocalMessage = ApiMessage & {status: 'sent' | 'pending' | 'failed'; error?: string};
@@ -430,8 +430,7 @@ export function displayName(userId: string | null | undefined): string {
   if (!userId) return 'Unknown';
   if (userId === myUserId()) return 'You';
   const profile = state.profiles[userId];
-  if (profile?.username) return '@' + profile.username;
-  return shortWallet(walletAddressOfUserId(userId));
+  return userLabel(profile?.username, userId);
 }
 
 export function rememberProfiles(profiles: ApiProfile[]) {
