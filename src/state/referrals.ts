@@ -308,5 +308,13 @@ export function reportReferralTrade(input: { chain: string; txHash?: string | nu
       result = await api.reportReferralTrade(body);
     }
     if (result.recorded) void refreshReferrals();
+    if (input.requestId) {
+      let relayResult = await api.reportRelayReferralTrade(input.requestId);
+      for (let attempt = 1; relayResult.retry && attempt <= 3; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 15_000 * attempt));
+        relayResult = await api.reportRelayReferralTrade(input.requestId);
+      }
+      if (relayResult.recorded) void refreshReferrals();
+    }
   })().catch(() => { reported.delete(id); });
 }
