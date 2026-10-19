@@ -424,13 +424,22 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   // The route's own USD value decides the minimum when the token had no live price.
   const quotedUsd = view ? (side === 'buy' ? view.pay.usd : view.receive.usd) : null;
   const belowMinimum = quotedUsd != null && quotedUsd < MIN_TRADE_USD;
-  const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && !belowMinimum && !extremePriceImpact && walletKind(wallet) === 'evm-local';
   // Honest gas line: only say Kivo pays when it really does. Solana trades
   // are paid by Kivo's fee payer and direct swaps by Relay; Relay-routed EVM
-  // legs only when Kivo's server confirmed Relay accepted sponsorship.
+  // legs only when Kivo's server confirmed Relay accepted sponsorship
+  // ('on', or 'on: fee raised …').
+  const evmRelayLegs = plan && !plan.direct ? plan.legs.filter(leg => leg.chainKey !== 'solana') : [];
   const gasSponsored = !plan ? null
     : plan.direct ? true
-    : plan.legs.every(leg => leg.chainKey === 'solana' || quoteSponsorshipStatus(leg.quote.quote) === 'on');
+    : evmRelayLegs.every(leg => quoteSponsorshipStatus(leg.quote.quote)?.startsWith('on') === true);
+  // EVM legs only execute through Relay's sponsored path (no native-gas
+  // fallback). When the server says it dropped (refused) sponsorship for this
+  // quote, /execute would refuse after confirm: say so now instead.
+  const sponsorshipRefused = evmRelayLegs.map(leg => quoteSponsorshipStatus(leg.quote.quote)).find(status => status?.startsWith('dropped')) ?? null;
+  const sponsorshipProblem = sponsorshipRefused != null
+    ? `Kivo can't pay the network fee for this route right now${/exceed|fee/i.test(sponsorshipRefused) ? ' — the trade is too small to cover it. Try a larger amount.' : '. Try again later or pick another token.'}`
+    : null;
+  const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && !belowMinimum && !sponsorshipProblem && !extremePriceImpact && walletKind(wallet) === 'evm-local';
   // The wallet(s) that sign: each leg signs on its origin network (Solana or EVM).
   const signingWallets = (() => {
     const origins = plan?.direct ? [plan.direct.view.pay.chainKey] : plan?.legs.map(leg => leg.quote.input.chainKey) ?? [];
@@ -450,8 +459,9 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       : expired ? 'Quote expired — tap Refresh.'
       : view?.unsupportedReason ? view.unsupportedReason
       : belowMinimum ? `The minimum trade is ${formatUsd(MIN_TRADE_USD)}.`
+      : sponsorshipProblem ? sponsorshipProblem
       : quoteState === 'ready' ? `Review and ${side} ${token?.symbol ?? ''}` : '');
-  const hintIsError = Boolean(amountProblem) || quoteState === 'error' || Boolean(view?.unsupportedReason) || belowMinimum;
+  const hintIsError = Boolean(amountProblem) || quoteState === 'error' || Boolean(view?.unsupportedReason) || belowMinimum || Boolean(sponsorshipProblem);
   // Funds that arrived on another network are moved home only when a buy needs them.
   const needsMoveHome = side === 'buy' && homeActive && awayUsd >= 0.5 && available != null && parsed != null && parsed > available + 1e-9;
   const pressSide = (target: TradeSide) => {
