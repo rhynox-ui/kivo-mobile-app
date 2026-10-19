@@ -233,6 +233,11 @@ export async function queueReferralClaim(username: string, source: ReferralSourc
   const clean = username.trim().replace(/^@/, '');
   if (!validProfileUsername(clean)) return;
   await Promise.resolve(storage.setItem(PENDING_CLAIM_KEY, JSON.stringify({ username: clean, source }))).catch(() => {});
+  // If another session-change claim was already in flight, it may have read
+  // the pending slot before this link was stored. Once it settles, run the
+  // queue again so this newly stored attribution is not stranded until the
+  // next sign-in event.
+  await claimPendingReferral();
   await claimPendingReferral();
 }
 
