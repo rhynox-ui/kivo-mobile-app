@@ -24,7 +24,7 @@ export type ReferralsMe = {
   recentRewards: {referredUsername: string; referredAvatarUrl: string | null; feeUsd: number; rewardUsd: number; chain: string; txHash: string; createdAt: number}[];
   payouts: {amountUsd: number; chain: string; txHash: string; createdAt: number}[];
 };
-export type ReferralTradeResult = {recorded: boolean; rewardUsd?: number; needsSolanaLink?: boolean};
+export type ReferralTradeResult = {recorded: boolean; rewardUsd?: number; needsSolanaLink?: boolean; retry?: boolean};
 
 export class ApiError extends Error {
   status: number;
