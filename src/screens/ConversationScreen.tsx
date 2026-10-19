@@ -161,6 +161,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   type MenuItem = { text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void };
   const [optionsMenu, setOptionsMenu] = useState<MenuItem[] | null>(null);
+  const [selectedTextMessageId, setSelectedTextMessageId] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<LocalMessage | null>(null);
   const [viewing, setViewing] = useState<LocalMessage | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<LocalMessage | null>(null);
@@ -431,6 +432,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     if (message.status !== 'sent' || message.deleted) return;
     // Same options as the web app, in a Kivo-styled sheet instead of the system dialog.
     setOptionsMenu([
+      ...(message.text ? [{ text: 'Select text', onPress: () => setSelectedTextMessageId(message.id) }] : []),
       ...(canPost ? [{ text: 'Reply', onPress: () => { setEditingMessageId(null); setReplyingTo(message); } }] : []),
       ...(canReact ? [{ text: 'React', onPress: () => setReactingTo(message) }] : []),
       ...(canPin ? (() => { const isPinned = pins.some(p => p.id === message.id); return [{ text: isPinned ? 'Unpin message' : 'Pin message', onPress: () => setPin(message.id, !isPinned) }]; })() : []),
@@ -545,7 +547,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           return (
             <View style={[styles.bubbleRow, mine && styles.bubbleRowMine, conversation?.kind === 'group' && !mine && styles.bubbleRowGroupIncoming]}>
               {conversation?.kind === 'group' && !mine ? <View style={styles.avatarColumn}>{item.showAvatar ? <Avatar name={displayName(message.senderId)} uri={state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /> : null}</View> : null}
-              <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted, unreadMentionSet.has(message.id) && styles.bubbleMention, message.id === highlightedId && styles.bubbleHighlight]}>
+              <Pressable onLongPress={selectedTextMessageId === message.id ? undefined : () => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted, unreadMentionSet.has(message.id) && styles.bubbleMention, message.id === highlightedId && styles.bubbleHighlight]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
                 {message.token && <TokenAttachmentCard token={message.token} compact onPress={onOpenToken ? () => onOpenToken(message.token!) : undefined} />}
@@ -560,7 +562,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                   const long = messageLength(message.text) > 700 || message.text.split('\n').length > 12;
                   const open = expanded[message.id] === true;
                   return <View>
-                    <Text style={[styles.text, isChannel && styles.postText]} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text, myUsername, openMention)}{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text>
+                    <Text selectable={selectedTextMessageId === message.id} style={[styles.text, isChannel && styles.postText]} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text, myUsername, openMention)}{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text>
                     {long ? <Pressable hitSlop={6} onPress={() => setExpanded(prev => ({ ...prev, [message.id]: !open }))}><Text style={styles.showMore}>{open ? 'Show less' : 'Show more'}</Text></Pressable> : null}
                   </View>;
                 })() : null}
