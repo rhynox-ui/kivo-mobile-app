@@ -93,7 +93,7 @@ function renderLinkedText(text: string, myUsername?: string | null, onMention?: 
     if (raw.startsWith('@') && start > 0 && /[\w.]/.test(text[start - 1])) continue;
     if (start > cursor) nodes.push(text.slice(cursor, start));
     if (/^0x[a-fA-F0-9]{40}$/.test(raw) || /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(raw)) {
-      nodes.push(<React.Fragment key={\`address-\${key++}\`}>
+      nodes.push(<React.Fragment key={'address-' + key++}>
         <Text selectable>{raw}</Text>
         <Text accessibilityRole="button" accessibilityLabel="Copy address" onPress={() => {
           Clipboard.setString(raw);
@@ -104,7 +104,7 @@ function renderLinkedText(text: string, myUsername?: string | null, onMention?: 
       continue;
     }
     if (raw.startsWith('@')) {
-      nodes.push(<Text key={\`mention-\${key++}\`} accessibilityRole={onMention ? 'link' : undefined} onPress={onMention ? () => onMention(raw.slice(1)) : undefined} style={mine && raw.slice(1).toLowerCase() === mine ? styles.messageMentionMe : styles.messageMention}>{raw}</Text>);
+      nodes.push(<Text key={'mention-' + key++} accessibilityRole={onMention ? 'link' : undefined} onPress={onMention ? () => onMention(raw.slice(1)) : undefined} style={mine && raw.slice(1).toLowerCase() === mine ? styles.messageMentionMe : styles.messageMention}>{raw}</Text>);
       cursor = start + raw.length;
       continue;
     }
@@ -113,10 +113,10 @@ function renderLinkedText(text: string, myUsername?: string | null, onMention?: 
     else if (raw.startsWith('$')) { url = 'https://dexscreener.com/search?q=' + encodeURIComponent(raw.slice(1)); style = styles.messageTicker; }
     else {
       const clean = raw.replace(/[),.!?;:]+$/, ''); url = clean.startsWith('www.') ? 'https://' + clean : clean;
-      nodes.push(<Text key={\`link-\${key++}\`} accessibilityRole="link" onPress={() => Linking.openURL(url).catch(() => kivoAlert('Link', 'Could not open this link.'))} style={style}>{clean}</Text>);
+      nodes.push(<Text key={'link-' + key++} accessibilityRole="link" onPress={() => Linking.openURL(url).catch(() => kivoAlert('Link', 'Could not open this link.'))} style={style}>{clean}</Text>);
       const tail = raw.slice(clean.length); if (tail) nodes.push(tail); cursor = start + raw.length; continue;
     }
-    nodes.push(<Text key={\`link-\${key++}\`} accessibilityRole="link" onPress={() => Linking.openURL(url).catch(() => kivoAlert('Link', 'Could not open this link.'))} style={style}>{raw}</Text>);
+    nodes.push(<Text key={'link-' + key++} accessibilityRole="link" onPress={() => Linking.openURL(url).catch(() => kivoAlert('Link', 'Could not open this link.'))} style={style}>{raw}</Text>);
     cursor = start + raw.length;
   }
   if (cursor < text.length) nodes.push(text.slice(cursor));
