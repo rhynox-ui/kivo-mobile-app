@@ -16,6 +16,9 @@ import { BottomSheet } from '../components/BottomSheet';
 import { PhotoViewer } from '../components/PhotoViewer';
 import { TokenAttachmentCard } from '../components/TokenAttachmentCard';
 import { TokenAttachmentPicker, type VerifiedToken } from '../components/TokenAttachmentPicker';
+import { ChatPollCard } from '../components/ChatPollCard';
+import { sendPoll } from '@kivo/shared/chat/store';
+import { DEFAULT_POLL_SETTINGS, POLL_DURATION_OPTIONS, normalizePollQuestion, normalizePollDescription, normalizePollOptions, type PollSettings } from '@kivo/shared/polls/types';
 
 type Item = { type: 'day'; key: string; label: string } | { type: 'unread'; key: string } | { type: 'message'; key: string; message: LocalMessage; showName: boolean; showAvatar: boolean };
 
@@ -150,6 +153,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const [reactingTo, setReactingTo] = useState<LocalMessage | null>(null);
   const profile = useProfile();
   const [draft, setDraft] = useState('');
+  const [pollComposerOpen,setPollComposerOpen]=useState(false),[pollQuestion,setPollQuestion]=useState(''),[pollDescription,setPollDescription]=useState(''),[pollOptions,setPollOptions]=useState(['','']),[pollSettings,setPollSettings]=useState<PollSettings>({...DEFAULT_POLL_SETTINGS}),[pollDuration,setPollDuration]=useState<number|null>(null),[pollSending,setPollSending]=useState(false);
   const [tokenAttachmentOpen, setTokenAttachmentOpen] = useState(false);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   // Set by the picker once the pasted token has a live market (null while checking or empty).
@@ -545,6 +549,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
                 {message.token && <TokenAttachmentCard token={message.token} compact onPress={onOpenToken ? () => onOpenToken(message.token!) : undefined} />}
+                {message.poll && !message.deleted && <ChatPollCard messageId={message.id} onError={message=>kivoAlert('Poll',message)} />}
                 {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
                 {message.replyTo && !message.deleted ? (() => {
                   const quoted = messages.find(item => item.id === message.replyTo);
@@ -604,17 +609,17 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           </Pressable>)}
         </ScrollView>}
         {tokenAttachmentOpen && <TokenAttachmentPicker onChange={setVerifiedTokenAttachment} onClose={() => setTokenAttachmentOpen(false)} />}
+        <Modal visible={pollComposerOpen} transparent animationType="slide" onRequestClose={()=>setPollComposerOpen(false)}><KeyboardAvoidingView style={styles.modalShade} behavior={Platform.OS==='ios'?'padding':'height'}><View style={styles.pollSheet}><View style={styles.senderLine}><Text style={styles.sheetTitle}>Create a poll</Text><Pressable onPress={()=>setPollComposerOpen(false)}><Text style={styles.attachText}>✕</Text></Pressable></View><ScrollView keyboardShouldPersistTaps="handled"><TextInput value={pollQuestion} onChangeText={setPollQuestion} maxLength={200} placeholder="Ask a question" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.pollInput}/><TextInput value={pollDescription} onChangeText={setPollDescription} maxLength={500} placeholder="Description (optional)" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.pollInput}/><Text style={styles.sender}>Options</Text>{pollOptions.map((value,index)=><View key={index} style={{flexDirection:'row',alignItems:'center',gap:8}}><TextInput value={value} onChangeText={next=>setPollOptions(old=>old.map((v,i)=>i===index?next:v))} maxLength={100} placeholder={'Option '+(index+1)} placeholderTextColor={kivoTheme.colors.textMuted} style={[styles.pollInput,{flex:1}]}/>{pollOptions.length>2&&<Pressable onPress={()=>setPollOptions(old=>old.filter((_,i)=>i!==index))}><Text style={{color:'#E57373'}}>✕</Text></Pressable>}</View>)}<Pressable disabled={pollOptions.length>=12} onPress={()=>setPollOptions(old=>[...old,''])}><Text style={styles.attachmentLabel}>＋ Add option</Text></Pressable><Text style={[styles.sender,{marginTop:12}]}>Settings</Text>{([{key:'allowMultiple',label:'Allow multiple answers'},{key:'showVoters',label:'Show voter names'},{key:'allowAddingOptions',label:'Allow adding options'},{key:'allowRevoting',label:'Allow revoting'},{key:'shuffleOptions',label:'Shuffle options'}] as const).map(item=><Pressable key={item.key} onPress={()=>setPollSettings(old=>({...old,[item.key]:!old[item.key]}))} style={styles.pollSettingRow}><Text style={styles.pollLabel}>{item.label}</Text><Text style={{color:pollSettings[item.key]?kivoTheme.colors.accent:kivoTheme.colors.textMuted,fontWeight:'900'}}>{pollSettings[item.key]?'ON':'OFF'}</Text></Pressable>)}<Text style={[styles.sender,{marginTop:12}]}>Duration</Text><View style={{flexDirection:'row',flexWrap:'wrap',gap:8,marginVertical:10}}>{POLL_DURATION_OPTIONS.map(item=><Pressable key={String(item.hours)} onPress={()=>setPollDuration(item.hours)} style={[styles.pollDuration,pollDuration===item.hours&&styles.pollDurationOn]}><Text style={{color:pollDuration===item.hours?kivoTheme.colors.accent:kivoTheme.colors.text,fontSize:12}}>{item.label}</Text></Pressable>)}</View></ScrollView><View style={styles.pollActions}><Pressable onPress={()=>setPollComposerOpen(false)}><Text style={styles.attachmentLabel}>Cancel</Text></Pressable><Pressable disabled={pollSending} onPress={()=>{if(pollSending)return;let question:string,description:string,options:string[];try{question=normalizePollQuestion(pollQuestion);description=normalizePollDescription(pollDescription);options=normalizePollOptions(pollOptions);}catch(e){kivoAlert('Poll',e instanceof Error?e.message:'Check poll details.');return;}setPollSending(true);void (async()=>{try{await sendPoll(id,{question,description,options,settings:{...pollSettings},endsAt:pollDuration===null?null:Date.now()+pollDuration*3_600_000});setPollComposerOpen(false);}catch(e){kivoAlert('Poll',e instanceof Error?e.message:'Could not send poll.');}finally{setPollSending(false);}})();}} style={styles.pollSend}><Text style={styles.pollSendText}>{pollSending?'Sending…':'Send poll'}</Text></Pressable></View></View></KeyboardAvoidingView></Modal>
         <View style={styles.composerArea}>
           {attachmentMenuOpen && <View style={styles.attachmentMenu} accessibilityLabel="Attachment options">
             <Pressable onPress={() => { setAttachmentMenuOpen(false); void attach(); }} style={({ pressed }) => [styles.attachmentTile, pressed && styles.attachmentTilePressed]} accessibilityRole="button" accessibilityLabel="Attach photo">
               <AttachmentSymbol kind="photo" color={kivoTheme.colors.accent} />
               <Text style={styles.attachmentLabel}>Photo</Text>
             </Pressable>
-            <View style={[styles.attachmentTile, styles.attachmentTileDisabled]} accessibilityLabel="Poll coming soon">
+            {(conversation?.kind === 'group' || conversation?.kind === 'channel') && <Pressable onPress={() => { setAttachmentMenuOpen(false); setPollQuestion(''); setPollDescription(''); setPollOptions(['','']); setPollSettings({...DEFAULT_POLL_SETTINGS}); setPollDuration(null); setPollComposerOpen(true); }} style={({ pressed }) => [styles.attachmentTile, pressed && styles.attachmentTilePressed]} accessibilityRole="button" accessibilityLabel="Create poll">
               <AttachmentSymbol kind="poll" color={kivoTheme.colors.accent} />
               <Text style={styles.attachmentLabel}>Poll</Text>
-              <Text style={styles.attachmentHint}>Soon</Text>
-            </View>
+            </Pressable>}
             <Pressable onPress={() => { setAttachmentMenuOpen(false); setTokenAttachmentOpen(true); }} style={({ pressed }) => [styles.attachmentTile, pressed && styles.attachmentTilePressed]} accessibilityRole="button" accessibilityLabel="Attach token card">
               <AttachmentSymbol kind="token" color={kivoTheme.colors.accent} />
               <Text style={styles.attachmentLabel}>Token card</Text>
@@ -835,6 +840,7 @@ const styles = StyleSheet.create({
   mentionRowPressed: { backgroundColor: c.surfaceRaised },
   mentionName: { flex: 1, color: c.text, fontWeight: '700', fontSize: 14 },
   composerArea: { position: 'relative' },
+  modalShade: {flex:1,backgroundColor:'rgba(0,0,0,0.6)',justifyContent:'flex-end'}, pollSheet:{maxHeight:'92%',backgroundColor:kivoTheme.colors.background,borderTopLeftRadius:22,borderTopRightRadius:22,padding:18,paddingBottom:30,gap:12,borderWidth:1,borderColor:kivoTheme.colors.border}, sheetTitle:{color:kivoTheme.colors.text,fontSize:19,fontWeight:'900'}, pollInput:{color:kivoTheme.colors.text,backgroundColor:kivoTheme.colors.surface,borderWidth:1,borderColor:kivoTheme.colors.border,borderRadius:10,padding:10,marginVertical:5},pollSettingRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',paddingVertical:9},pollLabel:{color:kivoTheme.colors.text,fontSize:14},pollDuration:{padding:8,borderWidth:1,borderColor:kivoTheme.colors.border,borderRadius:9},pollDurationOn:{borderColor:kivoTheme.colors.accent},pollActions:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingTop:10},pollSend:{backgroundColor:kivoTheme.colors.accent,paddingHorizontal:16,paddingVertical:10,borderRadius:12},pollSendText:{color:kivoTheme.colors.backgroundDeep,fontWeight:'900'},
   attachmentMenu: { position: 'absolute', zIndex: 20, left: 10, bottom: 62, width: 250, maxWidth: '90%', flexDirection: 'row', gap: 5, padding: 6, borderRadius: 14, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, elevation: 8 },
   attachmentTile: { flex: 1, minWidth: 0, minHeight: 48, paddingVertical: 5, paddingHorizontal: 2, borderRadius: 10, alignItems: 'center', justifyContent: 'center', gap: 3, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
   attachmentTilePressed: { backgroundColor: c.background },
