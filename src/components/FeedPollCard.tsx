@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
-import type {FeedPoll, PollOptionResult, PollResults} from '@kivo/shared/polls/types';
+import type {FeedPoll, PollOptionResult} from '@kivo/shared/polls/types';
 import {kivoTheme} from '../theme/kivoTheme';
 import {api} from '../state/session';
 
