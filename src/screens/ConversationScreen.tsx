@@ -370,7 +370,12 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
         out.push({ type: 'day', key: 'day-' + day, label: day === new Date().toDateString() ? 'Today' : new Date(message.createdAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) });
       }
       if (message.id === firstUnreadId) out.push({ type: 'unread', key: 'unread-divider' });
-      out.push({ type: 'message', key: message.id, message, showName: conversation?.kind !== 'dm' && message.senderId !== me && messages[index - 1]?.senderId !== message.senderId, showAvatar: conversation?.kind === 'group' && message.senderId !== me && messages[index + 1]?.senderId !== message.senderId });
+      // Polls are standalone cards: always show their real author identity in groups/channels,
+      // even when normal sender grouping would hide it. Keep regular messages grouped.
+      const pollAuthor = Boolean(message.poll && !message.deleted && conversation?.kind !== 'dm');
+      out.push({ type: 'message', key: message.id, message,
+        showName: conversation?.kind !== 'dm' && (pollAuthor || (message.senderId !== me && messages[index - 1]?.senderId !== message.senderId)),
+        showAvatar: conversation?.kind !== 'dm' && (pollAuthor || (conversation?.kind === 'group' && message.senderId !== me && messages[index + 1]?.senderId !== message.senderId)) });
     });
     return out;
   }, [messages, conversation?.kind, me, firstUnreadId]);
@@ -546,10 +551,10 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           const mine = message.senderId === me && !isChannel;
           return (
             <View style={[styles.bubbleRow, mine && styles.bubbleRowMine, conversation?.kind === 'group' && !mine && styles.bubbleRowGroupIncoming]}>
-              {conversation?.kind === 'group' && !mine ? <View style={styles.avatarColumn}>{item.showAvatar ? <Avatar name={displayName(message.senderId)} uri={state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /> : null}</View> : null}
+              {conversation?.kind !== 'dm' && item.showAvatar ? <View style={styles.avatarColumn}><Avatar name={message.senderId === me ? '@' + (profile.username || 'You') : displayName(message.senderId)} uri={message.senderId === me ? (profile.avatarUri ?? state.profiles[message.senderId]?.avatarUrl) : state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /></View> : null}
               <Pressable onLongPress={selectedTextMessageId === message.id ? undefined : () => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted, unreadMentionSet.has(message.id) && styles.bubbleMention, message.id === highlightedId && styles.bubbleHighlight]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
-                {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
+                {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{message.senderId === me && message.poll ? '@' + (profile.username || 'You') : displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
                 {message.token && <TokenAttachmentCard token={message.token} compact onPress={onOpenToken ? () => onOpenToken(message.token!) : undefined} />}
                 {message.poll && !message.deleted && <ChatPollCard messageId={message.id} onError={message=>kivoAlert('Poll',message)} />}
                 {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
