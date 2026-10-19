@@ -81,7 +81,9 @@ export function ConvertCashSheet({visible,onClose,onConverted,moveHome=false}:{v
  const cashMove=Boolean(from&&to&&(from.chain==='near'||from.asset?.kind==='cash')&&(to.chain==='near'||to.asset?.kind==='cash'));
  // Kivo's fee for this conversion (fees.ts kivoFeeUsd): classified by the non-cash side, shown in dollars and percent.
  const feeTok=from&&to?feeTokenForTrade({chainKey:from.chain,tokenAddress:from.asset?.address},{chainKey:to.chain,tokenAddress:to.asset?.address}):null; const tradeUsd=from&&n>0&&from.priceUsd>0?n*from.priceUsd:null;
- const kivoFeeLabel=cashMove?'Kivo fee: Free':feeTok&&tradeUsd?`Kivo fee ${formatKivoFee(kivoFeeUsd({amountUsd:tradeUsd,...feeTok}),tradeUsd)}`:`Kivo fee: ${Number((kivoFeePct(feeTok??{})*100).toFixed(3))}%`;
+ // Once Relay has quoted, show the fee the quote really carries (quote.fees.app.amountUsd), not a client estimate.
+ const quotedAppFeeUsd=quote&&rawQuoteRef.current?Number(rawQuoteRef.current.fees?.app?.amountUsd):NaN; const quotedPayUsd=quote&&rawQuoteRef.current?Number(rawQuoteRef.current.details?.currencyIn?.amountUsd):NaN;
+ const kivoFeeLabel=Number.isFinite(quotedAppFeeUsd)&&quotedAppFeeUsd>=0&&!(cashMove&&quotedAppFeeUsd<0.005)?`Kivo fee ${formatKivoFee(quotedAppFeeUsd,Number.isFinite(quotedPayUsd)&&quotedPayUsd>0?quotedPayUsd:tradeUsd)}`:cashMove?'Kivo fee: Free':feeTok&&tradeUsd?`Kivo fee ${formatKivoFee(kivoFeeUsd({amountUsd:tradeUsd,...feeTok}),tradeUsd)}`:`Kivo fee: ${Number((kivoFeePct(feeTok??{})*100).toFixed(3))}%`;
  useEffect(()=>{if(!visible||!wallet||!from||!to||same||pairProblem||n<=0||insufficient){setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setLoading(false);return;} const requestId=++quoteRequestIdRef.current; const t=setTimeout(async()=>{setLoading(true);setError(null);try{
    const amountBaseUnits=parseUnits(amount,decimals).toString();
    if(from.chain==='near'||to.chain==='near'){
