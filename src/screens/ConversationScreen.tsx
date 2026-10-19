@@ -827,7 +827,7 @@ const styles = StyleSheet.create({
   reactionChipText: { color: c.text, fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
   reactionChipTextMine: { color: '#FFFFFF' },
   webParityReactionSection: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 12, gap: 10 },
-  webParityReactionLabel: { color: kivoTheme.colors.muted, fontSize: 13 },
+  webParityReactionLabel: { color: kivoTheme.colors.textMuted, fontSize: 13 },
   webParityReactionRow: { flexDirection: 'row', gap: 8, paddingRight: 4 },
   reactionPicker: { flexDirection: 'row', gap: 4, paddingVertical: 12 },
   reactionOption: { flex: 1, aspectRatio: 1, maxWidth: 52, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface },
