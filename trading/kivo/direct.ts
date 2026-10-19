@@ -23,6 +23,17 @@ const DEFAULT_SLIPPAGE_BPS = 300;
 const QUOTE_TTL_MS = 30_000;
 /** Most Kivo ever takes from one trade (matches the server's ceiling). */
 const MAX_FEE_BPS = 500n;
+/**
+ * Kivo's server refuses a direct Ethereum swap whose fee is under $1.50
+ * (directSwap.ts MIN_FEE_MICROS_ETHEREUM: the fee must cover mainnet gas).
+ * Such trades go through Relay instead of failing at execute.
+ */
+const ETHEREUM_DIRECT_MIN_FEE_USDC = 1_500_000n;
+function belowEthereumDirectFloor(chainKey: string, feeUsdcUnits: bigint, usdcDecimals: number): boolean {
+  if (chainKey !== 'ethereum') return false;
+  const micros = usdcDecimals >= 6 ? feeUsdcUnits / 10n ** BigInt(usdcDecimals - 6) : feeUsdcUnits * 10n ** BigInt(6 - usdcDecimals);
+  return micros < ETHEREUM_DIRECT_MIN_FEE_USDC;
+}
 
 /**
  * Kivo's fee (fees.ts kivoFeeUsd, classified by the token traded on its own
@@ -90,6 +101,7 @@ async function planSameNetwork(params: Parameters<typeof planDirectTrade>[0]): P
     if (!row || row.status !== 'ok' || row.balance.amount + 1e-9 < amount) return null; // USDC isn't on this network
     const total = parseUnits(amount.toFixed(Math.min(usdcDec, 6)), usdcDec);
     const fee = feeUnits(total, amount, token, params.extraFeeUsd, usdcDec, exempt);
+    if (belowEthereumDirectFloor(chainKey, fee, usdcDec)) return null;
     const quote = await quoteDirectUniswap({chainKey, tokenIn: usdc, tokenOut: token.tokenAddress, amountIn: total - fee});
     if (!quote) return null;
     const minAmountOut = (quote.amountOut * (10_000n - slippageBps)) / 10_000n;
@@ -108,6 +120,7 @@ async function planSameNetwork(params: Parameters<typeof planDirectTrade>[0]): P
   const minAmountOut = (quote.amountOut * (10_000n - slippageBps)) / 10_000n;
   const outUsd = Number(formatUnits(quote.amountOut, usdcDec));
   const fee = exempt ? 0n : kivoFeeOn(minAmountOut, outUsd, token);
+  if (belowEthereumDirectFloor(chainKey, fee, usdcDec)) return null;
   return {kind: 'uniswap', side, quote, minAmountOut, fee: {usdc, amount: fee, when: 'after'},
     view: viewFor({side, token, payAmount: amount, payUsd: token.priceUsd != null ? amount * token.priceUsd : outUsd, receiveAmount: outUsd - Number(formatUnits(fee, usdcDec)), receiveUsd: outUsd - Number(formatUnits(fee, usdcDec)),
       minimum: formatUnits(minAmountOut - fee, usdcDec), feeUsd: Number(formatUnits(fee, usdcDec)), slippageBps, payDecimals: balance.decimals, receiveDecimals: usdcDec, usdc})};
@@ -134,7 +147,9 @@ async function planJupiterTrade(params: {
     const row = params.cash?.find(r => r.chainKey === 'solana');
     if (!row || row.status !== 'ok' || row.balance.amount + 1e-9 < amount) return null; // USDC isn't on Solana
     const total = parseUnits(amount.toFixed(6), 6);
-    const fee = feeUnits(total, amount, token, params.extraFeeUsd, 6);
+    // Fee-exempt wallets (Kivo's own) pay no Kivo fee, same as every other route.
+    const exempt = isFeeExemptWallet(params.userAddress) || isFeeExemptWallet(params.solanaAddress);
+    const fee = feeUnits(total, amount, token, params.extraFeeUsd, 6, exempt);
     const quote = await quoteJupiter({inputMint: usdcMint, outputMint: token.tokenAddress, amount: total - fee, slippageBps: slippage});
     if (!quote) return null;
     const out = Number(formatUnits(BigInt(quote.outAmount), params.tokenDecimals));
@@ -151,7 +166,7 @@ async function planJupiterTrade(params: {
   if (!quote) return null;
   const minAmountOut = BigInt(quote.otherAmountThreshold);
   const outUsd = Number(formatUnits(BigInt(quote.outAmount), 6));
-  const fee = kivoFeeOn(minAmountOut, outUsd, token);
+  const fee = isFeeExemptWallet(params.userAddress) || isFeeExemptWallet(params.solanaAddress) ? 0n : kivoFeeOn(minAmountOut, outUsd, token);
   const net = outUsd - Number(formatUnits(fee, 6));
   return {kind: 'jupiter', side, quote, inputMint: token.tokenAddress, outputMint: usdcMint, amountIn: sellUnits, minAmountOut, fee: {usdc: usdcMint, amount: fee, when: 'after'},
     view: viewFor({side, token, payAmount: amount, payUsd: token.priceUsd != null ? amount * token.priceUsd : outUsd, receiveAmount: net, receiveUsd: net,

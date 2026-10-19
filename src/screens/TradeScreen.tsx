@@ -44,6 +44,9 @@ type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
  */
 const directUnavailable = new Set<string>();
 const DIRECT_UNAVAILABLE = /isn't switched on for/;
+// Kivo's server refused the direct swap's fee (Ethereum's $1.50 gas floor, or
+// a fee-exempt wallet on an older server): nothing was sent, so use Relay.
+const DIRECT_FEE_REFUSED = /Kivo['’]s fee does not cover Ethereum gas|Kivo['’]s fee is missing/i;
 // A pool program (e.g. PumpSwap) charging the wallet itself for a one-time
 // account: a wallet with no SOL can't pay it, so that token re-routes via Relay.
 const DIRECT_NEEDS_SOL = /insufficient lamports \d+, need (\d+)/i;
@@ -388,7 +391,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       const message = error instanceof Error ? error.message : 'Trade failed.';
       // Relay refused to sponsor the direct swap on this network and nothing
       // was sent: re-quote through a sponsored Relay route for a new review.
-      if (plan.direct && !hashes.length && (DIRECT_UNAVAILABLE.test(message) || DIRECT_NEEDS_SOL.test(message))) {
+      if (plan.direct && !hashes.length && (DIRECT_UNAVAILABLE.test(message) || DIRECT_NEEDS_SOL.test(message) || DIRECT_FEE_REFUSED.test(message))) {
         directUnavailable.add(DIRECT_UNAVAILABLE.test(message) ? token.chainKey : `${token.chainKey}:${token.tokenAddress}`);
         setReviewOpen(false); setResult(null); setUpdate(null);
         setNotice(`Nothing was sent. Finding another gas-free route on ${chainLabel(token.chainKey)}…`);
