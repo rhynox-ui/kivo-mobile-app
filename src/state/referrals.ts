@@ -317,13 +317,13 @@ async function removePendingTradeReport(userId: string, input: Pick<PendingTrade
   else await Promise.resolve(storage.removeItem?.(PENDING_TRADE_REPORTS_PREFIX + userId));
 }
 
-async function traderHasReferrer(): Promise<boolean> {
+async function traderHasReferrer(): Promise<boolean | null> {
   if (!api.signedInUserId()) return false;
   const me = getReferrals();
   if (me) return Boolean(me.referredBy);
   if (cachedReferred != null) return cachedReferred;
   const fresh = await refreshReferrals();
-  return Boolean(fresh?.referredBy);
+  return fresh ? Boolean(fresh.referredBy) : null;
 }
 
 /** Replays locally saved success reports after reconnect/app restart. */
@@ -358,8 +358,15 @@ export function reportReferralTrade(input: { chain: string; txHash?: string | nu
     // immediate server report; the server's history recovery is the backstop.
     await persistPendingTradeReport(userId, normalized).catch(() => {});
     if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
-    if (!(await traderHasReferrer())) {
+    const hasReferrer = await traderHasReferrer();
+    if (hasReferrer === false) {
       await removePendingTradeReport(userId, normalized).catch(() => {});
+      reported.delete(id);
+      return;
+    }
+    if (hasReferrer === null) {
+      // Offline/unknown referral state is not proof that the user has no
+      // referrer; keep the snapshot for the next reconnect.
       reported.delete(id);
       return;
     }
