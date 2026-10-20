@@ -25,7 +25,8 @@ export type ReferralsMe = {
   payouts: {amountUsd: number; chain: string; txHash: string; createdAt: number}[];
 };
 export type ReferralTradeResult = {recorded: boolean; rewardUsd?: number; needsSolanaLink?: boolean; retry?: boolean};
-export type ReferralClaimBalance = {pendingUsd: number; availableUsd: number; reservedUsd: number; paidUsd: number; currency: 'USDC'; claimEnabled: false; note: string};
+export type ReferralClaimNetworkBalance = {pendingUsd: number; availableUsd: number; reservedUsd: number; paidUsd: number};
+export type ReferralClaimBalance = {pendingUsd: number; availableUsd: number; reservedUsd: number; paidUsd: number; byNetwork: {base: ReferralClaimNetworkBalance; solana: ReferralClaimNetworkBalance}; currency: 'USDC'; claimEnabled: false; note: string};
 export type ReferralClaimRequest = {intentId: string; amountUsd: number; destination: string; network: string; state: 'requested' | 'review_required' | 'cancelled'; createdAt: number; updatedAt: number; note: string};
 export type ReferralClaimRequestStatus = {request: ReferralClaimRequest | null; payoutInitiated: false};
 export type ReferralClaimCancellation = {intentId: string; state: 'cancelled'; cancelled: true; replayed: boolean; payoutInitiated: false};
