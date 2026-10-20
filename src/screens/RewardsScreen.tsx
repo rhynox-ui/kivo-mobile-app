@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import type { ReferralClaimBalance, ReferralUser } from '@kivo/shared/api/client';
+import type { ReferralClaimBalance, ReferralClaimRequestStatus, ReferralUser } from '@kivo/shared/api/client';
 import { kivoAlert } from '../components/KivoAlert';
 import { kivoTheme } from '../theme/kivoTheme';
 import { api, enableSocial, useSocialReady } from '../state/session';
@@ -129,13 +129,19 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
   const [loaded, setLoaded] = useState(Boolean(me));
   const [prefill, setPrefill] = useState<string | null>(prefillReferrer ?? null);
   const [claimBalance, setClaimBalance] = useState<ReferralClaimBalance | null>(null);
+  const [claimRequest, setClaimRequest] = useState<ReferralClaimRequestStatus['request']>(null);
+  const [cancellingClaim, setCancellingClaim] = useState(false);
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
     try {
       await refreshReferrals();
-      const balance = await api.referralClaimBalance();
-      setClaimBalance(balance);
+      const [balanceResult, requestResult] = await Promise.allSettled([
+        api.referralClaimBalance(),
+        api.referralClaimRequestStatus(),
+      ]);
+      if (balanceResult.status === 'fulfilled') setClaimBalance(balanceResult.value);
+      if (requestResult.status === 'fulfilled') setClaimRequest(requestResult.value.request);
     } catch { /* Keep referral page usable if the read-only balance endpoint is unavailable. */ }
     finally { setLoaded(true); if (manual) setRefreshing(false); }
   }, []);
@@ -185,6 +191,28 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
             <Text style={styles.muted}>Available to claim: {claimBalance ? usd(claimBalance.availableUsd) + ' USDC' : '—'}</Text>
             <Text style={styles.muted}>Pending: {claimBalance ? usd(claimBalance.pendingUsd) : '—'} · Reserved: {claimBalance ? usd(claimBalance.reservedUsd) : '—'} · Paid: {claimBalance ? usd(claimBalance.paidUsd) : '—'}</Text>
             <Text style={styles.muted}>{claimBalance?.note ?? 'Could not load claim balance. Pull down to refresh.'}</Text>
+            {claimRequest ? (
+              <View style={{ marginTop: 8, gap: 6 }}>
+                <Text style={styles.muted}>Request: {claimRequest.state.replace('_', ' ')} · {usd(claimRequest.amountUsd)} USDC</Text>
+                <Text style={styles.muted}>{claimRequest.note}</Text>
+                {claimRequest.state === 'requested' || claimRequest.state === 'review_required' ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={cancellingClaim}
+                    onPress={() => {
+                      setCancellingClaim(true);
+                      void api.cancelReferralClaimRequest(claimRequest.intentId)
+                        .then(async () => { setClaimRequest(current => current ? {...current, state: 'cancelled', note: 'Cancelled by referrer; no payout was initiated.'} : null); await load(); })
+                        .catch(error => kivoAlert('Could not cancel request', error instanceof Error ? error.message : 'Refresh and try again.'))
+                        .finally(() => setCancellingClaim(false));
+                    }}
+                    style={[styles.smallButton, cancellingClaim && styles.disabled]}
+                  >
+                    {cancellingClaim ? <ActivityIndicator color={c.accent} /> : <Text style={styles.smallButtonText}>Cancel request</Text>}
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
             <View style={[styles.confirm, styles.disabled, { alignSelf: 'flex-start', marginTop: 4 }]}><Text style={styles.confirmText}>Claim rewards — coming soon</Text></View>
           </View>
 
