@@ -293,28 +293,48 @@ async function traderHasReferrer(): Promise<boolean> {
  */
 export function reportReferralTrade(input: { chain: string; txHash?: string | null; requestId?: string | null }, delayMs = 0): void {
   const txHash = input.txHash?.trim();
-  if (!txHash || !input.chain) return;
-  const id = `${input.chain}:${txHash}`;
+  const requestId = input.requestId?.trim();
+  const hasOnChainSource = Boolean(txHash && input.chain);
+  if (!hasOnChainSource && !requestId) return;
+  const id = hasOnChainSource ? `${input.chain}:${txHash}` : `relay:${requestId}`;
   if (reported.has(id)) return;
   reported.add(id);
   void (async () => {
     if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
-    if (!(await traderHasReferrer())) return;
-    const body = { chain: input.chain, txHash, ...(input.requestId ? { requestId: input.requestId } : {}) };
-    let result = await api.reportReferralTrade(body);
-    if (result.needsSolanaLink) {
-      const linked = await ensureSolanaLinked({ force: true }).catch(() => false);
-      if (!linked) return;
-      result = await api.reportReferralTrade(body);
-    }
-    if (result.recorded) void refreshReferrals();
-    if (input.requestId) {
-      let relayResult = await api.reportRelayReferralTrade(input.requestId);
-      for (let attempt = 1; relayResult.retry && attempt <= 3; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, 15_000 * attempt));
-        relayResult = await api.reportRelayReferralTrade(input.requestId);
+    let failed = false;
+
+    // The two server verifiers are independent: a slow or unavailable chain RPC
+    // must not prevent Relay's authoritative App Fee record from being reported.
+    if (hasOnChainSource && txHash) {
+      try {
+        if (await traderHasReferrer()) {
+          const body = { chain: input.chain, txHash, ...(requestId ? { requestId } : {}) };
+          let result = await api.reportReferralTrade(body);
+          if (result.needsSolanaLink) {
+            const linked = await ensureSolanaLinked({ force: true }).catch(() => false);
+            if (linked) result = await api.reportReferralTrade(body);
+          }
+          if (result.recorded) void refreshReferrals();
+        }
+      } catch {
+        failed = true;
       }
-      if (relayResult.recorded) void refreshReferrals();
     }
-  })().catch(() => { reported.delete(id); });
+
+    if (requestId) {
+      try {
+        let relayResult = await api.reportRelayReferralTrade(requestId);
+        for (let attempt = 1; relayResult.retry && attempt <= 3; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 15_000 * attempt));
+          relayResult = await api.reportRelayReferralTrade(requestId);
+        }
+        if (relayResult.recorded) void refreshReferrals();
+        if (relayResult.retry) failed = true;
+      } catch {
+        failed = true;
+      }
+    }
+
+    if (failed) reported.delete(id);
+  })();
 }
