@@ -25,6 +25,7 @@ export type ReferralsMe = {
   payouts: {amountUsd: number; chain: string; txHash: string; createdAt: number}[];
 };
 export type ReferralTradeResult = {recorded: boolean; rewardUsd?: number; needsSolanaLink?: boolean; retry?: boolean};
+export type ReferralClaimBalance = {pendingUsd: number; availableUsd: number; reservedUsd: number; paidUsd: number; currency: 'USDC'; claimEnabled: false; note: string};
 
 export class ApiError extends Error {
   status: number;
@@ -306,6 +307,7 @@ export class KivoApi {
   checkCommunityGate(communityId: string, fresh = false) { return this.request<GateCheck | null>('GET', `/api/communities/${encodeURIComponent(communityId)}/gate/check${fresh ? '?fresh=1' : ''}`); }
   linkSolanaWallet(address: string, signature: string) { return this.request<{address: string}>('POST', '/api/wallet/link-solana', {address, signature}); }
   referralsMe() { return this.request<ReferralsMe>('GET', '/api/referrals/me'); }
+  referralClaimBalance() { return this.request<ReferralClaimBalance>('GET', '/api/referrals/claim-balance'); }
   lookupReferrer(username: string) { return this.request<ReferralUser>('GET', `/api/referrals/lookup?username=${encodeURIComponent(username)}`); }
   claimReferral(username: string, source: ReferralSource = 'manual') { return this.request<{referredBy: ReferralUser}>('POST', '/api/referrals/claim', {username, source}); }
   reportReferralTrade(input: {chain: string; txHash: string; requestId?: string}) { return this.request<ReferralTradeResult>('POST', '/api/referrals/trade', input); }
