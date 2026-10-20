@@ -309,5 +309,6 @@ export class KivoApi {
   lookupReferrer(username: string) { return this.request<ReferralUser>('GET', `/api/referrals/lookup?username=${encodeURIComponent(username)}`); }
   claimReferral(username: string, source: ReferralSource = 'manual') { return this.request<{referredBy: ReferralUser}>('POST', '/api/referrals/claim', {username, source}); }
   reportReferralTrade(input: {chain: string; txHash: string; requestId?: string}) { return this.request<ReferralTradeResult>('POST', '/api/referrals/trade', input); }
+  reportRelayReferralTrade(requestId: string) { return this.request<ReferralTradeResult>('POST', '/api/referrals/relay-trade', {requestId}); }
   sync(since: number) { return this.request<SyncResponse>('GET', `/api/sync?since=${since}`); }
 }
