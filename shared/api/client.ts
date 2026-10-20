@@ -313,6 +313,7 @@ export class KivoApi {
   referralsMe() { return this.request<ReferralsMe>('GET', '/api/referrals/me'); }
   referralClaimBalance() { return this.request<ReferralClaimBalance>('GET', '/api/referrals/claim-balance'); }
   referralClaimRequestStatus() { return this.request<ReferralClaimRequestStatus>('GET', '/api/referrals/claim-request'); }
+  requestReferralClaim(input: {network: 'base' | 'solana'; destination: string; idempotencyKey: string}) { return this.request<{intentId: string; amountUsd: number; state: 'requested' | 'review_required'; replayed: boolean; payoutInitiated: false}>('POST', '/api/referrals/claim-request', input); }
   cancelReferralClaimRequest(intentId: string) { return this.request<ReferralClaimCancellation>('DELETE', `/api/referrals/claim-request/${encodeURIComponent(intentId)}`); }
   lookupReferrer(username: string) { return this.request<ReferralUser>('GET', `/api/referrals/lookup?username=${encodeURIComponent(username)}`); }
   claimReferral(username: string, source: ReferralSource = 'manual') { return this.request<{referredBy: ReferralUser}>('POST', '/api/referrals/claim', {username, source}); }
