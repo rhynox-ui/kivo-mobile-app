@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import type { ReferralUser } from '@kivo/shared/api/client';
+import type { ReferralClaimBalance, ReferralUser } from '@kivo/shared/api/client';
 import { kivoAlert } from '../components/KivoAlert';
 import { kivoTheme } from '../theme/kivoTheme';
 import { api, enableSocial, useSocialReady } from '../state/session';
@@ -128,10 +128,16 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
   const [refreshing, setRefreshing] = useState(false);
   const [loaded, setLoaded] = useState(Boolean(me));
   const [prefill, setPrefill] = useState<string | null>(prefillReferrer ?? null);
+  const [claimBalance, setClaimBalance] = useState<ReferralClaimBalance | null>(null);
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
-    try { await refreshReferrals(); } finally { setLoaded(true); if (manual) setRefreshing(false); }
+    try {
+      await refreshReferrals();
+      const balance = await api.referralClaimBalance();
+      setClaimBalance(balance);
+    } catch { /* Keep referral page usable if the read-only balance endpoint is unavailable. */ }
+    finally { setLoaded(true); if (manual) setRefreshing(false); }
   }, []);
 
   useEffect(() => { if (ready) void load(); }, [ready, load]);
@@ -173,6 +179,14 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
           <Text style={styles.label}>Total earned</Text>
           <Text style={styles.total}>{whole}<Text style={styles.cents}>{cents}</Text></Text>
           <Text style={styles.week}>+{usd(me?.thisWeekUsd)} this week</Text>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Referral reward claims</Text>
+            <Text style={styles.muted}>Available to claim: {claimBalance ? usd(claimBalance.availableUsd) + ' USDC' : '—'}</Text>
+            <Text style={styles.muted}>Pending: {claimBalance ? usd(claimBalance.pendingUsd) : '—'} · Reserved: {claimBalance ? usd(claimBalance.reservedUsd) : '—'} · Paid: {claimBalance ? usd(claimBalance.paidUsd) : '—'}</Text>
+            <Text style={styles.muted}>{claimBalance?.note ?? 'Could not load claim balance. Pull down to refresh.'}</Text>
+            <View style={[styles.confirm, styles.disabled, { alignSelf: 'flex-start', marginTop: 4 }]}><Text style={styles.confirmText}>Claim rewards — coming soon</Text></View>
+          </View>
 
           <Pressable accessibilityRole="button" onPress={() => shareReferralLink(link)} style={styles.share}><Text style={styles.shareText}>⇪  Share</Text></Pressable>
 
