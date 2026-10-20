@@ -128,6 +128,16 @@ function handleReferralUrl(url: string) {
   pendingLinkForUi = linkListeners.size ? null : username;
   void Promise.resolve(storage.setItem(LINK_CODE_KEY, username)).catch(() => {});
   linkListeners.forEach(listener => listener(username));
+  // Opening a personalized link while signed in is attribution intent.
+  // The backend still enforces the one-referrer, seven-day and pre-trade rules.
+  if (api.signedInUserId()) {
+    void queueReferralClaim(username, 'install').then(async () => {
+      const me = await refreshReferrals();
+      if (me?.referredBy?.username?.toLowerCase() === username.toLowerCase()) {
+        await Promise.resolve(storage.removeItem?.(LINK_CODE_KEY)).catch(() => {});
+      }
+    }).catch(() => {});
+  }
 }
 
 /** A referral link opened on this phone (newest first), else the Play install referrer. */
@@ -224,6 +234,11 @@ export async function queueReferralClaim(username: string, source: ReferralSourc
   const clean = username.trim().replace(/^@/, '');
   if (!validProfileUsername(clean)) return;
   await Promise.resolve(storage.setItem(PENDING_CLAIM_KEY, JSON.stringify({ username: clean, source }))).catch(() => {});
+  // If another session-change claim was already in flight, it may have read
+  // the pending slot before this link was stored. Once it settles, run the
+  // queue again so this newly stored attribution is not stranded until the
+  // next sign-in event.
+  await claimPendingReferral();
   await claimPendingReferral();
 }
 
