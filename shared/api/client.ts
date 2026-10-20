@@ -26,6 +26,9 @@ export type ReferralsMe = {
 };
 export type ReferralTradeResult = {recorded: boolean; rewardUsd?: number; needsSolanaLink?: boolean; retry?: boolean};
 export type ReferralClaimBalance = {pendingUsd: number; availableUsd: number; reservedUsd: number; paidUsd: number; currency: 'USDC'; claimEnabled: false; note: string};
+export type ReferralClaimRequest = {intentId: string; amountUsd: number; destination: string; network: string; state: 'requested' | 'review_required' | 'cancelled'; createdAt: number; updatedAt: number; note: string};
+export type ReferralClaimRequestStatus = {request: ReferralClaimRequest | null; payoutInitiated: false};
+export type ReferralClaimCancellation = {intentId: string; state: 'cancelled'; cancelled: true; replayed: boolean; payoutInitiated: false};
 
 export class ApiError extends Error {
   status: number;
@@ -308,6 +311,8 @@ export class KivoApi {
   linkSolanaWallet(address: string, signature: string) { return this.request<{address: string}>('POST', '/api/wallet/link-solana', {address, signature}); }
   referralsMe() { return this.request<ReferralsMe>('GET', '/api/referrals/me'); }
   referralClaimBalance() { return this.request<ReferralClaimBalance>('GET', '/api/referrals/claim-balance'); }
+  referralClaimRequestStatus() { return this.request<ReferralClaimRequestStatus>('GET', '/api/referrals/claim-request'); }
+  cancelReferralClaimRequest(intentId: string) { return this.request<ReferralClaimCancellation>('DELETE', `/api/referrals/claim-request/${encodeURIComponent(intentId)}`); }
   lookupReferrer(username: string) { return this.request<ReferralUser>('GET', `/api/referrals/lookup?username=${encodeURIComponent(username)}`); }
   claimReferral(username: string, source: ReferralSource = 'manual') { return this.request<{referredBy: ReferralUser}>('POST', '/api/referrals/claim', {username, source}); }
   reportReferralTrade(input: {chain: string; txHash: string; requestId?: string}) { return this.request<ReferralTradeResult>('POST', '/api/referrals/trade', input); }
