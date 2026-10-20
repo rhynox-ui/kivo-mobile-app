@@ -15,6 +15,13 @@ Kivo uses **weekly Relay fee collection** and **user-initiated referral reward c
 
 Until the treasury signer, reserve funding, token/network mapping, per-recipient limits, operational monitoring, and recovery paths are audited, the system must remain in dry-run/manual-approval mode. The weekly settlement planner is not authorization to transfer referral rewards. A payout must be initiated by the referrer and independently pass all payout safety checks.
 
+## Payout network policy
+
+- EVM-source rewards across supported EVM chains are aggregated and claimed on Base only. The original earning chain remains recorded for attribution and audit.
+- Solana-source rewards are kept separate and claimed on Solana only.
+- Never combine EVM and Solana rewards in one claim. Claim destinations are `base` or `solana`, not Ethereum or Arbitrum.
+- Rewards are based on actual eligible fees, never quote estimates, and retain the seven-day maturity delay.
+
 ## Separate ledgers
 
 Relay App Fees are Kivo revenue and accrue to the configured App Fee recipient's Relay balance. Referral rewards are a separate Kivo liability. Aggregate Relay balances do not prove an individual referral reward; per-request actual fee evidence and the shared referral source ledger remain authoritative.
