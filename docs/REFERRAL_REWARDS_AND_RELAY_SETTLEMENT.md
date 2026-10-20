@@ -24,7 +24,7 @@ We are building an auditable system to:
 - Referred trader fee: **45 bps (0.45%)**, a 10% discount from normal.
 - Referrer share: **25% of the actual eligible Kivo trading fee collected**.
 - Reward maturity: **7 days after the qualifying trade**.
-- Referral attribution can be set once, within the first 7 days of account creation, and before any rewarded trade.
+- Referral attribution can be set once at any time. Only eligible trades after attribution are rewarded; past trades are never rewarded retroactively.
 - No self-referrals or referral cycles.
 - If a referrer deletes their account, the referred trader keeps the discount but new rewards for that referrer stop.
 - Blue Star subscription payments are not trading fees and must not generate referral rewards.
