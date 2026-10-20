@@ -131,6 +131,7 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
   const [claimBalance, setClaimBalance] = useState<ReferralClaimBalance | null>(null);
   const [claimRequest, setClaimRequest] = useState<ReferralClaimRequestStatus['request']>(null);
   const [cancellingClaim, setCancellingClaim] = useState(false);
+  const [requestingClaim, setRequestingClaim] = useState(false);
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -223,7 +224,28 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
                 ) : null}
               </View>
             ) : null}
-            <View style={[styles.confirm, styles.disabled, { alignSelf: 'flex-start', marginTop: 4 }]}><Text style={styles.confirmText}>Claim rewards — coming soon</Text></View>
+            <Pressable
+              accessibilityRole="button"
+              disabled={requestingClaim || Boolean(claimRequest && (claimRequest.state === 'requested' || claimRequest.state === 'review_required')) || !claimBalance || claimBalance.availableUsd <= 0}
+              onPress={() => {
+                if (!claimBalance || claimBalance.availableUsd <= 0) return;
+                setRequestingClaim(true);
+                const network = claimBalance.walletType === 'solana' ? 'solana' as const : 'base' as const;
+                const idempotencyKey = 'claim_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 18);
+                void api.requestReferralClaim({network, destination: claimBalance.walletAddress, idempotencyKey})
+                  .then(async result => {
+                    kivoAlert('Payout request submitted', result.payoutInitiated
+                      ? 'The payout was submitted.'
+                      : 'Your matured rewards are reserved for manual review. No transfer has been sent yet.');
+                    await load();
+                  })
+                  .catch(error => kivoAlert('Could not request payout', error instanceof Error ? error.message : 'Refresh your balance and try again.'))
+                  .finally(() => setRequestingClaim(false));
+              }}
+              style={[styles.confirm, { alignSelf: 'flex-start', marginTop: 4 }, (requestingClaim || !claimBalance || claimBalance.availableUsd <= 0 || Boolean(claimRequest && (claimRequest.state === 'requested' || claimRequest.state === 'review_required'))) && styles.disabled]}
+            >
+              {requestingClaim ? <ActivityIndicator color={c.backgroundDeep} /> : <Text style={styles.confirmText}>{claimRequest && (claimRequest.state === 'requested' || claimRequest.state === 'review_required') ? 'Payout request pending review' : 'Request payout'}</Text>}
+            </Pressable>
           </View>
 
           <Pressable accessibilityRole="button" onPress={() => shareReferralLink(link)} style={styles.share}><Text style={styles.shareText}>⇪  Share</Text></Pressable>
