@@ -33,6 +33,12 @@ Official references:
 - https://docs.relay.link/references/api/get-app-fee-balances
 - https://docs.relay.link/references/api/claim-app-fees
 
+## Wallet connection requirement
+
+The Web claim flow must reuse Kivo's existing shared wallet connection/session. **Do not add a separate wallet-connect button, modal, provider, adapter, or connection state for referral claims.** Read the currently connected Kivo account wallet from the existing shared wallet/session layer, including its existing EVM/Solana selection behavior. If no supported wallet is connected, direct the user to Kivo's existing wallet-connect UI; do not implement another connection flow.
+
+Before a claim is submitted, show the destination address and network, and require the user to confirm the claim. Any transaction authorization must use the already-connected wallet/provider and its existing signing path. Never silently switch accounts, networks, or destination addresses. Re-check the connected account immediately before signing and reject if it changed. The backend independently validates reward balance, allowed network/token, destination, reserve funding, and idempotency; client wallet state is not authorization to bypass server controls.
+
 ## Required safety controls before enabling live transfers
 
 - Server-side idempotency for every Relay request, settlement period, reward row, payout item, and transaction attempt.
