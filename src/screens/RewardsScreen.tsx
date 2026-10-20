@@ -83,8 +83,8 @@ function WhoReferredYou({ prefill }: { prefill: string | null }) {
 
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Who referred you?</Text>
-      <Text style={styles.muted}>Enter their username to get 10% off your trading fees, for life. You can set this once.</Text>
+      <Text style={styles.cardTitle}>Invited by a friend?</Text>
+      <Text style={styles.muted}>Enter your friend’s referral code and enjoy 10% off trading fees for life. You can set this only once, within your first 7 days.</Text>
       <View style={styles.inputRow}>
         <Text style={styles.at}>@</Text>
         <TextInput
