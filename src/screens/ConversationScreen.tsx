@@ -189,7 +189,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   type MenuItem = { text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void };
   const [optionsMenu, setOptionsMenu] = useState<MenuItem[] | null>(null);
   const [optionsMessage, setOptionsMessage] = useState<LocalMessage | null>(null);
-  const [selectedTextMessageId, setSelectedTextMessageId] = useState<string | null>(null);
+  // Distinguish a text-selection long press from a long press on the surrounding message panel.
+  const textTouchingMessage = useRef<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<LocalMessage | null>(null);
   const [viewing, setViewing] = useState<LocalMessage | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<LocalMessage | null>(null);
@@ -466,7 +467,6 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     // Match Web: show quick reactions in the same message-options sheet.
     setOptionsMessage(message);
     setOptionsMenu([
-      ...(message.text ? [{ text: 'Select text', onPress: () => setSelectedTextMessageId(message.id) }] : []),
       ...(canPost ? [{ text: 'Reply', onPress: () => { setEditingMessageId(null); setReplyingTo(message); } }] : []),
       ...(canPin ? (() => { const isPinned = pins.some(p => p.id === message.id); return [{ text: isPinned ? 'Unpin message' : 'Pin message', onPress: () => setPin(message.id, !isPinned) }]; })() : []),
       ...(message.senderId === me ? [{ text: 'Edit message', onPress: () => { setReplyingTo(null); setEditingMessageId(message.id); setDraft(message.text); } }] : []),
@@ -580,7 +580,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           return (
             <View style={[styles.bubbleRow, mine && styles.bubbleRowMine, conversation?.kind === 'group' && !mine && styles.bubbleRowGroupIncoming]}>
               {conversation?.kind !== 'dm' && item.showAvatar && !mine ? <View style={styles.avatarColumn}><Avatar name={displayName(message.senderId)} uri={state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /></View> : null}
-              <Pressable onLongPress={selectedTextMessageId === message.id ? undefined : () => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted, unreadMentionSet.has(message.id) && styles.bubbleMention, message.id === highlightedId && styles.bubbleHighlight]}>
+              <Pressable onLongPress={() => { if (textTouchingMessage.current !== message.id) onLongPress(message); }} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted, unreadMentionSet.has(message.id) && styles.bubbleMention, message.id === highlightedId && styles.bubbleHighlight]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{message.senderId === me && message.poll ? '@' + (profile.username || 'You') : displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
                 {message.token && <TokenAttachmentCard token={message.token} compact onPress={onOpenToken ? () => onOpenToken(message.token!) : undefined} />}
@@ -595,7 +595,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                   const long = messageLength(message.text) > 700 || message.text.split('\n').length > 12;
                   const open = expanded[message.id] === true;
                   return <View>
-                    <Text selectable={selectedTextMessageId === message.id} style={[styles.text, isChannel && styles.postText]} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text, myUsername, openMention)}{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text>
+                    <Text selectable onPressIn={() => { textTouchingMessage.current = message.id; }} onPressOut={() => { if (textTouchingMessage.current === message.id) textTouchingMessage.current = null; }} style={[styles.text, isChannel && styles.postText]} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text, myUsername, openMention)}{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text>
                     {long ? <Pressable hitSlop={6} onPress={() => setExpanded(prev => ({ ...prev, [message.id]: !open }))}><Text style={styles.showMore}>{open ? 'Show less' : 'Show more'}</Text></Pressable> : null}
                   </View>;
                 })() : null}
