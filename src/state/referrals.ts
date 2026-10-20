@@ -293,20 +293,39 @@ async function traderHasReferrer(): Promise<boolean> {
  */
 export function reportReferralTrade(input: { chain: string; txHash?: string | null; requestId?: string | null }, delayMs = 0): void {
   const txHash = input.txHash?.trim();
-  if (!txHash || !input.chain) return;
-  const id = `${input.chain}:${txHash}`;
+  if (!input.chain || (!txHash && !input.requestId)) return;
+  const id = txHash ? `${input.chain}:${txHash}` : `relay:${input.requestId}`;
   if (reported.has(id)) return;
   reported.add(id);
   void (async () => {
     if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
     if (!(await traderHasReferrer())) return;
-    const body = { chain: input.chain, txHash, ...(input.requestId ? { requestId: input.requestId } : {}) };
-    let result = await api.reportReferralTrade(body);
-    if (result.needsSolanaLink) {
-      const linked = await ensureSolanaLinked({ force: true }).catch(() => false);
-      if (!linked) return;
-      result = await api.reportReferralTrade(body);
+    let rewardRecorded = false;
+    if (txHash) {
+      const body = { chain: input.chain, txHash, ...(input.requestId ? { requestId: input.requestId } : {}) };
+      let result = await api.reportReferralTrade(body);
+      if (result.needsSolanaLink) {
+        const linked = await ensureSolanaLinked({ force: true }).catch(() => false);
+        if (!linked) return;
+        result = await api.reportReferralTrade(body);
+      }
+      rewardRecorded = result.recorded;
     }
-    if (result.recorded) void refreshReferrals();
+    // Relay App Fees are separate from direct-chain transfer fees. Report the
+    // request ID too so the server can verify Relay's actual collected fee.
+    // Never derive rewards from a quote or from the client-side fee estimate.
+    if (input.requestId) {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          const relayResult = await api.reportRelayReferralTrade(input.requestId);
+          rewardRecorded = rewardRecorded || relayResult.recorded;
+          if (!relayResult.retry) break;
+        } catch {
+          if (attempt === 3) break;
+        }
+        if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 15_000 * (attempt + 1)));
+      }
+    }
+    if (rewardRecorded) void refreshReferrals();
   })().catch(() => { reported.delete(id); });
 }
