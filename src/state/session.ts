@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import type { KeyValueStorage } from '@kivo/shared/storage';
 import { KivoApi } from '@kivo/shared/api/client';
 import { activateChat, configureChat, startChatSync, stopChatSync } from '@kivo/shared/chat/store';
-import { activateProfileForWallet, configureProfileStore, getProfile, hasSavedProfile, updateProfile } from '@kivo/shared/profile/store';
+import { activateProfileForWallet, configureProfileStore, defaultUsernameFor, getProfile, hasSavedProfile, updateProfile } from '@kivo/shared/profile/store';
 import { activateTradeHistory, configureTradeHistory } from '@kivo/trading/kivo/history';
 import { addNotification, setNotificationOwner } from './notificationStore';
 import { ed25519 } from '@noble/curves/ed25519';
@@ -187,8 +187,36 @@ export async function enableSocial() {
   const wallet = getWalletSession();
   if (!wallet) throw new Error('Set up a wallet first.');
   await api.signIn(wallet.address, message => signKivoMessage(message, 'sign-in'));
+  // Profile edits made before social was enabled are local-only. Once the user
+  // explicitly enables social, publish a custom local username if the server
+  // profile is still blank; never push a local profile during background sync.
+  await publishLocalProfileIfMissing(wallet.address);
   await pullServerProfile();
   syncChatForAppState();
+}
+
+async function publishLocalProfileIfMissing(address: string): Promise<void> {
+  const local = getProfile();
+  if (local.walletAddress?.toLowerCase() !== address.toLowerCase()) return;
+  if (!local.username || local.username === defaultUsernameFor(address)) return;
+
+  const server = await api.me();
+  if (server.username) return;
+
+  // Publishing profile data requires a separate, explicit wallet approval.
+  const approval = await api.requestProfileApproval({
+    username: local.username,
+    bio: local.bio,
+    avatarAction: 'keep',
+  });
+  const signature = await signKivoMessage(approval.message, 'profile');
+  await api.updateProfile({
+    username: local.username,
+    bio: local.bio,
+    approvalNonce: approval.nonce,
+    approvalSignature: signature,
+    approvalAvatarAction: 'keep',
+  });
 }
 
 export function socialReady(): boolean {
