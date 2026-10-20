@@ -84,6 +84,7 @@ async function onSessionChanged() {
   } catch { setReferralFeeDiscount(false); }
   await claimPendingReferral();
   await refreshReferrals();
+  await retryPendingReferralReports();
 }
 
 /** Called once at app start: follows sign-in, account switches and sign-out. */
@@ -274,6 +275,47 @@ export function shareReferralLink(link: string): void {
 // Trade reporting
 
 const reported = new Set<string>();
+const PENDING_TRADE_REPORTS_PREFIX = 'kivo:referral-trade-recovery:v1:';
+type PendingTradeReport = {chain: string; txHash?: string; requestId?: string; savedAt: number};
+
+function reportKey(input: Pick<PendingTradeReport, 'chain' | 'txHash' | 'requestId'>): string {
+  return input.requestId ? `relay:${input.requestId}` : `${input.chain}:${input.txHash ?? ''}`;
+}
+
+async function readPendingTradeReports(userId: string): Promise<PendingTradeReport[]> {
+  try {
+    const raw = await storage.getItem(PENDING_TRADE_REPORTS_PREFIX + userId);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is PendingTradeReport => Boolean(item && typeof item === 'object'
+      && typeof item.chain === 'string'
+      && (item.txHash === undefined || typeof item.txHash === 'string')
+      && (item.requestId === undefined || typeof item.requestId === 'string')
+      && typeof item.savedAt === 'number'));
+  } catch { return []; }
+}
+
+async function persistPendingTradeReport(userId: string, input: {chain: string; txHash?: string | null; requestId?: string | null}): Promise<void> {
+  const rows = await readPendingTradeReports(userId);
+  const next: PendingTradeReport = {
+    chain: input.chain,
+    ...(input.txHash?.trim() ? {txHash: input.txHash.trim()} : {}),
+    ...(input.requestId?.trim() ? {requestId: input.requestId.trim()} : {}),
+    savedAt: Date.now(),
+  };
+  const key = reportKey(next);
+  const merged = [next, ...rows.filter(row => reportKey(row) !== key)].slice(0, 100);
+  await Promise.resolve(storage.setItem(PENDING_TRADE_REPORTS_PREFIX + userId, JSON.stringify(merged)));
+}
+
+async function removePendingTradeReport(userId: string, input: Pick<PendingTradeReport, 'chain' | 'txHash' | 'requestId'>): Promise<void> {
+  const key = reportKey(input);
+  const rows = await readPendingTradeReports(userId);
+  const next = rows.filter(row => reportKey(row) !== key);
+  if (next.length) await Promise.resolve(storage.setItem(PENDING_TRADE_REPORTS_PREFIX + userId, JSON.stringify(next)));
+  else await Promise.resolve(storage.removeItem?.(PENDING_TRADE_REPORTS_PREFIX + userId));
+}
 
 async function traderHasReferrer(): Promise<boolean> {
   if (!api.signedInUserId()) return false;
@@ -284,30 +326,51 @@ async function traderHasReferrer(): Promise<boolean> {
   return Boolean(fresh?.referredBy);
 }
 
+/** Replays locally saved success reports after reconnect/app restart. */
+async function retryPendingReferralReports(): Promise<void> {
+  const userId = api.signedInUserId();
+  if (!userId) return;
+  const rows = await readPendingTradeReports(userId);
+  for (const row of rows) {
+    if (api.signedInUserId() !== userId) return;
+    reportReferralTrade(row);
+  }
+}
+
 /**
- * Fire-and-forget after every successful trade: the server verifies the
- * transaction on-chain and credits the referrer. Only sent when this user
- * has a referrer. When the server needs the Solana wallet linked, it is
- * linked with a signed message (the key never leaves the phone) and the
- * report is retried once.
+ * Called only for a trade Kivo has classified as successful. Persist the
+ * request reference before network reporting, so a close/offline event cannot
+ * lose the callback. The backend still independently verifies Relay success,
+ * wallet identity, actual fees, referral timing and deduplicates reward sources.
  */
 export function reportReferralTrade(input: { chain: string; txHash?: string | null; requestId?: string | null }, delayMs = 0): void {
   const txHash = input.txHash?.trim();
-  if (!input.chain || (!txHash && !input.requestId)) return;
-  const id = txHash ? `${input.chain}:${txHash}` : `relay:${input.requestId}`;
+  const requestId = input.requestId?.trim();
+  if (!input.chain || (!txHash && !requestId)) return;
+  const normalized = {chain: input.chain, ...(txHash ? {txHash} : {}), ...(requestId ? {requestId} : {})};
+  const id = reportKey(normalized);
   if (reported.has(id)) return;
   reported.add(id);
   void (async () => {
+    const userId = api.signedInUserId();
+    if (!userId) { reported.delete(id); return; }
+    // Best effort durable snapshot. A storage failure must not suppress the
+    // immediate server report; the server's history recovery is the backstop.
+    await persistPendingTradeReport(userId, normalized).catch(() => {});
     if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
-    if (!(await traderHasReferrer())) return;
+    if (!(await traderHasReferrer())) {
+      await removePendingTradeReport(userId, normalized).catch(() => {});
+      reported.delete(id);
+      return;
+    }
     let rewardRecorded = false;
     let directReportSettled = !txHash;
     if (txHash) {
       try {
-        const body = { chain: input.chain, txHash, ...(input.requestId ? { requestId: input.requestId } : {}) };
+        const body = {chain: input.chain, txHash, ...(requestId ? {requestId} : {})};
         let result = await api.reportReferralTrade(body);
         if (result.needsSolanaLink) {
-          const linked = await ensureSolanaLinked({ force: true }).catch(() => false);
+          const linked = await ensureSolanaLinked({force: true}).catch(() => false);
           if (linked) result = await api.reportReferralTrade(body);
         }
         rewardRecorded = result.recorded;
@@ -317,11 +380,11 @@ export function reportReferralTrade(input: { chain: string; txHash?: string | nu
         // Relay's independent actual-App-Fee verifier below.
       }
     }
-    let relayReportSettled = !input.requestId;
-    if (input.requestId) {
+    let relayReportSettled = !requestId;
+    if (requestId) {
       for (let attempt = 0; attempt < 4; attempt++) {
         try {
-          const relayResult = await api.reportRelayReferralTrade(input.requestId);
+          const relayResult = await api.reportRelayReferralTrade(requestId);
           rewardRecorded = rewardRecorded || relayResult.recorded;
           if (!relayResult.retry) {
             relayReportSettled = true;
@@ -334,7 +397,11 @@ export function reportReferralTrade(input: { chain: string; txHash?: string | nu
       }
     }
     if (rewardRecorded) void refreshReferrals();
-    // Let a later event/re-entry retry if either verifier never settled.
-    if (!directReportSettled || !relayReportSettled) reported.delete(id);
+    if (directReportSettled && relayReportSettled) {
+      await removePendingTradeReport(userId, normalized).catch(() => {});
+    } else {
+      // Leave the durable record for a later launch/reconnect.
+      reported.delete(id);
+    }
   })().catch(() => { reported.delete(id); });
 }
