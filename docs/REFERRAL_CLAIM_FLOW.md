@@ -1,25 +1,31 @@
-# Kivo Referral Claims — Relay Fee Collection and User Withdrawals
+# Kivo Referral Settlement — Relay Fee Collection and Weekly Payouts
 
-**Status:** implementation plan; no automated fee claims or user withdrawals are enabled.
+**Status:** staged implementation. Actual Relay fee claims and automatic on-chain referral payouts are not enabled.
 
-## Decision
+## Intended operating model
 
-Use a two-stage model:
-1. Kivo collects its Relay App Fee balance to a controlled Kivo reserve wallet on a weekly cadence.
-2. Referral rewards accrue in Kivo's server-side ledger. After the seven-day maturity period, a referrer initiates a claim and authorizes the payout using their own wallet. Kivo must not automatically push funds to every referrer.
+Kivo's target is a **weekly automated settlement**, not a referrer-initiated withdrawal flow:
 
-Relay fee collection and referral reward withdrawal are distinct flows. Relay App Fees are Kivo revenue; the Kivo ledger separately records the amount owed to each referrer.
+1. Reconcile Relay's accumulated App Fee balances against verified per-request fee records and the configured Kivo fee recipient.
+2. Claim eligible Relay App Fees to a controlled Kivo reserve wallet, using Relay's documented claim authorization flow.
+3. Reconcile the resulting on-chain receipt and reserve balance.
+4. Snapshot matured referral liabilities in an idempotent weekly batch. Referral rewards are 25% of eligible actual Kivo fees, after the seven-day maturity delay.
+5. Distribute approved, matured rewards from the reserve to each referrer's verified destination wallet, then verify every receipt and update the ledger.
+6. Report success only after chain verification. On an ambiguous outcome, reconcile before any retry.
 
-## What Relay's official docs establish
+Until the treasury signer, reserve funding, token/network mapping, per-recipient limits, operational monitoring, and recovery paths are audited, the system must remain in dry-run/manual-approval mode. The settlement planner is not authorization to transfer funds.
 
-- App Fees accrue off-chain in a USDC-denominated balance; they are not paid out in real time.
-- App Fee recipients must be EVM-compatible addresses, including for non-EVM transactions.
-- The per-request API is `GET /requests/v3` (or the documented compatible request endpoint). Inspect the request's actual paid-fee data, not quoted fees.
-- `GET /app-fees/{wallet}/balances` reports accumulated balance by currency and includes total, outstanding fast-fill, and available balance figures.
-- `POST /app-fees/{wallet}/claim` prepares a claim flow with `chainId`, `currency`, and `recipient` (and optional amount as documented). Its response contains steps.
-- Claiming requires authorization from the configured claim address. The documented SDK `claimAppFees` automates the authorization/signature and permit execution flow. Direct API integrations must complete the returned authorization/permit steps.
-- Relay documents Base claims as free; claiming on other chains/currencies may incur a fee. Confirm the selected network/currency and exact amount before executing.
-- A successful API response that only describes steps is not proof funds reached the reserve. Re-check Relay's balance and independently verify the destination-chain receipt/balance.
+## Separate ledgers
+
+Relay App Fees are Kivo revenue and accrue to the configured App Fee recipient's Relay balance. Referral rewards are a separate Kivo liability. Aggregate Relay balances do not prove an individual referral reward; per-request actual fee evidence and the shared referral source ledger remain authoritative.
+
+## Relay API behavior to use
+
+- Per-request actual fee evidence: `GET /requests/v3`.
+- Accrued App Fee balance: `GET /app-fees/{wallet}/balances`.
+- Claim preparation: `POST /app-fees/{wallet}/claim`.
+- Relay documents the `claimAppFees` SDK flow for claim authorization/signature/permit execution.
+- Verify the destination chain receipt and resulting balance; a returned list of claim steps is not proof that a claim succeeded.
 
 Official references:
 - https://docs.relay.link/features/app-fees
@@ -27,32 +33,21 @@ Official references:
 - https://docs.relay.link/references/api/get-app-fee-balances
 - https://docs.relay.link/references/api/claim-app-fees
 
-## Proposed weekly Relay collection
+## Required safety controls before enabling live transfers
 
-1. Query the configured Kivo fee recipient's App Fee balances.
-2. Reconcile against known fee events and the previous successful claim watermark; treat balance totals as aggregate treasury data, not per-user reward evidence.
-3. Choose an explicitly configured supported chain/currency and reserve-wallet recipient. Prefer a documented low-cost route only after checking the actual claim fee and operational requirements.
-4. Create a durable claim intent with a stable idempotency key and exact wallet, network, currency, amount, and recipient.
-5. Request the Relay claim steps and authorize them using a protected server-side signer only if Kivo controls the configured fee-recipient key. Never expose that key in Web/Mobile or database records.
-6. Persist each step and transaction identifier before advancing. If a response is lost or status is ambiguous, reconcile Relay and chain state before retrying.
-7. Independently verify the destination transfer and reconcile the post-claim Relay balance. Only then record the amount as collected into the Kivo reserve.
-8. If the claim address is not controlled by a protected Kivo signer, keep the Relay claim manual (Relay App or multisig) and record its verified receipt. Do not try to bypass authorization.
+- Server-side idempotency for every Relay request, settlement period, reward row, payout item, and transaction attempt.
+- Unique reservation of each reward in one batch; never settle the same reward twice.
+- Verified treasury signer and explicit allow-listed networks/tokens/recipient addresses.
+- Minimum reserve buffer, per-run and per-recipient caps, and a stop switch.
+- Serialize signing and nonce use per network; persist transaction intent before broadcast.
+- A timeout or unknown RPC result is **ambiguous**, not failed. Reconcile transaction hash, receipt, nonce, and destination balance before retrying or releasing the reservation.
+- Mark a reward paid only after a verified on-chain receipt matches the intended network, token, amount, and recipient.
+- Admin audit trail and alerts for failed, delayed, or ambiguous attempts.
 
-## User-initiated referral claim
+## Current implementation boundaries
 
-- Keep current economics: 50 bps normal trading fee, 45 bps for referred traders, and 25% of actual eligible Kivo trading fees for the referrer.
-- Rewards mature seven days after the qualifying trade.
-- The server-side ledger is the source of truth. Show pending, available, claim-in-progress, claimed/paid, and unresolved states separately.
-- On Claim, atomically reserve only that user's mature, unpaid rewards and create an idempotent claim intent. Do not trust a client-supplied amount or recipient.
-- Resolve the user's previously linked/verified payout wallet and network server-side. Show exact network, token, amount, recipient, and any network fee before the user approves.
-- Use wallet approval/signing for the user withdrawal; never ask the user for their private key. The exact payout rail (direct USDC transfer versus a supported Relay route) must be selected and verified per network before implementation.
-- Mark rewards paid only after independently verifying chain, token/mint, recipient, exact amount, and successful receipt/signature.
-- Unknown outcome is not failure. Keep the claim reserved and reconcile before retrying; never blindly resubmit.
-- Release a reservation only when evidence proves no transfer occurred. Every state transition and receipt must be auditable.
-
-## Security and rollout gates
-
-- Automatic Relay fee claiming is disabled until the fee-recipient signing authority is confirmed and protected, limits/alerts are configured, and a controlled claim is tested.
-- User claims are disabled for real funds until supported networks, payout signing, recipient verification, idempotency, concurrency, timeout recovery, and receipt verification pass tests.
-- Keep automatic execution disabled by default. Use dry-run previews first; never apply production migrations or move real funds without the approved release process.
-- Web is the authoritative reward/settlement backend; Mobile must call the same APIs and must not maintain a separate ledger.
+- Referral attribution and eligible fee recording are handled by the shared Web backend.
+- Weekly settlement planning reserves matured rewards without broadcasting transactions.
+- The authenticated referral claim-balance endpoint is read-only and separates pending, available, reserved, and paid totals.
+- No user withdrawal endpoint, automatic Relay claim, treasury signing, or live payout is enabled.
+- Keep Web and Mobile consistent with the backend ledger; never trust client-calculated reward totals.
