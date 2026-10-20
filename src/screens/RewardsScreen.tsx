@@ -134,19 +134,28 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
+    const requestOwner = api.signedInUserId();
     try {
       await refreshReferrals();
       const [balanceResult, requestResult] = await Promise.allSettled([
         api.referralClaimBalance(),
         api.referralClaimRequestStatus(),
       ]);
+      // Never apply a delayed response from the wallet/account that was active before a switch.
+      if (api.signedInUserId() !== requestOwner) return;
       if (balanceResult.status === 'fulfilled') setClaimBalance(balanceResult.value);
       if (requestResult.status === 'fulfilled') setClaimRequest(requestResult.value.request);
     } catch { /* Keep referral page usable if the read-only balance endpoint is unavailable. */ }
     finally { setLoaded(true); if (manual) setRefreshing(false); }
   }, []);
 
-  useEffect(() => { if (ready) void load(); }, [ready, load]);
+  useEffect(() => {
+    // A wallet switch changes the server identity. Clear the previous wallet's
+    // figures immediately so they are never shown under the newly connected wallet.
+    setClaimBalance(null);
+    setClaimRequest(null);
+    if (ready) void load();
+  }, [ready, profile.walletAddress, load]);
   // Live: refresh every 30s while this screen is open and the app is in front.
   useEffect(() => {
     if (!ready) return;
@@ -188,10 +197,8 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Referral reward claims</Text>
-            <Text style={styles.muted}>Available across networks: {claimBalance ? usd(claimBalance.availableUsd) + ' USDC' : '—'}</Text>
-            <Text style={styles.muted}>Base · EVM rewards: {claimBalance?.byNetwork?.base?.availableUsd != null ? usd(claimBalance.byNetwork.base.availableUsd) : '—'} available · {claimBalance?.byNetwork?.base?.pendingUsd != null ? usd(claimBalance.byNetwork.base.pendingUsd) : '—'} pending · {claimBalance?.byNetwork?.base?.reservedUsd != null ? usd(claimBalance.byNetwork.base.reservedUsd) : '—'} reserved · {claimBalance?.byNetwork?.base?.paidUsd != null ? usd(claimBalance.byNetwork.base.paidUsd) : '—'} paid</Text>
-            <Text style={styles.muted}>Solana rewards: {claimBalance?.byNetwork?.solana?.availableUsd != null ? usd(claimBalance.byNetwork.solana.availableUsd) : '—'} available · {claimBalance?.byNetwork?.solana?.pendingUsd != null ? usd(claimBalance.byNetwork.solana.pendingUsd) : '—'} pending · {claimBalance?.byNetwork?.solana?.reservedUsd != null ? usd(claimBalance.byNetwork.solana.reservedUsd) : '—'} reserved · {claimBalance?.byNetwork?.solana?.paidUsd != null ? usd(claimBalance.byNetwork.solana.paidUsd) : '—'} paid</Text>
-            <Text style={styles.muted}>Totals — Pending: {claimBalance ? usd(claimBalance.pendingUsd) : '—'} · Reserved: {claimBalance ? usd(claimBalance.reservedUsd) : '—'} · Paid: {claimBalance ? usd(claimBalance.paidUsd) : '—'}</Text>
+            <Text style={styles.muted}>Available: {claimBalance ? usd(claimBalance.availableUsd) + ' USDC' : '—'}</Text>
+            <Text style={styles.muted}>Pending: {claimBalance ? usd(claimBalance.pendingUsd) : '—'} · Reserved: {claimBalance ? usd(claimBalance.reservedUsd) : '—'} · Paid: {claimBalance ? usd(claimBalance.paidUsd) : '—'}</Text>
             <Text style={styles.muted}>{claimBalance?.note ?? 'Could not load claim balance. Pull down to refresh.'}</Text>
             {claimRequest ? (
               <View style={{ marginTop: 8, gap: 6 }}>
