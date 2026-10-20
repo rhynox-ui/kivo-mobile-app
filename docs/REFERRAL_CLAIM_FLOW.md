@@ -4,16 +4,16 @@
 
 ## Intended operating model
 
-Kivo's target is a **weekly automated settlement**, not a referrer-initiated withdrawal flow:
+Kivo uses **weekly Relay fee collection** and **user-initiated referral reward claims** as two separate flows. Kivo must not automatically push referral rewards to every referrer.
 
 1. Reconcile Relay's accumulated App Fee balances against verified per-request fee records and the configured Kivo fee recipient.
 2. Claim eligible Relay App Fees to a controlled Kivo reserve wallet, using Relay's documented claim authorization flow.
 3. Reconcile the resulting on-chain receipt and reserve balance.
 4. Snapshot matured referral liabilities in an idempotent weekly batch. Referral rewards are 25% of eligible actual Kivo fees, after the seven-day maturity delay.
-5. Distribute approved, matured rewards from the reserve to each referrer's verified destination wallet, then verify every receipt and update the ledger.
+5. When a referrer explicitly claims matured rewards in Kivo, validate their eligible balance, verify their destination wallet/network and reserve funding, process only that claim, then verify every receipt and update the ledger.
 6. Report success only after chain verification. On an ambiguous outcome, reconcile before any retry.
 
-Until the treasury signer, reserve funding, token/network mapping, per-recipient limits, operational monitoring, and recovery paths are audited, the system must remain in dry-run/manual-approval mode. The settlement planner is not authorization to transfer funds.
+Until the treasury signer, reserve funding, token/network mapping, per-recipient limits, operational monitoring, and recovery paths are audited, the system must remain in dry-run/manual-approval mode. The weekly settlement planner is not authorization to transfer referral rewards. A payout must be initiated by the referrer and independently pass all payout safety checks.
 
 ## Separate ledgers
 
@@ -49,5 +49,5 @@ Official references:
 - Referral attribution and eligible fee recording are handled by the shared Web backend.
 - Weekly settlement planning reserves matured rewards without broadcasting transactions.
 - The authenticated referral claim-balance endpoint is read-only and separates pending, available, reserved, and paid totals.
-- No user withdrawal endpoint, automatic Relay claim, treasury signing, or live payout is enabled.
+- No live user withdrawal endpoint, automatic Relay claim, treasury signing, or live payout is enabled. The claim-balance endpoint is read-only; the user-initiated claim execution still needs to be implemented and audited.
 - Keep Web and Mobile consistent with the backend ledger; never trust client-calculated reward totals.
