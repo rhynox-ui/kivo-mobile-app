@@ -188,7 +188,36 @@ export async function enableSocial() {
   if (!wallet) throw new Error('Set up a wallet first.');
   await api.signIn(wallet.address, message => signKivoMessage(message, 'sign-in'));
   await pullServerProfile();
+  // The shared server profile registry is authoritative for Web and Mobile.
+  // Publish an existing local username only when the server profile is blank,
+  // using the existing wallet-approved profile mutation flow.
+  await ensurePublicProfile();
   syncChatForAppState();
+}
+
+/** Publish a locally saved username when the shared server registry is still blank. */
+export async function ensurePublicProfile() {
+  if (!socialReady()) throw new Error('Sign in to Kivo before publishing.');
+  const server = await api.me();
+  const local = getProfile();
+  if (server.username) {
+    if (server.username !== local.username || server.bio !== local.bio || (server.avatarUrl ?? undefined) !== local.avatarUri) {
+      updateProfile({ username: server.username, bio: server.bio, avatarUri: server.avatarUrl ?? undefined });
+    }
+    return;
+  }
+  const username = local.username.trim().replace(/^@/, '').toLowerCase();
+  const bio = local.bio;
+  const approval = await api.requestProfileApproval({ username, bio, avatarAction: 'keep' });
+  const signature = await signKivoMessage(approval.message, 'profile');
+  const saved = await api.updateProfile({
+    username,
+    bio,
+    approvalNonce: approval.nonce,
+    approvalSignature: signature,
+    approvalAvatarAction: 'keep',
+  });
+  if (saved.username) updateProfile({ username: saved.username, bio: saved.bio, avatarUri: saved.avatarUrl ?? undefined });
 }
 
 export function socialReady(): boolean {
