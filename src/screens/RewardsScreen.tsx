@@ -188,8 +188,10 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Referral reward claims</Text>
-            <Text style={styles.muted}>Available to claim: {claimBalance ? usd(claimBalance.availableUsd) + ' USDC' : '—'}</Text>
-            <Text style={styles.muted}>Pending: {claimBalance ? usd(claimBalance.pendingUsd) : '—'} · Reserved: {claimBalance ? usd(claimBalance.reservedUsd) : '—'} · Paid: {claimBalance ? usd(claimBalance.paidUsd) : '—'}</Text>
+            <Text style={styles.muted}>Available across networks: {claimBalance ? usd(claimBalance.availableUsd) + ' USDC' : '—'}</Text>
+            <Text style={styles.muted}>Base · EVM rewards: {claimBalance ? usd(claimBalance.byNetwork.base.availableUsd) : '—'} available · {claimBalance ? usd(claimBalance.byNetwork.base.pendingUsd) : '—'} pending · {claimBalance ? usd(claimBalance.byNetwork.base.reservedUsd) : '—'} reserved · {claimBalance ? usd(claimBalance.byNetwork.base.paidUsd) : '—'} paid</Text>
+            <Text style={styles.muted}>Solana rewards: {claimBalance ? usd(claimBalance.byNetwork.solana.availableUsd) : '—'} available · {claimBalance ? usd(claimBalance.byNetwork.solana.pendingUsd) : '—'} pending · {claimBalance ? usd(claimBalance.byNetwork.solana.reservedUsd) : '—'} reserved · {claimBalance ? usd(claimBalance.byNetwork.solana.paidUsd) : '—'} paid</Text>
+            <Text style={styles.muted}>Totals — Pending: {claimBalance ? usd(claimBalance.pendingUsd) : '—'} · Reserved: {claimBalance ? usd(claimBalance.reservedUsd) : '—'} · Paid: {claimBalance ? usd(claimBalance.paidUsd) : '—'}</Text>
             <Text style={styles.muted}>{claimBalance?.note ?? 'Could not load claim balance. Pull down to refresh.'}</Text>
             {claimRequest ? (
               <View style={{ marginTop: 8, gap: 6 }}>
