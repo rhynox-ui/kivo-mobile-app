@@ -163,3 +163,17 @@ Before real-money automation:
 - Mobile referral PR: https://github.com/rhynox-ui/kivo-mobile-app/pull/197
 - Relay App Fees docs: https://docs.relay.link/features/app-fees
 - Relay Requests v3 docs: https://docs.relay.link/references/api/get-requests
+
+
+## Double-spend safeguards (Web migration 0031)
+
+The Web backend remains the settlement source of truth. The database safeguards now being added on the Web feature branch are:
+
+- Unique settlement `reward_id` prevents the same reward from being reserved into two batches.
+- Unique weekly `period_key` makes weekly batch creation idempotent.
+- Only one payout attempt per item may be in `prepared`, `submitted`, `unknown`, or `verified` state. Unknown transaction outcomes block blind retries until independently reconciled.
+- Existing idempotency-key and network/transaction-hash uniqueness remain mandatory.
+- Verified payout items and attempts are immutable; receipt corrections require an audited recovery procedure.
+- Mobile must never submit payouts or decide that an unknown transaction failed. It only reports trade/request identifiers; the Web backend owns claim and payout state.
+
+These protections are not active in production until the migration is applied and verified. Automatic claims/transfers remain disabled pending concurrency, crash-recovery, and on-chain receipt tests.
