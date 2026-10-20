@@ -381,7 +381,8 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       recordTrade({ side, token: tokenInfo, pay: { amount: done.pay.amount, symbol: done.pay.symbol, chainKey: done.pay.chainKey }, receive: { amount: done.receive.amount, symbol: done.receive.symbol, chainKey: done.receive.chainKey }, txHashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId, status: outcome.status });
       // Referral rewards: the server verifies each trade on-chain (no-op without a referrer). A leg
       // Relay is still settling is reported a little later.
-      outcome.referralReports.forEach(report => reportReferralTrade(report, report.pending ? 90_000 : 0));
+      // Only report a referral trade after Relay has completed successfully; pending outcomes are not success signals.
+      outcome.referralReports.filter(report => !report.pending).forEach(report => reportReferralTrade(report));
       addNotification(outcome.status === 'success' ? (side === 'buy' ? `Bought ${token.symbol}` : `Sold ${token.symbol}`) : outcome.status === 'refunded' ? 'Trade refunded' : 'Trade submitted', `${payLabel(done.pay)}${done.receive.amount ? ` → ${Number(done.receive.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${cashLabel(done.receive.symbol)}` : ''} on ${chainLabel(token.chainKey)}`);
     } catch (error) {
       const hashes = error instanceof KivoExecutionError ? error.txHashes : [];
