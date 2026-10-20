@@ -196,7 +196,8 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
           <Text style={styles.week}>+{usd(me?.thisWeekUsd)} this week</Text>
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Referral reward claims</Text>
+            <Text style={styles.cardTitle}>Referral rewards</Text>
+            <Text style={styles.muted}>Wallet: {claimBalance ? `${claimBalance.walletAddress.slice(0, 6)}…${claimBalance.walletAddress.slice(-4)}` : 'Loading authenticated wallet…'} · rewards belong to this signed-in wallet</Text>
             <Text style={styles.muted}>Available: {claimBalance ? usd(claimBalance.availableUsd) + ' USDC' : '—'}</Text>
             <Text style={styles.muted}>Pending: {claimBalance ? usd(claimBalance.pendingUsd) : '—'} · Reserved: {claimBalance ? usd(claimBalance.reservedUsd) : '—'} · Paid: {claimBalance ? usd(claimBalance.paidUsd) : '—'}</Text>
             <Text style={styles.muted}>{claimBalance?.note ?? 'Could not load claim balance. Pull down to refresh.'}</Text>
