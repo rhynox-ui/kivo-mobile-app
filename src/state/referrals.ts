@@ -301,31 +301,40 @@ export function reportReferralTrade(input: { chain: string; txHash?: string | nu
     if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
     if (!(await traderHasReferrer())) return;
     let rewardRecorded = false;
+    let directReportSettled = !txHash;
     if (txHash) {
-      const body = { chain: input.chain, txHash, ...(input.requestId ? { requestId: input.requestId } : {}) };
-      let result = await api.reportReferralTrade(body);
-      if (result.needsSolanaLink) {
-        const linked = await ensureSolanaLinked({ force: true }).catch(() => false);
-        if (!linked) return;
-        result = await api.reportReferralTrade(body);
+      try {
+        const body = { chain: input.chain, txHash, ...(input.requestId ? { requestId: input.requestId } : {}) };
+        let result = await api.reportReferralTrade(body);
+        if (result.needsSolanaLink) {
+          const linked = await ensureSolanaLinked({ force: true }).catch(() => false);
+          if (linked) result = await api.reportReferralTrade(body);
+        }
+        rewardRecorded = result.recorded;
+        directReportSettled = !result.retry && !result.needsSolanaLink;
+      } catch {
+        // Direct-chain verification can be temporarily unavailable. Still try
+        // Relay's independent actual-App-Fee verifier below.
       }
-      rewardRecorded = result.recorded;
     }
-    // Relay App Fees are separate from direct-chain transfer fees. Report the
-    // request ID too so the server can verify Relay's actual collected fee.
-    // Never derive rewards from a quote or from the client-side fee estimate.
+    let relayReportSettled = !input.requestId;
     if (input.requestId) {
       for (let attempt = 0; attempt < 4; attempt++) {
         try {
           const relayResult = await api.reportRelayReferralTrade(input.requestId);
           rewardRecorded = rewardRecorded || relayResult.recorded;
-          if (!relayResult.retry) break;
+          if (!relayResult.retry) {
+            relayReportSettled = true;
+            break;
+          }
         } catch {
-          if (attempt === 3) break;
+          // Retry transient errors below; never turn a failed report into earnings.
         }
         if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 15_000 * (attempt + 1)));
       }
     }
     if (rewardRecorded) void refreshReferrals();
+    // Let a later event/re-entry retry if either verifier never settled.
+    if (!directReportSettled || !relayReportSettled) reported.delete(id);
   })().catch(() => { reported.delete(id); });
 }
