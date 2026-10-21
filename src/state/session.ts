@@ -21,6 +21,7 @@ import { getWalletSession, requireSolana, subscribeToWallet, walletUnlockedOnDev
 import { signKivoMessage } from './signGuard';
 import { loadSettings } from './settingsStore';
 import { applyClientLimits } from '@kivo/shared/api/types';
+import { validProfileUsername } from '../domain/socialValidation';
 
 /** Same Cloudflare Pages project as the web app (stable URL). */
 export const KIVO_API_BASE_URL = 'https://kivo-web.pages.dev';
@@ -263,4 +264,41 @@ async function pullServerProfile() {
     }
     // Never publish a local profile change silently. Profile mutations require an explicit wallet approval from the user.
   } catch { /* offline: keep the local copy */ }
+}
+
+/**
+ * Repairs the mobile onboarding gap before a public feed write. ProfileSetup
+ * intentionally saves locally; publishing the username requires its own
+ * explicit wallet signature, matching the web client's ensurePublicProfile.
+ */
+export async function ensurePublicProfile(): Promise<void> {
+  if (!socialReady()) throw new Error('Sign in to Kivo before publishing.');
+
+  const server = await api.me();
+  const local = getProfile();
+  // The server registry wins if this wallet already claimed a username.
+  if (server.username) {
+    if (server.username !== local.username || server.bio !== local.bio || (server.avatarUrl ?? undefined) !== local.avatarUri) {
+      updateProfile({ username: server.username, bio: server.bio, avatarUri: server.avatarUrl ?? local.avatarUri });
+    }
+    return;
+  }
+
+  const username = local.username.trim().replace(/^@/, '').toLowerCase();
+  if (!validProfileUsername(username)) {
+    throw new Error('Choose a valid username in Edit Profile before publishing.');
+  }
+  const bio = local.bio ?? '';
+  const avatarAction: 'keep' | 'remove' = server.avatarUrl ? 'keep' : 'remove';
+  const approval = await api.requestProfileApproval({ username, bio, avatarAction });
+  const signature = await signKivoMessage(approval.message, 'profile');
+  const saved = await api.updateProfile({
+    username,
+    bio,
+    approvalNonce: approval.nonce,
+    approvalSignature: signature,
+    approvalAvatarAction: avatarAction,
+  });
+  if (!saved.username) throw new Error('Kivo did not confirm your public username. Please try again.');
+  updateProfile({ username: saved.username, bio: saved.bio, avatarUri: saved.avatarUrl ?? local.avatarUri });
 }
