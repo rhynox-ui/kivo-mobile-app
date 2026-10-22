@@ -261,6 +261,8 @@ export class KivoApi {
   cancelAccountDeletion() { return this.request<{pending: false; cancelled: true}>('DELETE', '/api/account-deletion'); }
   moderationStatus() { return this.request<{cooldownUntil: number; reason: string}>('GET', '/api/moderation/status'); }
   feedPosts(cursor?: string, following = false) { const params = new URLSearchParams(); if (cursor) params.set('cursor', cursor); if (following) params.set('following', '1'); const query = params.toString(); return this.request<FeedPost[]>('GET', `/api/feed${query ? `?${query}` : ''}`); }
+  /** Chronological posts authored by one profile, independent of For You ranking. */
+  profileFeedPosts(userId: string, cursor?: string) { const params = new URLSearchParams(); if (cursor) params.set('cursor', cursor); const query = params.toString(); return this.request<FeedPost[]>('GET', `/api/profiles/${encodeURIComponent(userId)}/posts${query ? `?${query}` : ''}`, undefined, false); }
   createFeedPost(input: {body: string; imageKey?: string | null; token?: {chain: string; address: string} | null}) { return this.request<FeedPost>('POST', '/api/feed', input); }
   createFeedPoll(input: {question: string; description?: string; options: string[]; settings?: Partial<PollSettingsWithDuration>}) { return this.request<FeedPost>('POST', '/api/feed/polls', input); }
   feedPoll(postId: string) { return this.request<FeedPoll>('GET', `/api/feed/${encodeURIComponent(postId)}/poll`); }
