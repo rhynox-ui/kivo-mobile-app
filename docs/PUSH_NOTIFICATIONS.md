@@ -3,7 +3,7 @@
 Kivo's followed-trade push flow uses the Kivo social API for token registration and Firebase Cloud Messaging for Android delivery.
 
 ## Android Firebase configuration
-Register Android package `com.kivotrade.app` in the Firebase project used by the Kivo backend. Add these environment values to the Android release build job so Gradle can configure the app:
+Register Android package `com.kivotrade.app` in the Firebase project used by the Kivo backend. The default client configuration is read from `android/app/google-services.json`; the Gradle build also accepts these environment overrides when building against a different Firebase project:
 - `KIVO_FCM_PROJECT_ID`
 - `KIVO_FCM_APP_ID`
 - `KIVO_FCM_API_KEY`
