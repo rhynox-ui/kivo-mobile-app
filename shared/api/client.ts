@@ -8,11 +8,11 @@ export type WatchlistToken = {chainKey: string; tokenAddress: string; symbol: st
 import {kivoUserIdForWallet, normalizeWalletAddress} from './types';
 
 export type FeedPost = {
-  id: string; userId: string; username: string; avatarUrl: string | null; body: string; imageUrl: string | null; createdAt: number;
+  id: string; userId: string; username: string; author: {displayName: string | null; username: string | null; walletAddress: string | null; profileExists: boolean; avatarUrl: string | null}; avatarUrl: string | null; body: string; imageUrl: string | null; createdAt: number;
   token: null | {chain: string; address: string; symbol: string; name: string; imageUrl: string | null; entryMarketCapUsd: number | null};
   likeCount: number; dislikeCount: number; replyCount: number; likedByViewer: boolean; dislikedByViewer: boolean; pinned: boolean; pollId?: string | null; nextCursor?: string;
 };
-export type FeedReply = {id: string; postId: string; userId: string; username: string; avatarUrl: string | null; body: string; createdAt: number};
+export type FeedReply = {id: string; postId: string; userId: string; username: string; author: {displayName: string | null; username: string | null; walletAddress: string | null; profileExists: boolean; avatarUrl: string | null}; avatarUrl: string | null; body: string; createdAt: number};
 export type FeedPostNotification = {id: string; kind: 'post' | 'like' | 'dislike' | 'reply'; postId: string; actorId: string; actorUsername: string; postPreview: string; createdAt: number; readAt: number | null};
 
 export type ReferralUser = {userId: string; username: string; avatarUrl: string | null; verified: boolean};
