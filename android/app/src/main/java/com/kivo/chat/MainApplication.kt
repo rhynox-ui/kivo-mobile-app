@@ -17,6 +17,7 @@ class MainApplication : Application(), ReactApplication {
         add(LocalNotifyPackage())
         add(MediaSavePackage())
         add(InstallReferrerPackage())
+        add(KivoPushPackage())
       },
     )
   }
