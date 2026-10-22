@@ -4,6 +4,8 @@ import type {ProfileSocial, PublicCommunityCard} from './types';
 import type {ChatPollPayload, ChatPollResults, FeedPoll, PollSettingsWithDuration} from '../polls/types';
 import type {ApiBan, CallStats, CommunityGate, GateCheck, ApiCommunity, ApiConversation, ApiMember, ApiMessage, ApiProfile, AuthChallenge, AuthSession, CommunityKind, CommunitySettingsInput, ProfileApprovalChallenge, ProfileLinks, SyncResponse} from './types';
 
+export type FollowListPage = {users: ApiProfile[]; nextCursor: string | null};
+
 export type WatchlistToken = {chainKey: string; tokenAddress: string; symbol: string; name: string; imageUrl: string | null; savedAt: number};
 import {kivoUserIdForWallet, normalizeWalletAddress} from './types';
 
@@ -199,6 +201,9 @@ export class KivoApi {
   profiles(ids: string[]) { return ids.length ? this.request<ApiProfile[]>('GET', `/api/profiles?ids=${encodeURIComponent(ids.slice(0, 100).join(','))}`, undefined, false) : Promise.resolve([]); }
   profileLinks(userId: string) { return this.request<{verified: boolean; links: ProfileLinks}>('GET', `/api/profiles/${encodeURIComponent(userId)}/links`, undefined, false); }
   social(userId: string) { return this.request<ProfileSocial>('GET', `/api/profiles/${encodeURIComponent(userId)}/social`); }
+  followers(userId: string, cursor: string | null = null) { return this.request<FollowListPage>('GET', `/api/profiles/${encodeURIComponent(userId)}/connections?kind=followers${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, false); }
+  following(userId: string, cursor: string | null = null) { return this.request<FollowListPage>('GET', `/api/profiles/${encodeURIComponent(userId)}/connections?kind=following${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, false); }
+  knownFollowers(userId: string, cursor: string | null = null) { return this.request<FollowListPage>('GET', `/api/profiles/${encodeURIComponent(userId)}/connections?kind=known${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`); }
   publicCommunitiesOf(userId: string) { return this.request<PublicCommunityCard[]>('GET', `/api/profiles/${encodeURIComponent(userId)}/communities`, undefined, false); }
   follow(userId: string) { return this.request<ProfileSocial>('POST', `/api/follows/${encodeURIComponent(userId)}`, {}); }
   unfollow(userId: string) { return this.request<ProfileSocial>('DELETE', `/api/follows/${encodeURIComponent(userId)}`); }
