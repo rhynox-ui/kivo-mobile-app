@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "380819701627",
+    "project_id": "kivo-4fdc2",
+    "storage_bucket": "kivo-4fdc2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:380819701627:android:8d223876cd168d495307de",
+        "android_client_info": {
+          "package_name": "com.kivotrade.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCvPmKdfqHQTmL1THTbKZaXlc2M-twB9Uc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
