@@ -146,6 +146,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
             <Stat value={stats?.following} label="Following" onPress={() => onOpenConnections?.('following')} />
             <Stat value={stats?.followers} label="Followers" onPress={() => onOpenConnections?.('followers')} />
             <Stat value={stats?.groups} label="Groups" />
+            <Stat value={0} label="Trades" glyph="⇄" />
           </View>
           <View style={styles.joinedMeta}>
             <Text style={styles.joinedMetaText}>›  Joined {person?.createdAt ? new Date(person.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'Kivo'}</Text>
@@ -180,8 +181,11 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
   );
 }
 
-function Stat({ value, label, onPress }: { value: number | undefined; label: string; onPress?: () => void }) {
-  return <Pressable onPress={onPress} accessibilityRole={onPress ? 'button' : undefined} style={styles.stat}><Text style={styles.statValue}>{value ?? '–'}</Text><Text style={styles.statLabel}>{label}</Text></Pressable>;
+function Stat({ value, label, onPress, glyph }: { value: number | undefined; label: string; onPress?: () => void; glyph?: string }) {
+  return <Pressable onPress={onPress} accessibilityRole={onPress ? 'button' : undefined} style={styles.stat}>
+    {glyph ? <Text style={styles.statGlyph} accessibilityElementsHidden>{glyph}</Text> : null}
+    <Text style={styles.statValue}>{value ?? '–'}</Text><Text style={styles.statLabel}>{label}</Text>
+  </Pressable>;
 }
 
 const c = kivoTheme.colors;
@@ -210,6 +214,7 @@ const styles = StyleSheet.create({
   joinedMetaText: { color: c.textMuted, fontSize: 12 },
   stats: { flexDirection: 'row', alignSelf: 'stretch', backgroundColor: 'transparent', borderRadius: 0, borderWidth: 0, paddingVertical: 3, marginTop: 0 },
   stat: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 3 },
+  statGlyph: { color: c.textMuted, fontSize: 15, fontWeight: '700' },
   statValue: { color: c.text, fontSize: 14, fontWeight: '800' },
   statLabel: { color: c.textMuted, fontSize: 13, marginTop: 0 },
   actions: { flexDirection: 'row', gap: 8, alignSelf: 'stretch', marginTop: 2 },
