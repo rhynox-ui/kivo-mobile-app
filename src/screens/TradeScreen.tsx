@@ -22,6 +22,7 @@ import { describeQuoteError, isQuoteExpired, parseAmountInput, requestKivoQuote,
 import { chainLabel, formatAmount, formatBalanceUsd, formatUsd, isNativeToken, shortAddress, tradeSupportFor, type KivoToken, type TradeSide } from '@kivo/trading/kivo/tokens';
 import { getWalletSession, subscribeToWallet, walletKind, withDeviceAccounts, type WalletSession } from '../state/walletStore';
 import { addNotification } from '../state/notificationStore';
+import { api } from '../state/session';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { TokenChartPanel } from '../components/TokenChartPanel';
 import { MAINNET_CHAIN_IDS } from '@kivo/trading/core/chainData';
@@ -379,6 +380,25 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       // Bookkeeping must never turn a sent trade into an error.
       void markOwnAction(address!).catch(() => {});
       recordTrade({ side, token: tokenInfo, pay: { amount: done.pay.amount, symbol: done.pay.symbol, chainKey: done.pay.chainKey }, receive: { amount: done.receive.amount, symbol: done.receive.symbol, chainKey: done.receive.chainKey }, txHashes: outcome.txHashes, chainIds: outcome.chainIds, requestId: outcome.requestId, status: outcome.status });
+      // Notify opted-in followers only when the execution layer confirms success.
+      // Network failure is intentionally isolated from the completed trade UI.
+      if (outcome.status === 'success' && outcome.txHashes[0]) {
+        const isBuy = side === 'buy';
+        const tokenAmount = isBuy ? done.receive.amount : done.pay.amount;
+        const quoteAmount = isBuy ? done.pay.amount : done.receive.amount;
+        if (tokenAmount && quoteAmount) {
+          void api.notifyTradeFollowers({
+            chain: token.chainKey,
+            txHash: outcome.txHashes[0],
+            side: isBuy ? 'buy' : 'sell',
+            tokenSymbol: token.symbol,
+            tokenAmount,
+            quoteSymbol: isBuy ? done.pay.symbol : done.receive.symbol,
+            quoteAmount,
+            tokenAddress: token.tokenAddress,
+          }).catch((error: unknown) => console.warn('[kivo-push] Trade notification dispatch failed:', error));
+        }
+      }
       // Referral rewards: the server verifies each trade on-chain (no-op without a referrer). A leg
       // Relay is still settling is reported a little later.
       // Only report a referral trade after Relay has completed successfully; pending outcomes are not success signals.
