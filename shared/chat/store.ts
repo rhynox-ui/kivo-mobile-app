@@ -266,6 +266,18 @@ export async function refreshConversation(id: string): Promise<void> {
   } catch { /* normal chat rendering should not depend on a refresh */ }
 }
 
+/** Load one older page of a conversation and merge it into local chat state. */
+export async function loadHistoryBefore(id: string, beforeSeq: number): Promise<number> {
+  if (!opts?.api.isSignedIn(state.owner) || !Number.isFinite(beforeSeq) || beforeSeq <= 0) return 0;
+  const generation = ownerGeneration;
+  const history = await opts.api.history(id, beforeSeq);
+  if (generation !== ownerGeneration || !history.length) return 0;
+  merge(history);
+  await loadSenderProfiles(history);
+  emit();
+  return history.length;
+}
+
 export function setActiveConversation(id: string | null) {
   activeConversation = id;
   lastChatActivityAt = Date.now();
