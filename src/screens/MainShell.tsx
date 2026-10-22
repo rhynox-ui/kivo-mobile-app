@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, BackHandler, Linking, NativeModules, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, BackHandler, Linking, NativeEventEmitter, NativeModules, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChatListScreen } from './ChatListScreen';
 import type { TradeChain } from '@kivo/trading/core/chainData';
 import { FeedScreen } from './FeedScreen';
@@ -94,15 +94,20 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
       ? current
       : [...current.filter(item => item.name !== 'activity'), { name: 'activity' }]);
     const native = NativeModules.KivoPushModule as { getInitialTradeRoute?: () => Promise<string | null> } | undefined;
+    const isTradeRoute = (route: string | null | undefined) => Boolean(route && (route.startsWith('kivo://trade') || route.startsWith('https://kivotrade.site/activity')));
     const checkInitialRoute = () => void native?.getInitialTradeRoute?.().then(route => {
-      if (active && route && (route.startsWith('kivo://trade') || route.startsWith('https://kivotrade.site/activity'))) openTradeActivity();
+      if (active && isTradeRoute(route)) openTradeActivity();
     }).catch(() => {});
     checkInitialRoute();
     const appState = AppState.addEventListener('change', state => { if (state === 'active') checkInitialRoute(); });
     const subscription = Linking.addEventListener('url', event => {
-      if (event.url.startsWith('kivo://trade') || event.url.startsWith('https://kivotrade.site/activity')) openTradeActivity();
+      if (isTradeRoute(event.url)) openTradeActivity();
     });
-    return () => { active = false; appState.remove(); subscription.remove(); };
+    const pushEmitter = native ? new NativeEventEmitter(NativeModules.KivoPushModule) : null;
+    const pushSubscription = pushEmitter?.addListener('KivoTradePushOpened', (route: string) => {
+      if (isTradeRoute(route)) openTradeActivity();
+    });
+    return () => { active = false; appState.remove(); subscription.remove(); pushSubscription?.remove(); };
   }, []);
 
   // A referral link (kivotrade.site/r/<username>) opened while signed in: offer
