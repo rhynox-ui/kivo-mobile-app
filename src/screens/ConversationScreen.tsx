@@ -206,6 +206,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   // Distinguish a text-selection long press from a long press on the surrounding message panel.
   const textTouchingMessage = useRef<string | null>(null);
   const textTouchResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (textTouchResetTimer.current) clearTimeout(textTouchResetTimer.current); }, []);
   const [replyingTo, setReplyingTo] = useState<LocalMessage | null>(null);
   const [quoteText, setQuoteText] = useState<string | null>(null);
   const [viewing, setViewing] = useState<LocalMessage | null>(null);
