@@ -20,7 +20,7 @@ import { DiscoverScreen } from './DiscoverScreen';
 import { NotificationScreen } from './NotificationScreen';
 import { RewardsScreen } from './RewardsScreen';
 import { consumePendingReferralLink, refreshReferrals, subscribeReferralLinks } from '../state/referrals';
-import { socialReady } from '../state/session';
+import { api, socialReady } from '../state/session';
 import { ActivityScreen } from './ActivityScreen';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useChatState } from '../state/useChat';
@@ -143,7 +143,7 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
           onOpenChats={() => changeTab('Chats')}
           onOpenVerification={(subjectId, subjectName) => push({ name: 'verification', subjectType: 'profile', subjectId, subjectName })}
           onOpenToken={openToken}
-          onOpenConnections={kind => push({ name: 'connections', userId: getWalletSession()?.userId ?? '', kind })}
+          onOpenConnections={kind => push({ name: 'connections', userId: api.signedInUserId() ?? '', kind })}
         />}
       </View>
       <View style={styles.nav}>
