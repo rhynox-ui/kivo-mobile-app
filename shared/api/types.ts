@@ -125,6 +125,8 @@ export type ApiMessage = {
   /** Optional token card attachment for group/channel messages. */
   token?: null | {chain: string; address: string; symbol?: string; name?: string; imageUrl?: string | null; entryMarketCapUsd?: number | null};
   replyTo: string | null;
+  /** Optional selected excerpt shown in a quoted reply block. */
+  quoteText?: string | null;
   createdAt: number;
   deleted: boolean;
   editedAt?: number | null;
