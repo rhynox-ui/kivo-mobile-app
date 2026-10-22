@@ -18,7 +18,7 @@ function isSyntheticUsername(value: string): boolean {
 
 function shortWallet(value: string): string | null {
   const wallet = value.trim().replace(/^kivo:(?:sol:)?/i, '');
-  if (/^0x[a-f\\d]{40}$/i.test(wallet)) return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
+  if (/^0x[a-f\d]{40}$/i.test(wallet)) return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
   if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) return `${wallet.slice(0, 4)}...${wallet.slice(-4)}`;
   return null;
 }
