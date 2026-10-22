@@ -285,6 +285,11 @@ export class KivoApi {
   createFeedReply(postId: string, body: string) { return this.request<FeedReply>('POST', `/api/feed/${encodeURIComponent(postId)}/replies`, {body}); }
   feedNotifications() { return this.request<FeedPostNotification[]>('GET', '/api/feed/notifications'); }
   markFeedNotificationsRead() { return this.request<{updated: boolean}>('POST', '/api/feed/notifications/read', {}); }
+  registerPushDevice(token: string, platform: 'android' | 'ios' | 'web') { return this.request<{registered: boolean}>('POST', '/api/push/devices', {token, platform}); }
+  unregisterPushDevice(token: string) { return this.request<{registered: boolean}>('DELETE', '/api/push/devices', {token}); }
+  notifyTradeFollowers(payload: {chain: string; txHash: string; side: 'buy' | 'sell' | 'swap'; tokenSymbol: string; tokenAmount: string; quoteSymbol: string; quoteAmount: string; tokenAddress?: string}) {
+    return this.request<{sent: number; duplicate: boolean}>('POST', '/api/trades/notify-followers', payload);
+  }
   feedPostNotificationSubscription(authorId: string) { return this.request<{enabled: boolean}>('GET', `/api/feed/notifications/${encodeURIComponent(authorId)}`); }
   setFeedPostNotificationSubscription(authorId: string, enabled: boolean) { return this.request<{enabled: boolean}>('POST', `/api/feed/notifications/${encodeURIComponent(authorId)}`, {enabled}); }
   conversations() { return this.request<ApiConversation[]>('GET', '/api/conversations'); }
