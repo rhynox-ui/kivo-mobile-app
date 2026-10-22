@@ -102,7 +102,7 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
     const appState = AppState.addEventListener('change', state => { if (state === 'active') checkInitialRoute(); });
     const subscription = Linking.addEventListener('url', event => { if (isTradeRoute(event.url)) openTradeActivity(); });
     const pushEmitter = native ? new NativeEventEmitter(NativeModules.KivoPushModule) : null;
-    const pushSubscription = pushEmitter?.addListener('KivoTradePushOpened', (route: object) => {
+    const pushSubscription = pushEmitter?.addListener('KivoTradePushOpened', (route: unknown) => {
       if (typeof route === 'string' && isTradeRoute(route)) openTradeActivity();
     });
     return () => { active = false; appState.remove(); subscription.remove(); pushSubscription?.remove(); };
