@@ -22,10 +22,25 @@ android {
 
     buildFeatures { buildConfig true }
 
-    def fcmProjectId = (System.getenv("KIVO_FCM_PROJECT_ID") ?: "").replace("\\", "\\\\").replace('"', '\\"')
-    def fcmAppId = (System.getenv("KIVO_FCM_APP_ID") ?: "").replace("\\", "\\\\").replace('"', '\\"')
-    def fcmApiKey = (System.getenv("KIVO_FCM_API_KEY") ?: "").replace("\\", "\\\\").replace('"', '\\"')
-    def fcmSenderId = (System.getenv("KIVO_FCM_SENDER_ID") ?: "").replace("\\", "\\\\").replace('"', '\\"')
+    // Prefer the checked-in Firebase client configuration, while allowing CI/release
+    // environment overrides for separate Firebase projects.
+    def firebaseClientConfig = [:]
+    def firebaseConfigFile = file("google-services.json")
+    if (firebaseConfigFile.exists()) {
+        def firebaseJson = new groovy.json.JsonSlurper().parse(firebaseConfigFile)
+        def firebaseClient = firebaseJson.client?.find { it.client_info?.android_client_info?.package_name == "com.kivotrade.app" }
+        firebaseClientConfig = [
+            projectId: firebaseJson.project_info?.project_id ?: "",
+            appId: firebaseClient?.client_info?.mobilesdk_app_id ?: "",
+            apiKey: firebaseClient?.api_key?.first()?.current_key ?: "",
+            senderId: firebaseJson.project_info?.project_number ?: ""
+        ]
+    }
+
+    def fcmProjectId = (System.getenv("KIVO_FCM_PROJECT_ID") ?: firebaseClientConfig.projectId ?: "").replace("\\", "\\\\").replace('"', '\\"')
+    def fcmAppId = (System.getenv("KIVO_FCM_APP_ID") ?: firebaseClientConfig.appId ?: "").replace("\\", "\\\\").replace('"', '\\"')
+    def fcmApiKey = (System.getenv("KIVO_FCM_API_KEY") ?: firebaseClientConfig.apiKey ?: "").replace("\\", "\\\\").replace('"', '\\"')
+    def fcmSenderId = (System.getenv("KIVO_FCM_SENDER_ID") ?: firebaseClientConfig.senderId ?: "").replace("\\", "\\\\").replace('"', '\\"')
 
     defaultConfig {
         buildConfigField "String", "KIVO_FCM_PROJECT_ID", "\"${fcmProjectId}\""
