@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BackHandler, Linking, NativeModules, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, BackHandler, Linking, NativeModules, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChatListScreen } from './ChatListScreen';
 import type { TradeChain } from '@kivo/trading/core/chainData';
 import { FeedScreen } from './FeedScreen';
@@ -94,13 +94,15 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
       ? current
       : [...current.filter(item => item.name !== 'activity'), { name: 'activity' }]);
     const native = NativeModules.KivoPushModule as { getInitialTradeRoute?: () => Promise<string | null> } | undefined;
-    void native?.getInitialTradeRoute?.().then(route => {
+    const checkInitialRoute = () => void native?.getInitialTradeRoute?.().then(route => {
       if (active && route && (route.startsWith('kivo://trade') || route.startsWith('https://kivotrade.site/activity'))) openTradeActivity();
     }).catch(() => {});
+    checkInitialRoute();
+    const appState = AppState.addEventListener('change', state => { if (state === 'active') checkInitialRoute(); });
     const subscription = Linking.addEventListener('url', event => {
       if (event.url.startsWith('kivo://trade') || event.url.startsWith('https://kivotrade.site/activity')) openTradeActivity();
     });
-    return () => { active = false; subscription.remove(); };
+    return () => { active = false; appState.remove(); subscription.remove(); };
   }, []);
 
   // A referral link (kivotrade.site/r/<username>) opened while signed in: offer
