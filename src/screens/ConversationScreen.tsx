@@ -408,7 +408,10 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     let lastDay = '';
-    messages.forEach((message, index) => {
+    // Deleted messages are omitted from the feed entirely; keep the original
+    // collection available for quote previews and history lookup.
+    const visibleMessages = messages.filter(message => !message.deleted);
+    visibleMessages.forEach((message, index) => {
       const day = new Date(message.createdAt).toDateString();
       if (day !== lastDay) {
         lastDay = day;
@@ -419,8 +422,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
       // even when normal sender grouping would hide it. Keep regular messages grouped.
       const pollAuthor = Boolean(message.poll && !message.deleted && conversation?.kind !== 'dm');
       out.push({ type: 'message', key: message.id, message,
-        showName: conversation?.kind !== 'dm' && (pollAuthor || (message.senderId !== me && messages[index - 1]?.senderId !== message.senderId)),
-        showAvatar: conversation?.kind !== 'dm' && (pollAuthor || (conversation?.kind === 'group' && message.senderId !== me && messages[index + 1]?.senderId !== message.senderId)) });
+        showName: conversation?.kind !== 'dm' && (pollAuthor || (message.senderId !== me && visibleMessages[index - 1]?.senderId !== message.senderId)),
+        showAvatar: conversation?.kind !== 'dm' && conversation?.kind !== 'channel' && (pollAuthor || (conversation?.kind === 'group' && message.senderId !== me && visibleMessages[index + 1]?.senderId !== message.senderId)) });
     });
     return out;
   }, [messages, conversation?.kind, me, firstUnreadId]);
@@ -430,6 +433,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     atBottom.current = false; setHighlightedId(messageId); return true;
   };
   const jumpToQuotedMessage = async (messageId: string) => {
+    const known = (getChatState().messages[id] ?? []).find(message => message.id === messageId);
+    if (known?.deleted) { kivoAlert('Quoted message', 'That message has been deleted.'); return; }
     if (jumpToMessage(messageId, 'Quoted message')) return;
     // The quoted original may be older than the currently cached 50-message page.
     // Fetch backwards in bounded pages; the pending ID is consumed after FlatList
@@ -438,7 +443,11 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     try {
       for (let page = 0; page < 20; page += 1) {
         const loaded = getChatState().messages[id] ?? [];
-        if (loaded.some(message => message.id === messageId)) return;
+        const found = loaded.find(message => message.id === messageId);
+        if (found) {
+          if (found.deleted) { setPendingQuoteJumpId(null); kivoAlert('Quoted message', 'That message has been deleted.'); }
+          return;
+        }
         const oldestSeq = loaded.reduce((min, message) => message.seq > 0 ? Math.min(min, message.seq) : min, Number.POSITIVE_INFINITY);
         if (!Number.isFinite(oldestSeq)) break;
         const count = await loadHistoryBefore(id, oldestSeq);
@@ -590,7 +599,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
         ref={list}
         data={items}
         keyExtractor={item => item.key}
-        contentContainerStyle={styles.messages}
+        contentContainerStyle={[styles.messages, isChannel && styles.channelMessages]}
         extraData={listExtra}
         onScrollToIndexFailed={info => {
           // Rows far above are not rendered yet: move near them, then retry once they are.
@@ -626,7 +635,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           const { message } = item;
           const mine = message.senderId === me && !isChannel;
           return (
-            <View style={[styles.bubbleRow, mine && styles.bubbleRowMine, conversation?.kind === 'group' && !mine && styles.bubbleRowGroupIncoming]}>
+            <View style={[styles.bubbleRow, mine && styles.bubbleRowMine, conversation?.kind === 'group' && !mine && styles.bubbleRowGroupIncoming, isChannel && styles.channelBubbleRow]}>
               {conversation?.kind !== 'dm' && item.showAvatar && !mine ? <View style={styles.avatarColumn}><Avatar name={displayName(message.senderId)} uri={state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /></View> : null}
               <Pressable onLongPress={() => { if (textTouchingMessage.current !== message.id) onLongPress(message); }} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted, unreadMentionSet.has(message.id) && styles.bubbleMention, message.id === highlightedId && styles.bubbleHighlight]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
@@ -658,6 +667,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                 })()}
                 <Text style={[styles.meta, inlineMeta(message) && styles.metaInline]}>{metaLabel(message)}</Text>
               </Pressable>
+              {isChannel && message.status === 'sent' && <Pressable style={styles.channelForward} onPress={() => setForwardingMessage(message)} accessibilityRole="button" accessibilityLabel="Forward channel post" hitSlop={8}><Text style={styles.channelForwardText}>↪</Text></Pressable>}
               {conversation?.kind !== 'dm' && item.showAvatar && mine && message.poll && <View style={[styles.avatarColumn, { marginRight: 0, marginLeft: 8 }]}><Avatar name={'@' + (profile.username || 'You')} uri={profile.avatarUri ?? state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /></View>}
             </View>
           );
@@ -831,6 +841,10 @@ const styles = StyleSheet.create({
   info: { color: c.cream, fontSize: 20, paddingHorizontal: 6 },
   listWrap: { flex: 1, position: 'relative' },
   messages: { padding: 10, paddingBottom: 16, gap: 3 },
+  channelMessages: { paddingLeft: 0, paddingRight: 6 },
+  channelBubbleRow: { width: '100%', justifyContent: 'flex-start', alignItems: 'flex-start', paddingLeft: 0, gap: 6 },
+  channelForward: { width: 34, height: 34, flexShrink: 0, alignSelf: 'flex-end', marginBottom: 3, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+  channelForwardText: { color: c.text, fontSize: 20, fontWeight: '800', lineHeight: 24 },
   editingBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 7, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border },
   editingLabel: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
   editingCancel: { color: c.textMuted, fontSize: 12.5, fontWeight: '700' },
@@ -900,7 +914,7 @@ const styles = StyleSheet.create({
   avatarColumn: { width: 34, flexShrink: 0, marginRight: 8, alignItems: 'center', justifyContent: 'flex-end' },
   bubble: { maxWidth: '84%', paddingHorizontal: 9, paddingTop: 5, paddingBottom: 4, borderRadius: 16, borderBottomLeftRadius: 4, backgroundColor: c.surfaceRaised, gap: 2 },
   bubbleMine: { backgroundColor: '#1D6B4C', borderBottomLeftRadius: 16, borderBottomRightRadius: 4 },
-  post: { maxWidth: '86%', borderRadius: 14 },
+  post: { maxWidth: '84%', flexShrink: 1, borderRadius: 14, borderTopLeftRadius: 4, borderBottomLeftRadius: 4 },
   postText: { fontSize: 14, lineHeight: 19 },
   deleted: { opacity: 0.6 },
   senderLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
