@@ -435,17 +435,22 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     // Fetch backwards in bounded pages; the pending ID is consumed after FlatList
     // has incorporated the newly merged messages.
     setPendingQuoteJumpId(messageId);
-    for (let page = 0; page < 20; page += 1) {
-      const loaded = getChatState().messages[id] ?? [];
-      if (loaded.some(message => message.id === messageId)) return;
-      const oldestSeq = loaded.reduce((min, message) => message.seq > 0 ? Math.min(min, message.seq) : min, Number.POSITIVE_INFINITY);
-      if (!Number.isFinite(oldestSeq)) break;
-      const count = await loadHistoryBefore(id, oldestSeq);
-      if (!count) break;
-    }
-    if (!(getChatState().messages[id] ?? []).some(message => message.id === messageId)) {
+    try {
+      for (let page = 0; page < 20; page += 1) {
+        const loaded = getChatState().messages[id] ?? [];
+        if (loaded.some(message => message.id === messageId)) return;
+        const oldestSeq = loaded.reduce((min, message) => message.seq > 0 ? Math.min(min, message.seq) : min, Number.POSITIVE_INFINITY);
+        if (!Number.isFinite(oldestSeq)) break;
+        const count = await loadHistoryBefore(id, oldestSeq);
+        if (!count) break;
+      }
+      if (!(getChatState().messages[id] ?? []).some(message => message.id === messageId)) {
+        setPendingQuoteJumpId(null);
+        kivoAlert('Quoted message', 'The original message could not be found in this conversation.');
+      }
+    } catch {
       setPendingQuoteJumpId(null);
-      kivoAlert('Quoted message', 'The original message could not be found in this conversation.');
+      kivoAlert('Quoted message', 'Could not load older messages. Check your connection and try again.');
     }
   };
   useEffect(() => {
