@@ -130,7 +130,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
                     const next = !postNotifications;
                     const result = await api.setFeedPostNotificationSubscription(userId, next);
                     setPostNotifications(result.enabled);
-                  }); }} style={styles.menuItem}><Text style={styles.menuText}>{postNotifications ? '♧  Turn off post notifications' : '♧  Turn on post notifications'}</Text></Pressable>
+                  }); }} style={styles.menuItem}><Text style={styles.menuText}>{postNotifications ? 'Turn off post notifications' : 'Turn on post notifications'}</Text></Pressable>
                 ) : null}
                 <View style={styles.menuDivider} />
                 <Pressable onPress={confirmBlock} style={styles.menuItem}><Text style={styles.menuDanger}>{blocked ? '⊘  Unblock user' : '⊘  Block user'}</Text></Pressable>
@@ -161,7 +161,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
                 const result = await api.setFeedPostNotificationSubscription(userId, next);
                 setPostNotifications(result.enabled);
               })} accessibilityRole="button" accessibilityLabel={postNotifications ? 'Turn off post notifications' : 'Turn on post notifications'} style={[styles.notifyButton, { opacity: postNotificationsLoaded ? 1 : 0.55 }]}>
-                <Text style={styles.notifyGlyph}>{postNotifications ? '♧' : '♧'}</Text>
+                <Text style={styles.notifyGlyph}>🔔</Text>
               </Pressable>
             ) : null}
           </View>
