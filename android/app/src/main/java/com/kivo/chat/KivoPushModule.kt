@@ -60,14 +60,14 @@ class KivoPushModule(private val context: ReactApplicationContext) : ReactContex
       val app = ensureFirebaseApp()
       if (app == null) { promise.reject("FCM_NOT_CONFIGURED", "Firebase Messaging is not configured for this build."); return }
       ensureTradeChannel()
-      FirebaseMessaging.getInstance(app).token
+      FirebaseMessaging.getInstance().token
         .addOnSuccessListener { token -> if (token.isNullOrBlank()) promise.reject("FCM_TOKEN_EMPTY", "Firebase returned an empty push token.") else promise.resolve(token) }
         .addOnFailureListener { error -> promise.reject("FCM_TOKEN_FAILED", error.message, error) }
     } catch (error: Exception) { promise.reject("FCM_NOT_READY", error.message, error) }
   }
 
   @ReactMethod fun getInitialTradeRoute(promise: Promise) {
-    val intent = currentActivity?.intent
+    val intent = context.currentActivity?.intent
     val route = intent?.getStringExtra("route") ?: intent?.getStringExtra("href")
     // Validate supported route schemes in the React Native router. Returning the
     // supplied string here avoids Kotlin extension resolution issues on this nullable
