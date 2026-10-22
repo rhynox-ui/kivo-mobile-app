@@ -31,7 +31,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
     let active = true;
     setLinks(null);
     api.profileLinks(userId).then(result => { if (active && result.verified && hasProfileLinks(result.links)) setLinks(result.links); }).catch(() => {});
-    return () => { active = false; mutualsActive = false; };
+    return () => { active = false; };
   }, [userId]);
   useEffect(() => {
     let mutualsActive = true;
