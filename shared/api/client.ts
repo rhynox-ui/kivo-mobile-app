@@ -204,6 +204,7 @@ export class KivoApi {
   followers(userId: string, cursor: string | null = null) { return this.request<FollowListPage>('GET', `/api/profiles/${encodeURIComponent(userId)}/connections?kind=followers${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, false); }
   following(userId: string, cursor: string | null = null) { return this.request<FollowListPage>('GET', `/api/profiles/${encodeURIComponent(userId)}/connections?kind=following${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, false); }
   knownFollowers(userId: string, cursor: string | null = null) { return this.request<FollowListPage>('GET', `/api/profiles/${encodeURIComponent(userId)}/connections?kind=known${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`); }
+  profileMutuals(userId: string) { return this.request<{count: number; users: ApiProfile[]}>('GET', `/api/profiles/${encodeURIComponent(userId)}/mutuals`); }
   publicCommunitiesOf(userId: string) { return this.request<PublicCommunityCard[]>('GET', `/api/profiles/${encodeURIComponent(userId)}/communities`, undefined, false); }
   follow(userId: string) { return this.request<ProfileSocial>('POST', `/api/follows/${encodeURIComponent(userId)}`, {}); }
   unfollow(userId: string) { return this.request<ProfileSocial>('DELETE', `/api/follows/${encodeURIComponent(userId)}`); }
