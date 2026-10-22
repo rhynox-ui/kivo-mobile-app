@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, Linking, NativeModules, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChatListScreen } from './ChatListScreen';
 import type { TradeChain } from '@kivo/trading/core/chainData';
 import { FeedScreen } from './FeedScreen';
@@ -87,6 +87,22 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
     });
     return () => subscription.remove();
   }, [stack.length, back]);
+  // A followed-trade notification opens the in-app activity/history screen.
+  useEffect(() => {
+    let active = true;
+    const openTradeActivity = () => setStack(current => current.length > 1 && current[current.length - 1]?.name === 'activity'
+      ? current
+      : [...current.filter(item => item.name !== 'activity'), { name: 'activity' }]);
+    const native = NativeModules.KivoPushModule as { getInitialTradeRoute?: () => Promise<string | null> } | undefined;
+    void native?.getInitialTradeRoute?.().then(route => {
+      if (active && route && (route.startsWith('kivo://trade') || route.startsWith('https://kivotrade.site/activity'))) openTradeActivity();
+    }).catch(() => {});
+    const subscription = Linking.addEventListener('url', event => {
+      if (event.url.startsWith('kivo://trade') || event.url.startsWith('https://kivotrade.site/activity')) openTradeActivity();
+    });
+    return () => { active = false; subscription.remove(); };
+  }, []);
+
   // A referral link (kivotrade.site/r/<username>) opened while signed in: offer
   // "Who referred you?" pre-filled, only while the account can still set one.
   useEffect(() => {
