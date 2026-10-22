@@ -175,8 +175,9 @@ export function GoogleWalletScreen({ onBack, onDone, onUsePhrase }: { onBack: ()
       {step.kind === 'restore' && (
         <View>
           <Text style={styles.title}>Welcome back</Text>
-          <Text style={styles.body}>Kivo found your wallet backup ({step.backup.evmAddress.slice(0, 6)}…{step.backup.evmAddress.slice(-4)}) in {step.account.email}'s Google Drive. Enter your Kivo password to restore it on this phone.</Text>
-          <View style={styles.field}><PasswordField value={password} onChangeText={setPassword} placeholder="Kivo password" autoFocus /></View>
+          <Text style={styles.body}>Kivo found your wallet backup ({step.backup.evmAddress.slice(0, 6)}…{step.backup.evmAddress.slice(-4)}) in {step.account.email}'s Google Drive. Enter your Kivo password to decrypt it on this phone.</Text>
+          <Text style={styles.securityBody}>A new device needs your password to decrypt the Google Drive backup. After restoring, you can enable {biometryLabel} unlock for future sign-ins.</Text>
+          <View style={styles.field}><PasswordField value={password} onChangeText={setPassword} placeholder="Enter Kivo Password" autoFocus /></View>
           <ErrorText>{error}</ErrorText>
           {busy ? <Text style={styles.small}>Decrypting your wallet on this phone…</Text> : null}
           <PrimaryButton onPress={() => void restore(step.backup)} disabled={!password || busy} loading={busy}>Restore wallet</PrimaryButton>
