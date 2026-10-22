@@ -26,19 +26,20 @@ import { applyClientLimits } from '@kivo/shared/api/types';
 export const KIVO_API_BASE_URL = 'https://kivo-web.pages.dev';
 
 const SESSION_SERVICE = 'com.kivo.chat.api-session';
+const sessionService = (key: string) => key === 'kivo:api-session:v1' ? SESSION_SERVICE : `${SESSION_SERVICE}.${key}`;
 const secureSessionStorage: KeyValueStorage = {
   async getItem(key) {
-    const credentials = await Keychain.getGenericPassword({service: SESSION_SERVICE});
+    const credentials = await Keychain.getGenericPassword({service: sessionService(key)});
     return credentials && credentials.username === key ? credentials.password : null;
   },
   async setItem(key, value) {
     await Keychain.setGenericPassword(key, value, {
-      service: SESSION_SERVICE,
+      service: sessionService(key),
       accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
     });
   },
-  async removeItem() {
-    await Keychain.resetGenericPassword({service: SESSION_SERVICE});
+  async removeItem(key) {
+    await Keychain.resetGenericPassword({service: sessionService(key)});
   },
 };
 
