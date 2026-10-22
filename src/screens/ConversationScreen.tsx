@@ -139,7 +139,7 @@ async function pickCompressedPhoto(): Promise<{ bytes: Blob; type: string; width
   return { bytes, type: asset.type === 'image/png' ? 'image/png' : 'image/jpeg', width: asset.width ?? 0, height: asset.height ?? 0, previewUrl: asset.uri };
 }
 
-function MessagePhoto({ uri, width, height, onOpen, onLongPress }: { uri: string; width: number | null; height: number | null; onOpen?: () => void; onLongPress?: () => void }) {
+function MessagePhoto({ uri, width, height, onOpen, onLongPress, fullWidth = false }: { uri: string; width: number | null; height: number | null; onOpen?: () => void; onLongPress?: () => void; fullWidth?: boolean }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => { setFailed(false); }, [uri]);
   const dimensions = width && height ? { aspectRatio: width / height } : null;
@@ -154,7 +154,7 @@ function MessagePhoto({ uri, width, height, onOpen, onLongPress }: { uri: string
     <Pressable onPress={onOpen} onLongPress={onLongPress} disabled={!onOpen} accessibilityRole="imagebutton" accessibilityLabel="Open photo">
       <Image
         source={{ uri: uri.split('?')[0], headers: api.mediaHeaders(uri.split('?')[0]) }}
-        style={[styles.photo, dimensions]}
+        style={[styles.photo, fullWidth && styles.photoFullWidth, dimensions]}
         resizeMode="cover"
         onError={() => setFailed(true)}
         accessibilityLabel="Message photo"
@@ -642,7 +642,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                 {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{message.senderId === me && message.poll ? '@' + (profile.username || 'You') : displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
                 {message.token && <TokenAttachmentCard token={message.token} compact onPress={onOpenToken ? () => onOpenToken(message.token!) : undefined} />}
                 {message.poll && !message.deleted && <ChatPollCard messageId={message.id} onError={message=>kivoAlert('Poll',message)} />}
-                {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
+                {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} fullWidth={isChannel} />}
                 {message.replyTo && !message.deleted ? (() => {
                   const quoted = messages.find(item => item.id === message.replyTo);
                   return <Pressable style={styles.replyQuote} onPress={() => { void jumpToQuotedMessage(message.replyTo!); }} accessibilityRole="button" accessibilityLabel={`Jump to original message from ${quoted ? displayName(quoted.senderId) : 'sender'}`}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={3}>{message.quoteText ?? (quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available')}</Text></Pressable>;
@@ -841,8 +841,8 @@ const styles = StyleSheet.create({
   info: { color: c.cream, fontSize: 20, paddingHorizontal: 6 },
   listWrap: { flex: 1, position: 'relative' },
   messages: { padding: 10, paddingBottom: 16, gap: 3 },
-  channelMessages: { paddingLeft: 0, paddingRight: 6 },
-  channelBubbleRow: { width: '100%', justifyContent: 'flex-start', alignItems: 'flex-start', paddingLeft: 0, gap: 6 },
+  channelMessages: { paddingLeft: 0, paddingRight: 0 },
+  channelBubbleRow: { width: '100%', marginRight: 0, paddingLeft: 0, paddingRight: 0, justifyContent: 'flex-start', alignItems: 'stretch', gap: 0 },
   channelForward: { width: 34, height: 34, flexShrink: 0, alignSelf: 'flex-end', marginBottom: 3, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
   channelForwardText: { color: c.text, fontSize: 20, fontWeight: '800', lineHeight: 24 },
   editingBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 7, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border },
@@ -914,7 +914,7 @@ const styles = StyleSheet.create({
   avatarColumn: { width: 34, flexShrink: 0, marginRight: 8, alignItems: 'center', justifyContent: 'flex-end' },
   bubble: { maxWidth: '84%', paddingHorizontal: 9, paddingTop: 5, paddingBottom: 4, borderRadius: 16, borderBottomLeftRadius: 4, backgroundColor: c.surfaceRaised, gap: 2 },
   bubbleMine: { backgroundColor: '#1D6B4C', borderBottomLeftRadius: 16, borderBottomRightRadius: 4 },
-  post: { maxWidth: '84%', flexShrink: 1, borderRadius: 14, borderTopLeftRadius: 4, borderBottomLeftRadius: 4 },
+  post: { width: '100%', maxWidth: '100%', flexShrink: 1, borderRadius: 14, borderTopLeftRadius: 4, borderBottomLeftRadius: 4 },
   postText: { fontSize: 14, lineHeight: 19 },
   deleted: { opacity: 0.6 },
   senderLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -934,6 +934,7 @@ const styles = StyleSheet.create({
   forwardDestinationTitle: { color: c.text, fontSize: 14, fontWeight: '800' },
   forwardDestinationKind: { color: c.textMuted, fontSize: 11.5, marginTop: 3 },
   photo: { width: 240, maxWidth: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: c.background },
+  photoFullWidth: { width: '100%' },
   photoUnavailable: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: c.border },
   photoUnavailableText: { color: c.textMuted, fontSize: 12, fontWeight: '700' },
   text: { color: c.text, fontSize: 15, lineHeight: 20 },
