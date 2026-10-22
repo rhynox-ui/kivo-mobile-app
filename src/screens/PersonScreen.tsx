@@ -22,6 +22,8 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
   const [menuOpen, setMenuOpen] = useState(false);
   const [postNotifications, setPostNotifications] = useState(false);
   const [postNotificationsLoaded, setPostNotificationsLoaded] = useState(false);
+  const [notificationToast, setNotificationToast] = useState<string | null>(null);
+  const notificationToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [verificationStatus, setVerificationStatus] = useState<{isVerified: boolean; expiresAt: number | null; permanent: boolean} | null>(null);
   // EVM (kivo:0x…) or Solana (kivo:sol:…, case-sensitive) account.
   const address = walletAddressOfUserId(userId);
@@ -97,6 +99,19 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
     try { await fn(); } catch (e) { kivoAlert('Kivo', e instanceof Error ? e.message : 'Action failed.'); }
     finally { busyRef.current = false; }
   };
+  useEffect(() => () => {
+    if (notificationToastTimer.current) clearTimeout(notificationToastTimer.current);
+  }, []);
+  const togglePostNotifications = () => guard(async () => {
+    const next = !postNotifications;
+    const result = await api.setFeedPostNotificationSubscription(userId, next);
+    setPostNotifications(result.enabled);
+    setNotificationToast(result.enabled
+      ? 'You will be notified when this user posts.'
+      : 'You will no longer be notified when this user posts.');
+    if (notificationToastTimer.current) clearTimeout(notificationToastTimer.current);
+    notificationToastTimer.current = setTimeout(() => setNotificationToast(null), 2800);
+  });
   const name = person?.username ? '@' + person.username : shortWallet(address);
   const shareProfile = async () => {
     try {
@@ -131,11 +146,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
               <View style={styles.overflowMenu}>
                 <Pressable onPress={() => { setMenuOpen(false); void shareProfile(); }} style={styles.menuItem}><Text style={styles.menuText}>↗  Share profile</Text></Pressable>
                 {api.signedInUserId() && api.signedInUserId() !== userId ? (
-                  <Pressable disabled={!postNotificationsLoaded} onPress={() => { setMenuOpen(false); void guard(async () => {
-                    const next = !postNotifications;
-                    const result = await api.setFeedPostNotificationSubscription(userId, next);
-                    setPostNotifications(result.enabled);
-                  }); }} style={styles.menuItem}><Text style={styles.menuText}>{postNotifications ? 'Turn off post notifications' : 'Turn on post notifications'}</Text></Pressable>
+                  <Pressable disabled={!postNotificationsLoaded} onPress={() => { setMenuOpen(false); void togglePostNotifications(); }} style={styles.menuItem}><Text style={styles.menuText}>{postNotifications ? 'Turn off post notifications' : 'Turn on post notifications'}</Text></Pressable>
                 ) : null}
                 <View style={styles.menuDivider} />
                 <Pressable onPress={confirmBlock} style={styles.menuItem}><Text style={styles.menuDanger}>{blocked ? '⊘  Unblock user' : '⊘  Block user'}</Text></Pressable>
@@ -174,12 +185,8 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
             </Pressable>
             <Pressable onPress={() => guard(async () => onOpenChat(await openDirectMessage(person?.address ?? address)))} style={[styles.button, styles.secondary]}><Text style={styles.secondaryText}>Message</Text></Pressable>
             {api.signedInUserId() && api.signedInUserId() !== userId ? (
-              <Pressable disabled={!postNotificationsLoaded} onPress={() => guard(async () => {
-                const next = !postNotifications;
-                const result = await api.setFeedPostNotificationSubscription(userId, next);
-                setPostNotifications(result.enabled);
-              })} accessibilityRole="button" accessibilityLabel={postNotifications ? 'Turn off post notifications' : 'Turn on post notifications'} style={[styles.notifyButton, { opacity: postNotificationsLoaded ? 1 : 0.55 }]}>
-                <Text style={styles.notifyGlyph}>🔔</Text>
+              <Pressable disabled={!postNotificationsLoaded} onPress={togglePostNotifications} accessibilityRole="button" accessibilityLabel={postNotifications ? 'Turn off post notifications' : 'Turn on post notifications'} accessibilityState={{ checked: postNotifications, disabled: !postNotificationsLoaded }} style={[styles.notifyButton, postNotifications && styles.notifyButtonActive, { opacity: postNotificationsLoaded ? 1 : 0.55 }]}>
+                <Text style={[styles.notifyGlyph, postNotifications && styles.notifyGlyphActive]}>{postNotifications ? '🔔' : '🔕'}</Text>
               </Pressable>
             ) : null}
           </View>
@@ -194,6 +201,11 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
         )}
         <ProfilePostsTimeline userId={userId} />
       </ScrollView>
+      {notificationToast ? (
+        <View pointerEvents="none" accessibilityRole="alert" style={styles.notificationToast}>
+          <Text style={styles.notificationToastText}>{notificationToast}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -250,7 +262,11 @@ const styles = StyleSheet.create({
   secondary: { backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border },
   secondaryText: { color: c.text, fontWeight: '800' },
   notifyButton: { width: 42, height: 40, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border },
+  notifyButtonActive: { backgroundColor: 'rgba(201, 247, 166, 0.16)', borderColor: '#C9F7A6' },
   notifyGlyph: { color: c.text, fontSize: 18, fontWeight: '800' },
+  notifyGlyphActive: { color: '#C9F7A6' },
+  notificationToast: { position: 'absolute', top: 48, left: 20, right: 20, zIndex: 50, elevation: 12, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.accent, borderRadius: 18, paddingHorizontal: 18, paddingVertical: 14, shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 12, shadowOffset: { width: 0, height: 5 } },
+  notificationToastText: { color: c.cream, fontSize: 15, lineHeight: 22, fontWeight: '800', textAlign: 'center' },
   note: { color: c.textMuted, fontSize: 11.5, textAlign: 'center' },
   section: { alignSelf: 'flex-start', color: c.text, fontSize: 17, fontWeight: '800', marginTop: 12 },
   strip: { gap: 10 },
