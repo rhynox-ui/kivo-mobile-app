@@ -126,7 +126,6 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
           { text: 'Cancel', style: 'cancel' },
           { text: blocked ? 'Unblock user' : 'Block user', style: blocked ? 'default' : 'destructive', onPress: () => guard(async () => { if (blocked) await api.unblockUser(userId); else await api.blockUser(userId); setBlocked(!blocked); }) },
         ])} style={[styles.button, styles.blockButton, blocked && styles.blockedButton]}><Text style={[styles.blockButtonText, blocked && styles.blockedButtonText]}>{blocked ? 'Blocked · Tap to unblock' : 'Block user'}</Text></Pressable>
-        <ProfilePostsTimeline userId={userId} />
         <CallStatsCard loadKey={userId} load={() => api.userCalls(userId)} />
         <Text style={styles.note}>Usernames, avatars and follower counts are social signals — never proof of who owns a wallet.</Text>
         <Text style={styles.section}>Joined groups</Text>
@@ -135,6 +134,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
             {groups.map(g => { const verified = g.kind === 'channel' && verifiedChannels.has(g.id); return <Pressable key={g.id} onPress={() => onOpenCommunity(g.id)} style={styles.tile}><Avatar name={g.name} uri={g.avatarUrl} size={40} verified={verified} /><View style={styles.tileNameLine}><Text style={styles.tileName} numberOfLines={1}>{g.name}</Text>{verified ? <Text accessibilityLabel="Verified community" style={styles.verifiedBadge}>★</Text> : null}</View><Text style={styles.note}>{g.memberCount} {g.kind === 'channel' ? 'subscribers' : 'members'}</Text></Pressable>; })}
           </ScrollView>
         )}
+        <ProfilePostsTimeline userId={userId} />
       </ScrollView>
     </View>
   );
