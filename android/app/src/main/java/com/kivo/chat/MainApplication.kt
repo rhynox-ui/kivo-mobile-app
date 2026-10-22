@@ -6,6 +6,8 @@ import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
+import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
 
 class MainApplication : Application(), ReactApplication {
   override val reactHost: ReactHost by lazy {
@@ -23,6 +25,18 @@ class MainApplication : Application(), ReactApplication {
   }
   override fun onCreate() {
     super.onCreate()
+    if (FirebaseApp.getApps(this).isEmpty() &&
+      BuildConfig.KIVO_FCM_PROJECT_ID.isNotBlank() &&
+      BuildConfig.KIVO_FCM_APP_ID.isNotBlank() &&
+      BuildConfig.KIVO_FCM_API_KEY.isNotBlank() &&
+      BuildConfig.KIVO_FCM_SENDER_ID.isNotBlank()) {
+      FirebaseApp.initializeApp(this, FirebaseOptions.Builder()
+        .setProjectId(BuildConfig.KIVO_FCM_PROJECT_ID)
+        .setApplicationId(BuildConfig.KIVO_FCM_APP_ID)
+        .setApiKey(BuildConfig.KIVO_FCM_API_KEY)
+        .setGcmSenderId(BuildConfig.KIVO_FCM_SENDER_ID)
+        .build())
+    }
     loadReactNative(this)
   }
 }
