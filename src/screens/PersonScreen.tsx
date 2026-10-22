@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { AppState, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { kivoAlert } from '../components/KivoAlert';
 import { hasProfileLinks, shortWallet, walletAddressOfUserId, type ApiProfile, type ProfileLinks, type ProfileSocial, type PublicCommunityCard } from '@kivo/shared/api/types';
@@ -11,9 +12,10 @@ import { CallStatsCard } from '../components/CallStatsCard';
 import { ProfilePostsTimeline } from '../components/ProfilePostsTimeline';
 
 /** Another member's public profile: follow, message, public groups. Display data only — never proof of wallet ownership. */
-export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOpenConnections }: { userId: string; onBack: () => void; onOpenChat: (id: string) => void; onOpenCommunity: (id: string) => void; onOpenConnections?: (kind: 'followers' | 'following') => void }) {
+export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOpenConnections }: { userId: string; onBack: () => void; onOpenChat: (id: string) => void; onOpenCommunity: (id: string) => void; onOpenConnections?: (kind: 'followers' | 'following' | 'known') => void }) {
   const [person, setPerson] = useState<ApiProfile | null>(null);
   const [stats, setStats] = useState<ProfileSocial | null>(null);
+  const [mutuals, setMutuals] = useState<{count: number; users: ApiProfile[]} | null>(null);
   const [groups, setGroups] = useState<PublicCommunityCard[]>([]);
   const [verifiedChannels, setVerifiedChannels] = useState<Set<string>>(() => new Set());
   const [blocked, setBlocked] = useState(false);
@@ -34,6 +36,10 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
   useEffect(() => {
     api.profiles([userId]).then(found => { rememberProfiles(found); setPerson(found[0] ?? null); }).catch(() => {});
     api.social(userId).then(setStats).catch(() => {});
+    let mutualsActive = true;
+    setMutuals(null);
+    if (socialReady()) api.profileMutuals(userId).then(result => { if (mutualsActive) setMutuals(result); }).catch(() => { if (mutualsActive) setMutuals(null); });
+    return () => { mutualsActive = false; };
     api.publicCommunitiesOf(userId).then(setGroups).catch(() => {});
     api.blockedUsers().then(ids => setBlocked(ids.includes(userId))).catch(() => {});
     let active = true;
@@ -138,16 +144,28 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
             ) : null}
           </View>
           <View style={styles.nameLine}><Text style={styles.name}>{name}</Text>{verificationStatus?.isVerified === true ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>
-          {verificationStatus?.isVerified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verificationBadge}>★ Blue Star Verified</Text> : null}
           {person?.bio ? <Text style={styles.bio}>{person.bio}</Text> : null}
           {links ? <ProfileLinkChips links={links} /> : null}
-          <Text style={styles.address}>{address.slice(0, 10)}…{address.slice(-8)}</Text>
+          <View style={styles.addressRow}>
+            <Text style={styles.walletGlyph} accessibilityElementsHidden>▱</Text>
+            <Text style={styles.address} numberOfLines={1}>{address.slice(0, 10)}…{address.slice(-8)}</Text>
+            <Pressable onPress={() => { Clipboard.setString(address); kivoAlert('Kivo', 'Wallet address copied.'); }} accessibilityRole="button" accessibilityLabel="Copy wallet address" hitSlop={8} style={styles.copyAddressButton}><Text style={styles.copyAddressGlyph}>⧉</Text></Pressable>
+          </View>
           <View style={styles.stats}>
             <Stat value={stats?.following} label="Following" onPress={() => onOpenConnections?.('following')} />
             <Stat value={stats?.followers} label="Followers" onPress={() => onOpenConnections?.('followers')} />
             <Stat value={stats?.groups} label="Groups" />
             <Stat value={0} label="Trades" glyph="⇄" />
           </View>
+          {mutuals && mutuals.count > 0 ? (
+            <Pressable onPress={() => onOpenConnections?.('known')} accessibilityRole="button" accessibilityLabel={mutuals.count + ' mutuals following'} style={styles.mutualsRow}>
+              <View style={styles.mutualAvatars}>
+                {mutuals.users.slice(0, 3).map((user, index) => <View key={user.userId} style={[styles.mutualAvatar, index > 0 && styles.mutualAvatarOverlap]}><Avatar name={user.username ? '@' + user.username : shortWallet(user.address)} uri={user.avatarUrl} size={25} /></View>)}
+              </View>
+              <Text style={styles.mutualsLabel}>{mutuals.count} mutual{mutuals.count === 1 ? '' : 's'} following</Text>
+              <Text style={styles.mutualsChevron}>›</Text>
+            </Pressable>
+          ) : null}
           <View style={styles.joinedMeta}>
             <Text style={styles.joinedMetaText}>›  Joined {person?.createdAt ? new Date(person.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'Kivo'}</Text>
           </View>
@@ -207,9 +225,18 @@ const styles = StyleSheet.create({
   nameLine: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   verifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 11, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 18, height: 18, borderRadius: 5, overflow: 'hidden' },
   name: { color: c.text, fontSize: 22, fontWeight: '800' },
-  verificationBadge: { color: '#C9F7A6', fontSize: 11, fontWeight: '900', textAlign: 'left', alignSelf: 'flex-start', backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: '#C9F7A6', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
   bio: { color: c.text, fontSize: 14, textAlign: 'left' },
-  address: { color: c.textMuted, fontSize: 12, alignSelf: 'flex-start', borderWidth: 0, borderColor: 'transparent', borderRadius: 0, paddingHorizontal: 0, paddingVertical: 0, backgroundColor: 'transparent' },
+  addressRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 7, backgroundColor: 'transparent', borderWidth: 0, paddingVertical: 1 },
+  walletGlyph: { color: c.textMuted, fontSize: 16 },
+  address: { color: c.textMuted, fontSize: 12, flexShrink: 1, borderWidth: 0, borderColor: 'transparent', borderRadius: 0, paddingHorizontal: 0, paddingVertical: 0, backgroundColor: 'transparent' },
+  copyAddressButton: { paddingHorizontal: 2, paddingVertical: 2 },
+  copyAddressGlyph: { color: c.textMuted, fontSize: 16 },
+  mutualsRow: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 7, paddingVertical: 2, maxWidth: '100%' },
+  mutualAvatars: { flexDirection: 'row', alignItems: 'center' },
+  mutualAvatar: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: c.background, overflow: 'hidden' },
+  mutualAvatarOverlap: { marginLeft: -8 },
+  mutualsLabel: { color: c.textMuted, fontSize: 12, fontWeight: '700' },
+  mutualsChevron: { color: c.textMuted, fontSize: 20, marginTop: -2 },
   joinedMeta: { alignSelf: 'flex-start', paddingTop: 1 },
   joinedMetaText: { color: c.textMuted, fontSize: 12 },
   stats: { flexDirection: 'row', alignSelf: 'stretch', backgroundColor: 'transparent', borderRadius: 0, borderWidth: 0, paddingVertical: 3, marginTop: 0 },
