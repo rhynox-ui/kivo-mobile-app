@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { english, generateMnemonic } from 'viem/accounts';
 import { kivoTheme } from '../theme/kivoTheme';
 import { checkPasswordPolicy, MIN_PASSWORD_LENGTH } from '../wallet/passwordPolicy';
-import { createLocalWallet, getWalletSession, importLocalWallet } from '../state/walletStore';
+import { createLocalWallet, enableBiometricUnlockWithPassword, getWalletSession, importLocalWallet } from '../state/walletStore';
+import { getBiometryLabel, isBiometricAvailable } from '../wallet/biometricAuth';
 import { GoogleSignInCancelled, openBackup, readBackup, signInWithGoogle, writeBackup, type GoogleAccount, type WalletBackup } from '../wallet/googleBackup';
 import { ErrorText, PasswordField, PrimaryButton, RequirementRow } from '../onboarding/ui';
 
@@ -25,6 +26,10 @@ export function GoogleWalletScreen({ onBack, onDone, onUsePhrase }: { onBack: ()
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(true);
+  const [biometryLabel, setBiometryLabel] = useState('biometrics');
+  const [checkingBiometrics, setCheckingBiometrics] = useState(true);
 
   const start = useCallback(async () => {
     setStep({ kind: 'signing-in' }); setError('');
@@ -38,6 +43,20 @@ export function GoogleWalletScreen({ onBack, onDone, onUsePhrase }: { onBack: ()
     }
   }, [onBack]);
   useEffect(() => { void start(); }, [start]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const available = await isBiometricAvailable();
+      const label = await getBiometryLabel();
+      if (!active) return;
+      setBiometricAvailable(available);
+      setBiometricEnabled(available);
+      setBiometryLabel(label);
+      setCheckingBiometrics(false);
+    })();
+    return () => { active = false; };
+  }, []);
 
   const policy = checkPasswordPolicy(password);
   const strong = policy.longEnough && policy.notCommon && policy.notPredictable;
@@ -59,6 +78,21 @@ export function GoogleWalletScreen({ onBack, onDone, onUsePhrase }: { onBack: ()
     setBusy(true); setError('');
     try {
       await writeBackup(account, mnemonic, pass, getWalletSession()?.address ?? '');
+      if (biometricEnabled && biometricAvailable) {
+        try {
+          // Store the wallet password only in native Keychain/Keystore with
+          // biometric/device-auth access controls; never in AsyncStorage.
+          await enableBiometricUnlockWithPassword(pass);
+        } catch {
+          Alert.alert(
+            'Backup saved',
+            'Your encrypted Google Drive backup is safe, but biometric unlock was not enabled. You can enable it later in Settings → Security.',
+            [{ text: 'Continue', onPress: () => onDone(pass) }],
+            { cancelable: false },
+          );
+          return;
+        }
+      }
       onDone(pass);
     } catch (e) {
       setStep({ kind: 'backup-failed', account, mnemonic, password: pass, message: e instanceof Error ? e.message : 'Google Drive did not save the backup.' });
@@ -104,10 +138,28 @@ export function GoogleWalletScreen({ onBack, onDone, onUsePhrase }: { onBack: ()
 
       {step.kind === 'create' && (
         <View>
-          <Text style={styles.title}>Create your Kivo wallet</Text>
-          <Text style={styles.body}>Signed in as {step.account.email}. Choose a Kivo password: it unlocks the app and encrypts your wallet backup in your own Google Drive. Kivo never sees the password or your keys.</Text>
-          <View style={styles.field}><PasswordField value={password} onChangeText={setPassword} placeholder="Kivo password" autoFocus /></View>
-          <View style={styles.field}><PasswordField value={confirm} onChangeText={setConfirm} placeholder="Confirm password" /></View>
+          <Text style={styles.title}>Secure your wallet</Text>
+          <Text style={styles.body}>Signed in as {step.account.email}. Set up your backup password and device unlock in one step.</Text>
+          <View style={styles.securityOption}>
+            <View style={styles.securityIcon}><Text style={styles.securityIconText}>⌁</Text></View>
+            <View style={styles.securityCopy}>
+              <Text style={styles.securityTitle}>Enable Face ID / Touch ID</Text>
+              <Text style={styles.securityBody}>{biometricAvailable ? `Unlock your wallet instantly with ${biometryLabel}.` : checkingBiometrics ? 'Checking device biometric support…' : 'Biometrics are not available or enrolled on this device. You can use your password instead.'}</Text>
+            </View>
+            <Switch
+              value={biometricAvailable && biometricEnabled}
+              onValueChange={setBiometricEnabled}
+              disabled={!biometricAvailable || checkingBiometrics || busy}
+              trackColor={{ false: '#315B55', true: kivoTheme.colors.accent }}
+              thumbColor={kivoTheme.colors.cream}
+              accessibilityLabel="Enable Face ID or Touch ID"
+            />
+          </View>
+          <View style={styles.securityDivider} />
+          <Text style={styles.securityTitle}>Kivo backup password</Text>
+          <Text style={styles.securityBody}>Used to decrypt your Google Drive backup on a new device.</Text>
+          <View style={styles.field}><PasswordField value={password} onChangeText={setPassword} placeholder="Enter Password" autoFocus /></View>
+          <View style={styles.field}><PasswordField value={confirm} onChangeText={setConfirm} placeholder="Confirm Password" /></View>
           <View style={styles.checklist}>
             <RequirementRow met={policy.longEnough}>At least {MIN_PASSWORD_LENGTH} characters</RequirementRow>
             <RequirementRow met={policy.notCommon && policy.notPredictable}>Not common or predictable</RequirementRow>
@@ -116,15 +168,16 @@ export function GoogleWalletScreen({ onBack, onDone, onUsePhrase }: { onBack: ()
           <Text style={styles.warning}>Remember this password. With your Google account it is the only way to restore the wallet on a new phone — Kivo cannot reset it.</Text>
           <ErrorText>{error}</ErrorText>
           {busy ? <Text style={styles.small}>Creating and encrypting your wallet — this takes a moment.</Text> : null}
-          <PrimaryButton onPress={() => void create(step.account)} disabled={!strong || confirm !== password || busy} loading={busy}>Create wallet</PrimaryButton>
+          <PrimaryButton onPress={() => void create(step.account)} disabled={!strong || confirm !== password || busy || checkingBiometrics} loading={busy}>Complete Wallet Setup</PrimaryButton>
         </View>
       )}
 
       {step.kind === 'restore' && (
         <View>
           <Text style={styles.title}>Welcome back</Text>
-          <Text style={styles.body}>Kivo found your wallet backup ({step.backup.evmAddress.slice(0, 6)}…{step.backup.evmAddress.slice(-4)}) in {step.account.email}'s Google Drive. Enter your Kivo password to restore it on this phone.</Text>
-          <View style={styles.field}><PasswordField value={password} onChangeText={setPassword} placeholder="Kivo password" autoFocus /></View>
+          <Text style={styles.body}>Kivo found your wallet backup ({step.backup.evmAddress.slice(0, 6)}…{step.backup.evmAddress.slice(-4)}) in {step.account.email}'s Google Drive. Enter your Kivo password to decrypt it on this phone.</Text>
+          <Text style={styles.securityBody}>A new device needs your password to decrypt the Google Drive backup. After restoring, you can enable {biometryLabel} unlock for future sign-ins.</Text>
+          <View style={styles.field}><PasswordField value={password} onChangeText={setPassword} placeholder="Enter Kivo Password" autoFocus /></View>
           <ErrorText>{error}</ErrorText>
           {busy ? <Text style={styles.small}>Decrypting your wallet on this phone…</Text> : null}
           <PrimaryButton onPress={() => void restore(step.backup)} disabled={!password || busy} loading={busy}>Restore wallet</PrimaryButton>
@@ -157,6 +210,13 @@ const styles = StyleSheet.create({
   field: { marginTop: 14 },
   checklist: { marginTop: 14, gap: 6 },
   warning: { color: c.creamMuted, fontSize: 13, lineHeight: 19, marginVertical: 14 },
+  securityOption: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 16, marginTop: 18 },
+  securityIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: 'rgba(183,226,123,0.10)', alignItems: 'center', justifyContent: 'center' },
+  securityIconText: { color: c.accent, fontSize: 30, fontWeight: '700' },
+  securityCopy: { flex: 1 },
+  securityTitle: { color: c.text, fontSize: 16, fontWeight: '800' },
+  securityBody: { color: c.textMuted, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  securityDivider: { height: 1, backgroundColor: c.border, marginBottom: 18 },
   small: { color: c.textMuted, fontSize: 13, marginBottom: 10 },
   gap: { height: 20 },
   link: { alignItems: 'center', paddingVertical: 16 },
