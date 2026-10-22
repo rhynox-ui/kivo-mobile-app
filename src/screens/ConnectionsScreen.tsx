@@ -112,7 +112,7 @@ export function ConnectionsScreen({userId, initialKind, onBack, onOpenPerson}: {
       <FlatList data={users} keyExtractor={item => item.userId} renderItem={renderPerson} contentContainerStyle={users.length ? styles.list : styles.emptyList}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load(true)} tintColor={c.accent}/>}
         ListEmptyComponent={<Text style={styles.muted}>{kind === 'verified' ? 'No verified followers found.' : kind === 'known' ? 'No followers you know yet.' : 'No accounts to show yet.'}</Text>}
-        ListFooterComponent={cursor ? <Pressable disabled={loadingMore} onPress={() => void load(false)} style={styles.more}>{loadingMore ? <ActivityIndicator color={c.accent}/> : <Text style={styles.moreText}>Load more</Text>}</Pressable> : null}/>}
+        ListFooterComponent={cursor ? <Pressable disabled={loadingMore} onPress={() => void load(false)} style={styles.more}>{loadingMore ? <ActivityIndicator color={c.accent}/> : <Text style={styles.moreText}>Load more</Text>}</Pressable> : undefined}/>}
   </View>;
 }
 
