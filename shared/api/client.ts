@@ -284,7 +284,7 @@ export class KivoApi {
   conversations() { return this.request<ApiConversation[]>('GET', '/api/conversations'); }
   openDm(address: string) { return this.request<{id: string}>('POST', '/api/conversations/dm', {address}); }
   history(conversationId: string, before?: number) { return this.request<ApiMessage[]>('GET', `/api/conversations/${encodeURIComponent(conversationId)}/messages${before ? `?before=${before}` : ''}`); }
-  send(conversationId: string, input: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; token?: {chain: string; address: string}; poll?: ChatPollPayload; replyTo?: string; clientId: string}) { return this.request<ApiMessage>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/messages`, input); }
+  send(conversationId: string, input: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; token?: {chain: string; address: string}; poll?: ChatPollPayload; replyTo?: string; quoteText?: string; clientId: string}) { return this.request<ApiMessage>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/messages`, input); }
   chatPoll(messageId: string) { return this.request<ChatPollResults>('GET', `/api/messages/${encodeURIComponent(messageId)}/poll`); }
   voteChatPoll(messageId: string, optionIds: string[]) { return this.request<ChatPollResults>('POST', `/api/messages/${encodeURIComponent(messageId)}/poll/vote`, {optionIds}); }
   addChatPollOption(messageId: string, label: string) { return this.request<ChatPollResults>('POST', `/api/messages/${encodeURIComponent(messageId)}/poll/options`, {label}); }
