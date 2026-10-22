@@ -914,7 +914,7 @@ const styles = StyleSheet.create({
   avatarColumn: { width: 34, flexShrink: 0, marginRight: 8, alignItems: 'center', justifyContent: 'flex-end' },
   bubble: { maxWidth: '84%', paddingHorizontal: 9, paddingTop: 5, paddingBottom: 4, borderRadius: 16, borderBottomLeftRadius: 4, backgroundColor: c.surfaceRaised, gap: 2 },
   bubbleMine: { backgroundColor: '#1D6B4C', borderBottomLeftRadius: 16, borderBottomRightRadius: 4 },
-  post: { width: '100%', maxWidth: '100%', flexShrink: 1, borderRadius: 14, borderTopLeftRadius: 4, borderBottomLeftRadius: 4 },
+  post: { flex: 1, minWidth: 0, maxWidth: '100%', borderRadius: 14, borderTopLeftRadius: 4, borderBottomLeftRadius: 4 },
   postText: { fontSize: 14, lineHeight: 19 },
   deleted: { opacity: 0.6 },
   senderLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
