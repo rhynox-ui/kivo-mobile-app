@@ -205,6 +205,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const [optionsMessage, setOptionsMessage] = useState<LocalMessage | null>(null);
   // Distinguish a text-selection long press from a long press on the surrounding message panel.
   const textTouchingMessage = useRef<string | null>(null);
+  const textTouchResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [replyingTo, setReplyingTo] = useState<LocalMessage | null>(null);
   const [quoteText, setQuoteText] = useState<string | null>(null);
   const [viewing, setViewing] = useState<LocalMessage | null>(null);
@@ -652,7 +653,34 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                   const long = messageLength(message.text) > 700 || message.text.split('\n').length > 12;
                   const open = expanded[message.id] === true;
                   return <View>
-                    <Text selectable onPressIn={() => { textTouchingMessage.current = message.id; }} onPressOut={() => { if (textTouchingMessage.current === message.id) textTouchingMessage.current = null; }} style={[styles.text, isChannel && styles.postText]} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text, myUsername, openMention)}{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text>
+                    <Text
+                      selectable
+                      selectionColor={c.accent}
+                      onPressIn={() => {
+                        if (textTouchResetTimer.current) clearTimeout(textTouchResetTimer.current);
+                        textTouchResetTimer.current = null;
+                        textTouchingMessage.current = message.id;
+                      }}
+                      onLongPress={() => {
+                        // Keep the parent bubble's long-press menu suppressed while
+                        // Android opens the native Copy / Select all text toolbar.
+                        if (textTouchResetTimer.current) clearTimeout(textTouchResetTimer.current);
+                        textTouchResetTimer.current = null;
+                        textTouchingMessage.current = message.id;
+                      }}
+                      onPressOut={() => {
+                        // Parent Pressable may deliver its long-press callback just
+                        // after Text's press-out on Android. Retain the guard briefly
+                        // so selecting text never opens the message-options sheet.
+                        if (textTouchResetTimer.current) clearTimeout(textTouchResetTimer.current);
+                        textTouchResetTimer.current = setTimeout(() => {
+                          if (textTouchingMessage.current === message.id) textTouchingMessage.current = null;
+                          textTouchResetTimer.current = null;
+                        }, 700);
+                      }}
+                      style={[styles.text, isChannel && styles.postText]}
+                      numberOfLines={long && !open ? 12 : undefined}
+                    >{renderLinkedText(message.text, myUsername, openMention)}{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text>
                     {long ? <Pressable hitSlop={6} onPress={() => setExpanded(prev => ({ ...prev, [message.id]: !open }))}><Text style={styles.showMore}>{open ? 'Show less' : 'Show more'}</Text></Pressable> : null}
                   </View>;
                 })() : null}
