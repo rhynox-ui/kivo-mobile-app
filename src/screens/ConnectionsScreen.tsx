@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import type { ApiProfile } from '@kivo/shared/api/types';
 import type { FollowListPage } from '@kivo/shared/api/client';
 import { api, socialReady } from '../state/session';
