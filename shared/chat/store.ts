@@ -271,10 +271,13 @@ export function setActiveConversation(id: string | null) {
   lastChatActivityAt = Date.now();
   if (id) {
     markRead(id);
-    // Refresh recent history every time a conversation opens. Message media URLs
-    // are signed and may have been cached locally from an earlier session; the
-    // server returns a fresh URL for each history response.
-    void refreshConversation(id);
+    // Use the local archive immediately and avoid re-downloading a cached
+    // text-only conversation every time it opens. Cursor sync fetches changes;
+    // conversations with media still refresh signed URLs when reopened.
+    const cached = state.messages[id] ?? [];
+    if (cached.length === 0 || cached.some(message => Boolean(message.media?.url))) {
+      void refreshConversation(id);
+    }
     void syncNow();
   }
 }
