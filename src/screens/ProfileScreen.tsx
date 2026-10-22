@@ -115,7 +115,7 @@ function shouldHideSmallHolding(holding: Portfolio['holdings'][number]): boolean
 }
 
 /** Mango Pro profile layout with Kivo graphics: identity + social row, portfolio chart, cash, positions, joined groups. */
-export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onOpenHistory, onOpenNotifications, onEditProfile, onOpenChat, onOpenCommunities, onOpenTrade, onOpenChats, onOpenVerification, onOpenToken }: {
+export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onOpenHistory, onOpenNotifications, onEditProfile, onOpenChat, onOpenCommunities, onOpenTrade, onOpenChats, onOpenVerification, onOpenToken, onOpenConnections }: {
   onOpenSettings: () => void;
   /** Referral rewards (own profile only). */
   onOpenRewards?: () => void;
@@ -128,6 +128,7 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
   onOpenTrade?: () => void;
   onOpenChats?: () => void;
   onOpenVerification?: (subjectId: string, subjectName: string) => void;
+  onOpenConnections?: (kind: 'followers' | 'following') => void;
   /** Opens a held token's page (buy/sell from there). */
   onOpenToken?: (token: KivoToken) => void;
 }) {
@@ -324,8 +325,8 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
         {links ? <View style={styles.links}><ProfileLinkChips links={links} /></View> : null}
         {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : <Pressable onPress={onEditProfile}><Text style={styles.addBio}>+ Add a bio</Text></Pressable>}
         <View style={styles.follows}>
-          <Text style={styles.followText}><Text style={styles.count}>{social?.following ?? 0}</Text> Following</Text>
-          <Text style={styles.followText}><Text style={styles.count}>{social?.followers ?? 0}</Text> {social?.followers === 1 ? 'Follower' : 'Followers'}</Text>
+          <Pressable onPress={() => onOpenConnections?.('following')} accessibilityRole="button"><Text style={styles.followText}><Text style={styles.count}>{social?.following ?? 0}</Text> Following</Text></Pressable>
+          <Pressable onPress={() => onOpenConnections?.('followers')} accessibilityRole="button"><Text style={styles.followText}><Text style={styles.count}>{social?.followers ?? 0}</Text> {social?.followers === 1 ? 'Follower' : 'Followers'}</Text></Pressable>
         </View>
         {/* Social row: the user's groups, channels, chats and trades. */}
         <View style={styles.socialRow}>
