@@ -31,15 +31,14 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
     let active = true;
     setLinks(null);
     api.profileLinks(userId).then(result => { if (active && result.verified && hasProfileLinks(result.links)) setLinks(result.links); }).catch(() => {});
-    return () => { active = false; };
+    return () => { active = false; mutualsActive = false; };
   }, [userId]);
   useEffect(() => {
+    let mutualsActive = true;
     api.profiles([userId]).then(found => { rememberProfiles(found); setPerson(found[0] ?? null); }).catch(() => {});
     api.social(userId).then(setStats).catch(() => {});
-    let mutualsActive = true;
     setMutuals(null);
     if (socialReady()) api.profileMutuals(userId).then(result => { if (mutualsActive) setMutuals(result); }).catch(() => { if (mutualsActive) setMutuals(null); });
-    return () => { mutualsActive = false; };
     api.publicCommunitiesOf(userId).then(setGroups).catch(() => {});
     api.blockedUsers().then(ids => setBlocked(ids.includes(userId))).catch(() => {});
     let active = true;
