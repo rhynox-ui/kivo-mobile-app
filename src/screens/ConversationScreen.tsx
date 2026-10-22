@@ -443,7 +443,11 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     try {
       for (let page = 0; page < 20; page += 1) {
         const loaded = getChatState().messages[id] ?? [];
-        if (loaded.some(message => message.id === messageId)) return;
+        const found = loaded.find(message => message.id === messageId);
+        if (found) {
+          if (found.deleted) { setPendingQuoteJumpId(null); kivoAlert('Quoted message', 'That message has been deleted.'); }
+          return;
+        }
         const oldestSeq = loaded.reduce((min, message) => message.seq > 0 ? Math.min(min, message.seq) : min, Number.POSITIVE_INFINITY);
         if (!Number.isFinite(oldestSeq)) break;
         const count = await loadHistoryBefore(id, oldestSeq);
