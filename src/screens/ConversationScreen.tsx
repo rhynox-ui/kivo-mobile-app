@@ -206,6 +206,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   // Distinguish a text-selection long press from a long press on the surrounding message panel.
   const textTouchingMessage = useRef<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<LocalMessage | null>(null);
+  const [quoteText, setQuoteText] = useState<string | null>(null);
   const [viewing, setViewing] = useState<LocalMessage | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<LocalMessage | null>(null);
   const list = useRef<FlatList<Item>>(null);
@@ -452,9 +453,10 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
         setEditingMessageId(null);
         setDraft('');
       } else {
-        await sendText(id, text, replyingTo?.id, verifiedTokenAttachment ?? undefined);
+        await sendText(id, text, replyingTo?.id, verifiedTokenAttachment ?? undefined, quoteText ?? undefined);
         setDraft('');
         setReplyingTo(null);
+        setQuoteText(null);
         setVerifiedTokenAttachment(null);
         setTokenAttachmentOpen(false);
       }
@@ -482,8 +484,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     setOptionsMessage(message);
     setOptionsMenu([
       ...(message.text ? [{ text: 'Copy message', onPress: () => { Clipboard.setString(message.text); kivoAlert('Copied', 'Message copied to clipboard.'); } }] : []),
-      ...(message.text && canPost ? [{ text: 'Quote message', onPress: () => { setEditingMessageId(null); setReplyingTo(message); setDraft('> ' + message.text.replace(/\n/g, '\n> ') + '\n'); } }] : []),
-      ...(canPost ? [{ text: 'Reply', onPress: () => { setEditingMessageId(null); setReplyingTo(message); } }] : []),
+      ...(message.text && canPost ? [{ text: 'Quote message', onPress: () => { setEditingMessageId(null); setReplyingTo(message); setQuoteText(message.text.slice(0, 1000)); } }] : []),
+      ...(canPost ? [{ text: 'Reply', onPress: () => { setEditingMessageId(null); setReplyingTo(message); setQuoteText(null); } }] : []),
       ...(canPin ? (() => { const isPinned = pins.some(p => p.id === message.id); return [{ text: isPinned ? 'Unpin message' : 'Pin message', onPress: () => setPin(message.id, !isPinned) }]; })() : []),
       ...(message.senderId === me ? [{ text: 'Edit message', onPress: () => { setReplyingTo(null); setEditingMessageId(message.id); setDraft(message.text); } }] : []),
       { text: 'Forward message', onPress: () => setForwardingMessage(message) },
@@ -604,7 +606,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                 {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
                 {message.replyTo && !message.deleted ? (() => {
                   const quoted = messages.find(item => item.id === message.replyTo);
-                  return <View style={styles.replyQuote}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={2}>{quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available'}</Text></View>;
+                  return <View style={styles.replyQuote}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={3}>{message.quoteText ?? (quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available')}</Text></View>;
                 })() : null}
                 {message.deleted ? <Text style={styles.deletedText}>Message deleted{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text> : message.text ? (() => {
                   // Long messages collapse after ~12 lines so one post can't take over the chat.
@@ -647,7 +649,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
       </View>
       {canPost ? (
         <View>
-        {replyingTo && !editingMessageId && <View style={styles.editingBar}><View style={{ flex: 1, marginRight: 12 }}><Text style={styles.editingLabel}>Replying to {displayName(replyingTo.senderId)}</Text><Text style={styles.replyBarText} numberOfLines={1}>{replyingTo.text || '📷 Photo'}</Text></View><Pressable onPress={() => setReplyingTo(null)} hitSlop={10}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
+        {replyingTo && !editingMessageId && <View style={styles.editingBar}><View style={{ flex: 1, marginRight: 12 }}><Text style={styles.editingLabel}>{quoteText ? `Reply to quote from ${displayName(replyingTo.senderId)}` : `Replying to ${displayName(replyingTo.senderId)}`}</Text><Text style={styles.replyBarText} numberOfLines={2}>{quoteText ?? (replyingTo.text || '📷 Photo')}</Text></View><Pressable onPress={() => { setReplyingTo(null); setQuoteText(null); }} hitSlop={10}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
         {editingMessageId && <View style={styles.editingBar}><Text style={styles.editingLabel}>Editing message</Text><Pressable onPress={() => { setEditingMessageId(null); setDraft(''); }}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
         {showCounter ? (
           <View style={styles.limitRow} accessibilityLiveRegion="polite">
