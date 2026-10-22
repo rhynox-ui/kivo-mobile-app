@@ -15,6 +15,7 @@ import { activateChat, configureChat, startChatSync, stopChatSync } from '@kivo/
 import { activateProfileForWallet, configureProfileStore, getProfile, hasSavedProfile, updateProfile } from '@kivo/shared/profile/store';
 import { activateTradeHistory, configureTradeHistory } from '@kivo/trading/kivo/history';
 import { addNotification, setNotificationOwner } from './notificationStore';
+import { requestNotificationPermission } from '../notifications/localNotify';
 import { ed25519 } from '@noble/curves/ed25519';
 import bs58 from 'bs58';
 import { getWalletSession, requireSolana, subscribeToWallet, walletUnlockedOnDevice, withDeviceAccounts } from './walletStore';
@@ -55,6 +56,7 @@ async function registerPushTokenForSession(): Promise<void> {
   const native = NativeModules.KivoPushModule as {getToken?: () => Promise<string>} | undefined;
   if (!api.signedInUserId() || typeof native?.getToken !== 'function') return;
   try {
+    if (!(await requestNotificationPermission())) return;
     const token = await native.getToken();
     if (token) await api.registerPushDevice(token, Platform.OS === 'ios' ? 'ios' : 'android');
   } catch {
