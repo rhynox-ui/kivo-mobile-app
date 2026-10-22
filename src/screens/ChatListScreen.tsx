@@ -5,6 +5,7 @@ import { normalizeWalletAddress, shortWallet, type ApiCommunity, type ApiConvers
 import { displayName, myUserId, openDirectMessage, rememberProfiles, unreadCount } from '@kivo/shared/chat/store';
 import { KivoMark } from '../components/KivoMark';
 import { kivoTheme } from '../theme/kivoTheme';
+import { profileAvatarBorderRadius } from '../components/profileAvatar';
 import { api, enableSocial, ensureSolanaLinked, useSocialReady } from '../state/session';
 import { useChatState } from '../state/useChat';
 import { getWalletSession } from '../state/walletStore';
@@ -150,7 +151,7 @@ function Row({ conversation: c, verificationRefreshTick, onPress }: { conversati
 
 export function Avatar({ name, uri, size, verified = false }: { name: string; uri?: string | null; size: number; verified?: boolean }) {
   // Callers pass only a server-confirmed verification status.
-  const borderRadius = verified ? 6 : size / 2;
+  const borderRadius = profileAvatarBorderRadius(size, verified);
   return (
     <View style={{ width: size, height: size, position: 'relative', overflow: 'visible' }}>
       {uri
