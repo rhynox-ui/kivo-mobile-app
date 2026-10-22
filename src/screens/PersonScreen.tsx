@@ -52,7 +52,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
       setPostNotifications(false);
       setPostNotificationsLoaded(true);
     }
-    return () => { active = false; };
+    return () => { active = false; mutualsActive = false; };
   }, [userId]);
   useEffect(() => {
     let active = true;
