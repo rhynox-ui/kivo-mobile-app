@@ -5,7 +5,7 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { kivoAlert } from '../components/KivoAlert';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { API_LIMITS, messageCharLimit, messageLength, shortWallet, type ApiMessage } from '@kivo/shared/api/types';
-import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, getChatState, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
+import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, getChatState, loadHistoryBefore, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useActiveConversation, useChatState } from '../state/useChat';
 import { Avatar } from './ChatListScreen';
@@ -345,6 +345,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const [pinIndex, setPinIndex] = useState(0);
   const [pinsOpen, setPinsOpen] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [pendingQuoteJumpId, setPendingQuoteJumpId] = useState<string | null>(null);
   useEffect(() => { if (!highlightedId) return; const timer = setTimeout(() => setHighlightedId(null), 1600); return () => clearTimeout(timer); }, [highlightedId]);
   const shownPinIndex = pins.length ? Math.min(pinIndex, pins.length - 1) : 0;
   const pinned = pins[shownPinIndex] ?? null;
@@ -428,6 +429,30 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     if (!scrollToItem(messageId)) { kivoAlert(what, 'This message is older than the history on this phone.'); return false; }
     atBottom.current = false; setHighlightedId(messageId); return true;
   };
+  const jumpToQuotedMessage = async (messageId: string) => {
+    if (jumpToMessage(messageId, 'Quoted message')) return;
+    // The quoted original may be older than the currently cached 50-message page.
+    // Fetch backwards in bounded pages; the pending ID is consumed after FlatList
+    // has incorporated the newly merged messages.
+    setPendingQuoteJumpId(messageId);
+    for (let page = 0; page < 20; page += 1) {
+      const loaded = getChatState().messages[id] ?? [];
+      if (loaded.some(message => message.id === messageId)) return;
+      const oldestSeq = loaded.reduce((min, message) => message.seq > 0 ? Math.min(min, message.seq) : min, Number.POSITIVE_INFINITY);
+      if (!Number.isFinite(oldestSeq)) break;
+      const count = await loadHistoryBefore(id, oldestSeq);
+      if (!count) break;
+    }
+    if (!(getChatState().messages[id] ?? []).some(message => message.id === messageId)) {
+      setPendingQuoteJumpId(null);
+      kivoAlert('Quoted message', 'The original message could not be found in this conversation.');
+    }
+  };
+  useEffect(() => {
+    if (!pendingQuoteJumpId || !items.some(item => item.key === pendingQuoteJumpId)) return;
+    setPendingQuoteJumpId(null);
+    requestAnimationFrame(() => jumpToMessage(pendingQuoteJumpId, 'Quoted message'));
+  }, [items, pendingQuoteJumpId]);
   const scrollToItem = (key: string, animated = true) => {
     const index = items.findIndex(item => item.key === key);
     if (index < 0) return false;
@@ -606,7 +631,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                 {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
                 {message.replyTo && !message.deleted ? (() => {
                   const quoted = messages.find(item => item.id === message.replyTo);
-                  return <View style={styles.replyQuote}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={3}>{message.quoteText ?? (quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available')}</Text></View>;
+                  return <Pressable style={styles.replyQuote} onPress={() => { void jumpToQuotedMessage(message.replyTo!); }} accessibilityRole="button" accessibilityLabel={`Jump to original message from ${quoted ? displayName(quoted.senderId) : 'sender'}`}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={3}>{message.quoteText ?? (quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available')}</Text></Pressable>;
                 })() : null}
                 {message.deleted ? <Text style={styles.deletedText}>Message deleted{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text> : message.text ? (() => {
                   // Long messages collapse after ~12 lines so one post can't take over the chat.
