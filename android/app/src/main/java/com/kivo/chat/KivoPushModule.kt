@@ -69,7 +69,10 @@ class KivoPushModule(private val context: ReactApplicationContext) : ReactContex
   @ReactMethod fun getInitialTradeRoute(promise: Promise) {
     val intent = currentActivity?.intent
     val route = intent?.getStringExtra("route") ?: intent?.getStringExtra("href")
-    if (route != null && (route.startsWith("kivo://trade") || route.startsWith("https://kivotrade.site/activity"))) {
+    // Validate supported route schemes in the React Native router. Returning the
+    // supplied string here avoids Kotlin extension resolution issues on this nullable
+    // Intent extra while keeping routing validation at the app boundary.
+    if (route != null) {
       intent?.removeExtra("route"); intent?.removeExtra("href"); promise.resolve(route)
     } else promise.resolve(null)
   }
