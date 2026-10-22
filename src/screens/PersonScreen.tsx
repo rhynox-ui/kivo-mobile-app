@@ -8,6 +8,7 @@ import { api, socialReady } from '../state/session';
 import { Avatar } from './ChatListScreen';
 import { ProfileLinkChips } from '../components/ProfileLinks';
 import { CallStatsCard } from '../components/CallStatsCard';
+import { ProfilePostsTimeline } from '../components/ProfilePostsTimeline';
 
 /** Another member's public profile: follow, message, public groups. Display data only — never proof of wallet ownership. */
 export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { userId: string; onBack: () => void; onOpenChat: (id: string) => void; onOpenCommunity: (id: string) => void }) {
@@ -125,6 +126,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
           { text: 'Cancel', style: 'cancel' },
           { text: blocked ? 'Unblock user' : 'Block user', style: blocked ? 'default' : 'destructive', onPress: () => guard(async () => { if (blocked) await api.unblockUser(userId); else await api.blockUser(userId); setBlocked(!blocked); }) },
         ])} style={[styles.button, styles.blockButton, blocked && styles.blockedButton]}><Text style={[styles.blockButtonText, blocked && styles.blockedButtonText]}>{blocked ? 'Blocked · Tap to unblock' : 'Block user'}</Text></Pressable>
+        <ProfilePostsTimeline userId={userId} />
         <CallStatsCard loadKey={userId} load={() => api.userCalls(userId)} />
         <Text style={styles.note}>Usernames, avatars and follower counts are social signals — never proof of who owns a wallet.</Text>
         <Text style={styles.section}>Joined groups</Text>
