@@ -36,7 +36,7 @@ type View_ =
   | { name: 'communitySettings'; id: string }
   | { name: 'communities'; kind: CommunityKind }
   | { name: 'person'; userId: string }
-  | { name: 'connections'; userId: string; kind: 'followers' | 'following' }
+  | { name: 'connections'; userId: string; kind: 'followers' | 'following' | 'known' }
   | { name: 'verification'; subjectType: 'profile' | 'channel'; subjectId: string; subjectName: string }
   | { name: 'wallet'; action?: 'deposit' | 'withdraw' } | { name: 'editProfile' } | { name: 'settings' } | { name: 'notifications' } | { name: 'activity' } | { name: 'security' } | { name: 'rewards'; prefill?: string };
 
