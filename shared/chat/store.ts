@@ -305,7 +305,7 @@ function upsertLocal(message: LocalMessage) {
   emit();
 }
 
-async function deliver(local: LocalMessage, payload: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; token?: {chain: string; address: string}; replyTo?: string}) {
+async function deliver(local: LocalMessage, payload: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; token?: {chain: string; address: string}; replyTo?: string; quoteText?: string}) {
   lastChatActivityAt = Date.now();
   if (!opts) return;
   const generation = ownerGeneration;
@@ -345,15 +345,15 @@ export async function sendPoll(conversationId: string, poll: ChatPollPayload) {
   emit();
 }
 
-export async function sendText(conversationId: string, text: string, replyTo?: string, token?: {chain: string; address: string; symbol?: string; name?: string; imageUrl?: string | null}) {
+export async function sendText(conversationId: string, text: string, replyTo?: string, token?: {chain: string; address: string; symbol?: string; name?: string; imageUrl?: string | null}, quoteText?: string) {
   const trimmed = text.normalize('NFC').trim();
   if (!trimmed && !token) return;
   if (messageLength(trimmed) > messageCharLimit(true)) throw new Error('This message is too long.');
   const me = myUserId();
   if (!me) throw new Error('Connect your wallet to chat.');
-  const local: LocalMessage = {seq: 0, id: 'm_' + clientId(), conversationId, senderId: me, text: trimmed, media: null, token: token ? {chain: token.chain, address: token.address, symbol: token.symbol ?? '', name: token.name ?? '', imageUrl: token.imageUrl ?? null} : null, replyTo: replyTo ?? null, createdAt: Date.now(), deleted: false, status: 'pending'};
+  const local: LocalMessage = {seq: 0, id: 'm_' + clientId(), conversationId, senderId: me, text: trimmed, media: null, token: token ? {chain: token.chain, address: token.address, symbol: token.symbol ?? '', name: token.name ?? '', imageUrl: token.imageUrl ?? null} : null, replyTo: replyTo ?? null, quoteText: replyTo && quoteText ? quoteText.slice(0, 1000) : null, createdAt: Date.now(), deleted: false, status: 'pending'};
   upsertLocal(local);
-  await deliver(local, {text: trimmed, token: token ? {chain: token.chain, address: token.address} : undefined, replyTo});
+  await deliver(local, {text: trimmed, token: token ? {chain: token.chain, address: token.address} : undefined, replyTo, quoteText: replyTo && quoteText ? quoteText.slice(0, 1000) : undefined});
 }
 
 /** Sends an already-compressed image (see web/mobile compressors). */
@@ -378,7 +378,7 @@ export async function retryMessage(conversationId: string, id: string) {
   const message = state.messages[conversationId]?.find(m => m.id === id);
   if (!message || message.status !== 'failed' || message.media) return;
   upsertLocal({...message, status: 'pending', error: undefined});
-  await deliver(message, {text: message.text, replyTo: message.replyTo ?? undefined});
+  await deliver(message, {text: message.text, replyTo: message.replyTo ?? undefined, quoteText: message.quoteText ?? undefined});
 }
 
 export function discardMessage(conversationId: string, id: string) {
