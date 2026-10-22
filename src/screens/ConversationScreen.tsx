@@ -482,6 +482,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     setOptionsMessage(message);
     setOptionsMenu([
       ...(message.text ? [{ text: 'Copy message', onPress: () => { Clipboard.setString(message.text); kivoAlert('Copied', 'Message copied to clipboard.'); } }] : []),
+      ...(message.text && canPost ? [{ text: 'Quote message', onPress: () => { setEditingMessageId(null); setReplyingTo(message); setDraft('> ' + message.text.replace(/\n/g, '\n> ') + '\n'); } }] : []),
       ...(canPost ? [{ text: 'Reply', onPress: () => { setEditingMessageId(null); setReplyingTo(message); } }] : []),
       ...(canPin ? (() => { const isPinned = pins.some(p => p.id === message.id); return [{ text: isPinned ? 'Unpin message' : 'Pin message', onPress: () => setPin(message.id, !isPinned) }]; })() : []),
       ...(message.senderId === me ? [{ text: 'Edit message', onPress: () => { setReplyingTo(null); setEditingMessageId(message.id); setDraft(message.text); } }] : []),
