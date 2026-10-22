@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { AppState, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { kivoAlert } from '../components/KivoAlert';
 import { hasProfileLinks, shortWallet, walletAddressOfUserId, type ApiProfile, type ProfileLinks, type ProfileSocial, type PublicCommunityCard } from '@kivo/shared/api/types';
@@ -11,15 +12,18 @@ import { CallStatsCard } from '../components/CallStatsCard';
 import { ProfilePostsTimeline } from '../components/ProfilePostsTimeline';
 
 /** Another member's public profile: follow, message, public groups. Display data only — never proof of wallet ownership. */
-export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOpenConnections }: { userId: string; onBack: () => void; onOpenChat: (id: string) => void; onOpenCommunity: (id: string) => void; onOpenConnections?: (kind: 'followers' | 'following') => void }) {
+export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOpenConnections }: { userId: string; onBack: () => void; onOpenChat: (id: string) => void; onOpenCommunity: (id: string) => void; onOpenConnections?: (kind: 'followers' | 'following' | 'known') => void }) {
   const [person, setPerson] = useState<ApiProfile | null>(null);
   const [stats, setStats] = useState<ProfileSocial | null>(null);
+  const [mutuals, setMutuals] = useState<{count: number; users: ApiProfile[]} | null>(null);
   const [groups, setGroups] = useState<PublicCommunityCard[]>([]);
   const [verifiedChannels, setVerifiedChannels] = useState<Set<string>>(() => new Set());
   const [blocked, setBlocked] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [postNotifications, setPostNotifications] = useState(false);
   const [postNotificationsLoaded, setPostNotificationsLoaded] = useState(false);
+  const [notificationToast, setNotificationToast] = useState<string | null>(null);
+  const notificationToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [verificationStatus, setVerificationStatus] = useState<{isVerified: boolean; expiresAt: number | null; permanent: boolean} | null>(null);
   // EVM (kivo:0x…) or Solana (kivo:sol:…, case-sensitive) account.
   const address = walletAddressOfUserId(userId);
@@ -32,8 +36,11 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
     return () => { active = false; };
   }, [userId]);
   useEffect(() => {
+    let mutualsActive = true;
     api.profiles([userId]).then(found => { rememberProfiles(found); setPerson(found[0] ?? null); }).catch(() => {});
     api.social(userId).then(setStats).catch(() => {});
+    setMutuals(null);
+    if (socialReady()) api.profileMutuals(userId).then(result => { if (mutualsActive) setMutuals(result); }).catch(() => { if (mutualsActive) setMutuals(null); });
     api.publicCommunitiesOf(userId).then(setGroups).catch(() => {});
     api.blockedUsers().then(ids => setBlocked(ids.includes(userId))).catch(() => {});
     let active = true;
@@ -47,7 +54,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
       setPostNotifications(false);
       setPostNotificationsLoaded(true);
     }
-    return () => { active = false; };
+    return () => { active = false; mutualsActive = false; };
   }, [userId]);
   useEffect(() => {
     let active = true;
@@ -92,6 +99,19 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
     try { await fn(); } catch (e) { kivoAlert('Kivo', e instanceof Error ? e.message : 'Action failed.'); }
     finally { busyRef.current = false; }
   };
+  useEffect(() => () => {
+    if (notificationToastTimer.current) clearTimeout(notificationToastTimer.current);
+  }, []);
+  const togglePostNotifications = () => guard(async () => {
+    const next = !postNotifications;
+    const result = await api.setFeedPostNotificationSubscription(userId, next);
+    setPostNotifications(result.enabled);
+    setNotificationToast(result.enabled
+      ? 'You will be notified when this user posts.'
+      : 'You will no longer be notified when this user posts.');
+    if (notificationToastTimer.current) clearTimeout(notificationToastTimer.current);
+    notificationToastTimer.current = setTimeout(() => setNotificationToast(null), 2800);
+  });
   const name = person?.username ? '@' + person.username : shortWallet(address);
   const shareProfile = async () => {
     try {
@@ -126,11 +146,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
               <View style={styles.overflowMenu}>
                 <Pressable onPress={() => { setMenuOpen(false); void shareProfile(); }} style={styles.menuItem}><Text style={styles.menuText}>↗  Share profile</Text></Pressable>
                 {api.signedInUserId() && api.signedInUserId() !== userId ? (
-                  <Pressable disabled={!postNotificationsLoaded} onPress={() => { setMenuOpen(false); void guard(async () => {
-                    const next = !postNotifications;
-                    const result = await api.setFeedPostNotificationSubscription(userId, next);
-                    setPostNotifications(result.enabled);
-                  }); }} style={styles.menuItem}><Text style={styles.menuText}>{postNotifications ? 'Turn off post notifications' : 'Turn on post notifications'}</Text></Pressable>
+                  <Pressable disabled={!postNotificationsLoaded} onPress={() => { setMenuOpen(false); void togglePostNotifications(); }} style={styles.menuItem}><Text style={styles.menuText}>{postNotifications ? 'Turn off post notifications' : 'Turn on post notifications'}</Text></Pressable>
                 ) : null}
                 <View style={styles.menuDivider} />
                 <Pressable onPress={confirmBlock} style={styles.menuItem}><Text style={styles.menuDanger}>{blocked ? '⊘  Unblock user' : '⊘  Block user'}</Text></Pressable>
@@ -138,16 +154,28 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
             ) : null}
           </View>
           <View style={styles.nameLine}><Text style={styles.name}>{name}</Text>{verificationStatus?.isVerified === true ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>
-          {verificationStatus?.isVerified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verificationBadge}>★ Blue Star Verified</Text> : null}
           {person?.bio ? <Text style={styles.bio}>{person.bio}</Text> : null}
           {links ? <ProfileLinkChips links={links} /> : null}
-          <Text style={styles.address}>{address.slice(0, 10)}…{address.slice(-8)}</Text>
+          <View style={styles.addressRow}>
+            <Text style={styles.walletGlyph} accessibilityElementsHidden>▱</Text>
+            <Text style={styles.address} numberOfLines={1}>{address.slice(0, 10)}…{address.slice(-8)}</Text>
+            <Pressable onPress={() => { Clipboard.setString(address); kivoAlert('Kivo', 'Wallet address copied.'); }} accessibilityRole="button" accessibilityLabel="Copy wallet address" hitSlop={8} style={styles.copyAddressButton}><Text style={styles.copyAddressGlyph}>⧉</Text></Pressable>
+          </View>
           <View style={styles.stats}>
             <Stat value={stats?.following} label="Following" onPress={() => onOpenConnections?.('following')} />
             <Stat value={stats?.followers} label="Followers" onPress={() => onOpenConnections?.('followers')} />
             <Stat value={stats?.groups} label="Groups" />
             <Stat value={0} label="Trades" glyph="⇄" />
           </View>
+          {mutuals && mutuals.count > 0 ? (
+            <Pressable onPress={() => onOpenConnections?.('known')} accessibilityRole="button" accessibilityLabel={mutuals.count + ' mutuals following'} style={styles.mutualsRow}>
+              <View style={styles.mutualAvatars}>
+                {mutuals.users.slice(0, 3).map((user, index) => <View key={user.userId} style={[styles.mutualAvatar, index > 0 && styles.mutualAvatarOverlap]}><Avatar name={user.username ? '@' + user.username : shortWallet(user.address)} uri={user.avatarUrl} size={25} /></View>)}
+              </View>
+              <Text style={styles.mutualsLabel}>{mutuals.count} mutual{mutuals.count === 1 ? '' : 's'} following</Text>
+              <Text style={styles.mutualsChevron}>›</Text>
+            </Pressable>
+          ) : null}
           <View style={styles.joinedMeta}>
             <Text style={styles.joinedMetaText}>›  Joined {person?.createdAt ? new Date(person.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'Kivo'}</Text>
           </View>
@@ -157,12 +185,8 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
             </Pressable>
             <Pressable onPress={() => guard(async () => onOpenChat(await openDirectMessage(person?.address ?? address)))} style={[styles.button, styles.secondary]}><Text style={styles.secondaryText}>Message</Text></Pressable>
             {api.signedInUserId() && api.signedInUserId() !== userId ? (
-              <Pressable disabled={!postNotificationsLoaded} onPress={() => guard(async () => {
-                const next = !postNotifications;
-                const result = await api.setFeedPostNotificationSubscription(userId, next);
-                setPostNotifications(result.enabled);
-              })} accessibilityRole="button" accessibilityLabel={postNotifications ? 'Turn off post notifications' : 'Turn on post notifications'} style={[styles.notifyButton, { opacity: postNotificationsLoaded ? 1 : 0.55 }]}>
-                <Text style={styles.notifyGlyph}>🔔</Text>
+              <Pressable disabled={!postNotificationsLoaded} onPress={togglePostNotifications} accessibilityRole="button" accessibilityLabel={postNotifications ? 'Turn off post notifications' : 'Turn on post notifications'} accessibilityState={{ checked: postNotifications, disabled: !postNotificationsLoaded }} style={[styles.notifyButton, postNotifications && styles.notifyButtonActive, { opacity: postNotificationsLoaded ? 1 : 0.55 }]}>
+                <Text style={[styles.notifyGlyph, postNotifications && styles.notifyGlyphActive]}>{postNotifications ? '🔔' : '🔕'}</Text>
               </Pressable>
             ) : null}
           </View>
@@ -177,6 +201,11 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
         )}
         <ProfilePostsTimeline userId={userId} />
       </ScrollView>
+      {notificationToast ? (
+        <View pointerEvents="none" accessibilityRole="alert" style={styles.notificationToast}>
+          <Text style={styles.notificationToastText}>{notificationToast}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -207,9 +236,18 @@ const styles = StyleSheet.create({
   nameLine: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   verifiedBadge: { color: '#FFFFFF', backgroundColor: '#2589F5', fontSize: 11, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center', width: 18, height: 18, borderRadius: 5, overflow: 'hidden' },
   name: { color: c.text, fontSize: 22, fontWeight: '800' },
-  verificationBadge: { color: '#C9F7A6', fontSize: 11, fontWeight: '900', textAlign: 'left', alignSelf: 'flex-start', backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: '#C9F7A6', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
   bio: { color: c.text, fontSize: 14, textAlign: 'left' },
-  address: { color: c.textMuted, fontSize: 12, alignSelf: 'flex-start', borderWidth: 0, borderColor: 'transparent', borderRadius: 0, paddingHorizontal: 0, paddingVertical: 0, backgroundColor: 'transparent' },
+  addressRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 7, backgroundColor: 'transparent', borderWidth: 0, paddingVertical: 1 },
+  walletGlyph: { color: c.textMuted, fontSize: 16 },
+  address: { color: c.textMuted, fontSize: 12, flexShrink: 1, borderWidth: 0, borderColor: 'transparent', borderRadius: 0, paddingHorizontal: 0, paddingVertical: 0, backgroundColor: 'transparent' },
+  copyAddressButton: { paddingHorizontal: 2, paddingVertical: 2 },
+  copyAddressGlyph: { color: c.textMuted, fontSize: 16 },
+  mutualsRow: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 7, paddingVertical: 2, maxWidth: '100%' },
+  mutualAvatars: { flexDirection: 'row', alignItems: 'center' },
+  mutualAvatar: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: c.background, overflow: 'hidden' },
+  mutualAvatarOverlap: { marginLeft: -8 },
+  mutualsLabel: { color: c.textMuted, fontSize: 12, fontWeight: '700' },
+  mutualsChevron: { color: c.textMuted, fontSize: 20, marginTop: -2 },
   joinedMeta: { alignSelf: 'flex-start', paddingTop: 1 },
   joinedMetaText: { color: c.textMuted, fontSize: 12 },
   stats: { flexDirection: 'row', alignSelf: 'stretch', backgroundColor: 'transparent', borderRadius: 0, borderWidth: 0, paddingVertical: 3, marginTop: 0 },
@@ -224,7 +262,11 @@ const styles = StyleSheet.create({
   secondary: { backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border },
   secondaryText: { color: c.text, fontWeight: '800' },
   notifyButton: { width: 42, height: 40, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border },
+  notifyButtonActive: { backgroundColor: 'rgba(201, 247, 166, 0.16)', borderColor: '#C9F7A6' },
   notifyGlyph: { color: c.text, fontSize: 18, fontWeight: '800' },
+  notifyGlyphActive: { color: '#C9F7A6' },
+  notificationToast: { position: 'absolute', top: 48, left: 20, right: 20, zIndex: 50, elevation: 12, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.accent, borderRadius: 18, paddingHorizontal: 18, paddingVertical: 14, shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 12, shadowOffset: { width: 0, height: 5 } },
+  notificationToastText: { color: c.cream, fontSize: 15, lineHeight: 22, fontWeight: '800', textAlign: 'center' },
   note: { color: c.textMuted, fontSize: 11.5, textAlign: 'center' },
   section: { alignSelf: 'flex-start', color: c.text, fontSize: 17, fontWeight: '800', marginTop: 12 },
   strip: { gap: 10 },
