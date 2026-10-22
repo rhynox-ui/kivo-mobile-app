@@ -32,7 +32,9 @@ export class ApiError extends Error {
 }
 
 export type KivoApiOptions = {baseUrl: string; storage: KeyValueStorage; sessionStorage?: KeyValueStorage; client: 'web' | 'mobile'};
-const SESSION_KEY = 'kivo:api-session:v1';
+const LEGACY_SESSION_KEY = 'kivo:api-session:v1';
+const sessionKey = (address: string) => `kivo_chat_session_${normalizeWalletAddress(address)}`;
+type StoredApiSession = {authenticated?: true; token: string; signedAt?: number; expiresAt: number; address: string};
 const VERIFICATION_TTL_MS = 60_000;
 export type VerificationStatus = {isVerified: boolean; permanent: boolean; expiresAt: number | null; plan: 'monthly' | 'annual' | null; chain?: string};
 
@@ -41,7 +43,7 @@ export class KivoApi {
   private storage: KeyValueStorage;
   private sessionStorage: KeyValueStorage;
   private client: 'web' | 'mobile';
-  private session: {token: string; expiresAt: number; address: string} | null = null;
+  private session: StoredApiSession | null = null;
   private sessionGeneration = 0;
   private verificationCache = new Map<string, {at: number; value: VerificationStatus}>();
   private verificationInFlight = new Map<string, Promise<VerificationStatus>>();
@@ -50,18 +52,26 @@ export class KivoApi {
   private listeners = new Set<() => void>();
 
   constructor(options: KivoApiOptions) { this.baseUrl = options.baseUrl.replace(/\/$/, ''); this.storage = options.storage; this.sessionStorage = options.sessionStorage ?? options.storage; this.client = options.client; }
-  private async writeSessionStorage(generation: number, value: string | null): Promise<boolean> {
+  private async writeSessionStorage(generation: number, address: string, value: string | null): Promise<boolean> {
+    const key = sessionKey(address);
     const operation = this.sessionWriteQueue.then(async () => {
       if (generation !== this.sessionGeneration) return false;
       if (value === null) {
-        await this.sessionStorage.removeItem?.(SESSION_KEY);
+        await this.sessionStorage.removeItem?.(key);
+        try {
+          const legacyRaw = await this.sessionStorage.getItem(LEGACY_SESSION_KEY);
+          const legacy = legacyRaw ? JSON.parse(legacyRaw) as StoredApiSession : null;
+          if (legacy?.address === address) await this.sessionStorage.removeItem?.(LEGACY_SESSION_KEY);
+        } catch { /* malformed legacy state is ignored */ }
       } else {
-        await this.sessionStorage.setItem(SESSION_KEY, value);
-        // Storage writes cannot be cancelled. If the wallet changed while
-        // setItem was pending, remove the stale value before the next queued
-        // write/restore is allowed to proceed.
+        await this.sessionStorage.setItem(key, value);
+        try {
+          const legacyRaw = await this.sessionStorage.getItem(LEGACY_SESSION_KEY);
+          const legacy = legacyRaw ? JSON.parse(legacyRaw) as StoredApiSession : null;
+          if (legacy?.address === address) await this.sessionStorage.removeItem?.(LEGACY_SESSION_KEY);
+        } catch { /* malformed legacy state is ignored */ }
         if (generation !== this.sessionGeneration) {
-          await this.sessionStorage.removeItem?.(SESSION_KEY);
+          await this.sessionStorage.removeItem?.(key);
           return false;
         }
       }
@@ -84,10 +94,22 @@ export class KivoApi {
     try {
       await this.sessionWriteQueue;
       if (generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) return false;
-      const raw = await this.sessionStorage.getItem(SESSION_KEY);
-      const saved = raw ? JSON.parse(raw) as {token: string; expiresAt: number; address: string} : null;
+      let raw = await this.sessionStorage.getItem(sessionKey(normalizedAddress));
+      let saved = raw ? JSON.parse(raw) as StoredApiSession : null;
+      if (!saved) {
+        const legacyRaw = await this.sessionStorage.getItem(LEGACY_SESSION_KEY);
+        const legacy = legacyRaw ? JSON.parse(legacyRaw) as StoredApiSession : null;
+        if (legacy?.address === normalizedAddress) { saved = legacy; raw = legacyRaw; }
+      }
       if (generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) return false;
-      if (saved && saved.address === normalizedAddress && saved.expiresAt > Date.now() + 60_000 && /^kv_[0-9a-f]{64}$/.test(saved.token)) this.session = saved;
+      if (saved && saved.address === normalizedAddress && saved.expiresAt > Date.now() + 60_000 && /^kv_[0-9a-f]{64}$/.test(saved.token)) {
+        const restored = {authenticated: true as const, signedAt: saved.signedAt ?? Date.now(), token: saved.token, expiresAt: saved.expiresAt, address: normalizedAddress};
+        if (raw && await this.sessionStorage.getItem(sessionKey(normalizedAddress)) === null) {
+          const migrated = await this.writeSessionStorage(generation, normalizedAddress, JSON.stringify(restored));
+          if (!migrated || generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) return false;
+        }
+        this.session = restored;
+      }
     } catch {}
     if (generation === this.sessionGeneration) this.emit();
     return generation === this.sessionGeneration && Boolean(this.session);
@@ -137,8 +159,8 @@ export class KivoApi {
     if (generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) throw new ApiError(409, 'Wallet changed during sign-in. Please try again.');
     const session = await this.request<AuthSession>('POST', '/api/auth/verify', {address, nonce: challenge.nonce, signature}, false);
     if (generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) throw new ApiError(409, 'Wallet changed during sign-in. Please try again.');
-    const nextSession = {token: session.token, expiresAt: session.expiresAt, address: normalizedAddress};
-    const persisted = await this.writeSessionStorage(generation, JSON.stringify(nextSession));
+    const nextSession = {authenticated: true as const, signedAt: Date.now(), token: session.token, expiresAt: session.expiresAt, address: normalizedAddress};
+    const persisted = await this.writeSessionStorage(generation, normalizedAddress, JSON.stringify(nextSession));
     if (!persisted || generation !== this.sessionGeneration || this.activeAddress !== normalizedAddress) throw new ApiError(409, 'Wallet changed during sign-in. Please try again.');
     this.session = nextSession;
     this.emit();
@@ -153,7 +175,7 @@ export class KivoApi {
     // new session; never clear it as a side effect of this older operation.
     if (generation !== this.sessionGeneration || this.session?.token !== sessionAtSignOut?.token) return;
     this.session = null;
-    await this.writeSessionStorage(generation, null);
+    await this.writeSessionStorage(generation, sessionAtSignOut?.address ?? this.activeAddress ?? '', null);
     if (generation === this.sessionGeneration) this.emit();
   }
 
@@ -178,7 +200,7 @@ export class KivoApi {
       if (response.status === 401 && sessionAtRequest && this.session?.token === sessionAtRequest.token) {
         const generation = ++this.sessionGeneration;
         this.session = null;
-        void this.writeSessionStorage(generation, null).then(() => { if (generation === this.sessionGeneration) this.emit(); });
+        void this.writeSessionStorage(generation, sessionAtRequest.address, null).then(() => { if (generation === this.sessionGeneration) this.emit(); });
       }
       throw new ApiError(response.status, data?.error ?? `Request failed (${response.status}).`);
     }
