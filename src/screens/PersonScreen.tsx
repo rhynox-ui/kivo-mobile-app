@@ -11,7 +11,7 @@ import { CallStatsCard } from '../components/CallStatsCard';
 import { ProfilePostsTimeline } from '../components/ProfilePostsTimeline';
 
 /** Another member's public profile: follow, message, public groups. Display data only — never proof of wallet ownership. */
-export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { userId: string; onBack: () => void; onOpenChat: (id: string) => void; onOpenCommunity: (id: string) => void }) {
+export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOpenConnections }: { userId: string; onBack: () => void; onOpenChat: (id: string) => void; onOpenCommunity: (id: string) => void; onOpenConnections?: (kind: 'followers' | 'following') => void }) {
   const [person, setPerson] = useState<ApiProfile | null>(null);
   const [stats, setStats] = useState<ProfileSocial | null>(null);
   const [groups, setGroups] = useState<PublicCommunityCard[]>([]);
@@ -103,8 +103,8 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
         {links ? <ProfileLinkChips links={links} /> : null}
         <Text style={styles.address}>{address.slice(0, 10)}…{address.slice(-8)}</Text>
         <View style={styles.stats}>
-          <Stat value={stats?.following} label="Following" />
-          <Stat value={stats?.followers} label="Followers" />
+          <Stat value={stats?.following} label="Following" onPress={() => onOpenConnections?.('following')} />
+          <Stat value={stats?.followers} label="Followers" onPress={() => onOpenConnections?.('followers')} />
           <Stat value={stats?.groups} label="Groups" />
         </View>
         <View style={styles.actions}>
@@ -140,8 +140,8 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity }: { 
   );
 }
 
-function Stat({ value, label }: { value: number | undefined; label: string }) {
-  return <View style={styles.stat}><Text style={styles.statValue}>{value ?? '–'}</Text><Text style={styles.statLabel}>{label}</Text></View>;
+function Stat({ value, label, onPress }: { value: number | undefined; label: string; onPress?: () => void }) {
+  return <Pressable onPress={onPress} accessibilityRole={onPress ? 'button' : undefined} style={styles.stat}><Text style={styles.statValue}>{value ?? '–'}</Text><Text style={styles.statLabel}>{label}</Text></Pressable>;
 }
 
 const c = kivoTheme.colors;
