@@ -24,6 +24,7 @@ import { LegacyMigrationScreen } from '../screens/LegacyMigrationScreen';
 import { PasswordSetupScreen } from '../screens/PasswordSetupScreen';
 import { ProfileSetupScreen } from '../screens/ProfileSetupScreen';
 import { MainShell } from '../screens/MainShell';
+import { ChatOnboardingModal } from '../components/ChatOnboardingModal';
 import { kivoTheme } from '../theme/kivoTheme';
 import { getWalletSession, clearLocalWallet, lockWalletSession } from '../state/walletStore';
 import { api, hasExistingProfile, startKivoSession } from '../state/session';
@@ -365,13 +366,16 @@ export function RootNavigator() {
         />
         <Stack.Screen name="Home">
           {({ navigation }) => (
-            <MainShell
-              onLogout={async () => {
-                await api.signOut();
-                await clearLocalWallet();
-                navigation.replace('WalletSetup');
-              }}
-            />
+            <>
+              <MainShell
+                onLogout={async () => {
+                  await api.signOut();
+                  await clearLocalWallet();
+                  navigation.replace('WalletSetup');
+                }}
+              />
+              <ChatOnboardingModal />
+            </>
           )}
         </Stack.Screen>
       </Stack.Navigator>
