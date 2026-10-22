@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Clipboard from '@react-native-clipboard/clipboard';
-import { AppState, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
+import { AppState, Dimensions, FlatList, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions, type TextStyle } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { kivoAlert } from '../components/KivoAlert';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -180,6 +180,20 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const [reactingTo, setReactingTo] = useState<LocalMessage | null>(null);
   const profile = useProfile();
   const [draft, setDraft] = useState('');
+  // Some Android edge-to-edge devices report the keyboard overlay without
+  // resizing the React Native window. Measure both values and only add the
+  // portion of the keyboard height that native adjustResize did not account for.
+  const initialWindowHeight = useRef(Dimensions.get('window').height);
+  const { height: windowHeight } = useWindowDimensions();
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', event => setKeyboardHeight(event.endCoordinates.height));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+  const androidKeyboardInset = Platform.OS === 'android'
+    ? Math.max(0, keyboardHeight - Math.max(0, initialWindowHeight.current - windowHeight))
+    : 0;
   const [pollComposerOpen,setPollComposerOpen]=useState(false),[pollQuestion,setPollQuestion]=useState(''),[pollDescription,setPollDescription]=useState(''),[pollOptions,setPollOptions]=useState(['','']),[pollSettings,setPollSettings]=useState<PollSettings>({...DEFAULT_POLL_SETTINGS}),[pollDuration,setPollDuration]=useState<number|null>(null),[pollSending,setPollSending]=useState(false);
   const [tokenAttachmentOpen, setTokenAttachmentOpen] = useState(false);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
@@ -505,7 +519,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const subtitle = !state.online ? 'Offline — will sync when back' : conversation?.kind === 'dm' ? (conversation.peer ? shortWallet(conversation.peer.address) : 'Direct message') : isChannel ? 'Channel' : 'Group';
 
   return (
-    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <KeyboardAvoidingView style={[styles.root, Platform.OS === 'android' && androidKeyboardInset > 0 ? { paddingBottom: androidKeyboardInset } : null]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.header}>
         <Pressable onPress={onBack} hitSlop={10} accessibilityLabel="Back"><Text style={styles.back}>‹</Text></Pressable>
         <Pressable onPress={() => conversation?.kind === 'dm' && conversation.peer?.userId ? onOpenPerson?.(conversation.peer.userId) : conversation && conversation.kind !== 'dm' ? onOpenInfo?.(id, conversation.kind) : undefined} accessibilityLabel={conversation?.kind === 'dm' ? 'View user profile' : 'Open conversation info'}>
