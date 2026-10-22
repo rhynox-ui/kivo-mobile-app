@@ -3,11 +3,13 @@ package com.kivo.chat
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.messaging.FirebaseMessaging
@@ -18,7 +20,30 @@ import com.google.firebase.messaging.FirebaseMessaging
  * values in release builds to enable device token registration.
  */
 class KivoPushModule(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
+  companion object {
+    @Volatile private var activeContext: ReactApplicationContext? = null
+    fun emitTradeRoute(intent: Intent) {
+      val route = intent.getStringExtra("route") ?: intent.getStringExtra("href") ?: return
+      if (!route.startsWith("kivo://trade") && !route.startsWith("https://kivotrade.site/activity")) return
+      val reactContext = activeContext ?: return
+      runCatching {
+        if (reactContext.hasActiveReactInstance()) {
+          reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            .emit("KivoTradePushOpened", route)
+        }
+      }
+    }
+  }
+
+  init { activeContext = context }
+
   override fun getName() = "KivoPushModule"
+
+  @ReactMethod
+  fun addListener(eventName: String) { /* Required by NativeEventEmitter. */ }
+
+  @ReactMethod
+  fun removeListeners(count: Int) { /* Required by NativeEventEmitter. */ }
 
   private fun ensureFirebaseApp(): FirebaseApp? {
     FirebaseApp.getApps(context).firstOrNull()?.let { return it }
