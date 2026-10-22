@@ -7,6 +7,8 @@ const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.me
 const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));
 
 assert.equal(packageJson.overrides?.uuid, "11.1.1", "uuid override must stay on patched 11.1.1");
+assert.equal(packageJson.overrides?.toml, "5.0.1", "toml override must stay on patched 5.0.1");
+assert.equal(lock.packages["node_modules/toml"]?.version, "5.0.1", "lockfile must resolve patched toml 5.0.1");
 assert.equal(packageJson.dependencies?.["bigint-buffer"], "file:vendor/bigint-buffer-safe", "bigint-buffer must use the vendored input-validation replacement");
 assert.equal(lock.packages["node_modules/bigint-buffer"]?.link, true, "bigint-buffer must link to the local replacement");
 assert.equal(lock.packages["vendor/bigint-buffer-safe"]?.version, "1.1.6", "local bigint-buffer replacement must stay pinned");
