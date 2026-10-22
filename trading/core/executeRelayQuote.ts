@@ -554,29 +554,72 @@ export async function signAndSendSponsoredSolanaStep(
 
   const {blockhash} = await connection.getLatestBlockhash('confirmed');
 
-  // Rent the sponsor pays for a brand-new WSOL account (a route's GOMO ->
-  // WSOL -> USDC hop) comes straight back: the emptied account is closed to
-  // the sponsor at the end of the same transaction. Only accounts this
-  // transaction itself creates are closed, so a user's existing WSOL is never
-  // touched. Dropped if the transaction does not simulate cleanly with it.
+  // A new WSOL ATA is often closed by Jupiter's own cleanup instruction.
+  // Appending a second CloseAccount makes simulation fail, leaving Jupiter's
+  // original close-to-user in place; the sponsor backend correctly rejects
+  // that pattern because Kivo funded the ATA rent. For swaps whose output is
+  // NOT SOL/WSOL, route cleanup returns only the empty account's rent, so
+  // redirect that close to Kivo. Never redirect a WSOL output close: that
+  // destination carries the user's swap proceeds.
   const closedBackAtas = new Set<string>();
   let baseInstructions = rewrittenInstructions;
   try {
-    const closes: InstanceType<typeof TransactionInstruction>[] = [];
+    const newWsolAtas = new Set<string>();
     for (const ix of instructions) {
       if (ix.programId.toBase58() !== ASSOCIATED_TOKEN_PROGRAM_ID || ix.keys.length < 4) continue;
+      const createTag = ix.data.length === 0 ? 0 : ix.data.length === 1 ? ix.data[0] : -1;
+      if (createTag !== 0 && createTag !== 1) continue;
       const [, ata, owner, mint] = ix.keys.map(key => key.pubkey);
-      if (mint.toBase58() !== WSOL_MINT || !owner.equals(signer.publicKey) || closedBackAtas.has(ata.toBase58())) continue;
-      if (await connection.getAccountInfo(ata, 'confirmed')) continue; // already the user's: never close it
-      closes.push(splToken.createCloseAccountInstruction(ata, feePayerPubkey, signer.publicKey));
-      closedBackAtas.add(ata.toBase58());
+      if (mint.toBase58() !== WSOL_MINT || !owner.equals(signer.publicKey)) continue;
+      if (await connection.getAccountInfo(ata, 'confirmed')) continue; // existing user ATA: never redirect or close it
+      newWsolAtas.add(ata.toBase58());
     }
-    if (closes.length) {
-      const withCloses = [...rewrittenInstructions, ...closes];
+
+    const outputIsNativeSol = spendIntent?.expectedOutputMint === SYSTEM_PROGRAM_ID
+      || spendIntent?.expectedOutputMint === WSOL_MINT;
+    const routeClosedAtas = new Set<string>();
+    let redirectedClose = false;
+    const normalizedInstructions = rewrittenInstructions.map(ix => {
+      const program = ix.programId.toBase58();
+      if ((program !== 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
+        && program !== 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb')
+        || ix.data.length !== 1 || ix.data[0] !== 9 || ix.keys.length < 3) return ix;
+      const ata = ix.keys[0].pubkey.toBase58();
+      if (!newWsolAtas.has(ata)) return ix;
+      routeClosedAtas.add(ata);
+      // Only rewrite a Jupiter-style close that returns the emptied WSOL
+      // account to this user and is authorized by this same user.
+      if (outputIsNativeSol || !ix.keys[1].pubkey.equals(signer.publicKey)
+        || !ix.keys[2].pubkey.equals(signer.publicKey)) return ix;
+      const keys = ix.keys.map((key, index) => index === 1
+        ? {...key, pubkey: feePayerPubkey}
+        : key);
+      closedBackAtas.add(ata);
+      redirectedClose = true;
+      return new TransactionInstruction({programId: ix.programId, keys, data: ix.data});
+    });
+
+    const closes: InstanceType<typeof TransactionInstruction>[] = [];
+    // If Jupiter didn't include cleanup, close the newly created empty WSOL
+    // ATA once. Do not append a duplicate CloseAccount instruction.
+    if (!outputIsNativeSol) {
+      for (const ataAddress of newWsolAtas) {
+        if (routeClosedAtas.has(ataAddress)) continue;
+        const ata = new PublicKey(ataAddress);
+        closes.push(splToken.createCloseAccountInstruction(ata, feePayerPubkey, signer.publicKey));
+        closedBackAtas.add(ataAddress);
+      }
+    }
+
+    if (redirectedClose || closes.length) {
+      const withCloses = [...normalizedInstructions, ...closes];
       const probe = new VersionedTransaction(new TransactionMessage({payerKey: feePayerPubkey, instructions: withCloses, recentBlockhash: blockhash}).compileToV0Message(lookupTables));
       const simulation = await simulationConnection.simulateTransaction(probe, {sigVerify: false, replaceRecentBlockhash: true});
       if (!simulation.value.err) baseInstructions = withCloses;
-      else closedBackAtas.clear();
+      else {
+        closedBackAtas.clear();
+        void recordDiagnosticEvent('sponsorshipRecovery.wsol-close-skipped', new Error(JSON.stringify(simulation.value.err)));
+      }
     }
   } catch (err) {
     closedBackAtas.clear();
