@@ -29,3 +29,52 @@ export function rewriteAccountCreationFundingInstructions(
     return new TransactionInstructionCtor({keys, programId: ix.programId, data: ix.data});
   });
 }
+
+
+const TOKEN_PROGRAM_IDS = new Set([
+  'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+  'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
+]);
+
+/**
+ * Redirect cleanup of a newly created temporary WSOL account to the sponsor
+ * only when the swap's output is not SOL/WSOL. The account list must already
+ * have been checked against chain state so existing user accounts are never
+ * included. Never redirect the close authority or the swap's output proceeds.
+ */
+export function rewriteTemporaryWsolCloseInstructions(
+  instructions: TransactionInstruction[],
+  temporaryWsolAtaAddresses: ReadonlySet<string>,
+  userPubkey: PublicKey,
+  sponsorPubkey: PublicKey,
+  outputIsNativeSol: boolean,
+  TransactionInstructionCtor: typeof import('@solana/web3.js').TransactionInstruction,
+): {
+  instructions: TransactionInstruction[];
+  routeClosedAtas: Set<string>;
+  closedBackAtas: Set<string>;
+  redirectedClose: boolean;
+} {
+  const routeClosedAtas = new Set<string>();
+  const closedBackAtas = new Set<string>();
+  let redirectedClose = false;
+  const rewritten = instructions.map(ix => {
+    if (!TOKEN_PROGRAM_IDS.has(ix.programId.toBase58())
+      || ix.data.length !== 1 || ix.data[0] !== 9 || ix.keys.length < 3) return ix;
+    const ata = ix.keys[0].pubkey.toBase58();
+    if (!temporaryWsolAtaAddresses.has(ata)) return ix;
+    routeClosedAtas.add(ata);
+
+    if (outputIsNativeSol
+      || !ix.keys[1].pubkey.equals(userPubkey)
+      || !ix.keys[2].pubkey.equals(userPubkey)) return ix;
+
+    const keys = ix.keys.map((key, index) => index === 1
+      ? {...key, pubkey: sponsorPubkey}
+      : key);
+    closedBackAtas.add(ata);
+    redirectedClose = true;
+    return new TransactionInstructionCtor({programId: ix.programId, keys, data: ix.data});
+  });
+  return {instructions: rewritten, routeClosedAtas, closedBackAtas, redirectedClose};
+}
