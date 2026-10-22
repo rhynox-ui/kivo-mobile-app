@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Image, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { KivoMark } from '../components/KivoMark';
+import { profileAvatarBorderRadius } from '../components/profileAvatar';
 import { LineChart } from '../components/LineChart';
 import { TokenIcon } from '../components/TokenIcon';
 import { NetworkIcon } from '../wallet/NetworkIcon';
@@ -307,7 +308,7 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
       <View style={styles.identity}>
         <View style={styles.avatarRow}>
           <Pressable onPress={onEditProfile} style={styles.avatarWrap} accessibilityLabel="Edit profile">
-            {profile.avatarUri ? <Image source={{ uri: profile.avatarUri }} style={[styles.avatar, { borderRadius: verificationStatus?.isVerified === true ? 8 : 38 }]} /> : <View style={[styles.avatar, { borderRadius: verificationStatus?.isVerified === true ? 8 : 38 }]}><KivoMark size={70} /></View>}
+            {profile.avatarUri ? <Image source={{ uri: profile.avatarUri }} style={[styles.avatar, { borderRadius: profileAvatarBorderRadius(76, verificationStatus?.isVerified === true) }]} /> : <View style={[styles.avatar, { borderRadius: verificationStatus?.isVerified === true ? 8 : 38 }]}><KivoMark size={70} /></View>}
             <View style={styles.editDot}><Text style={styles.editDotText}>✎</Text></View>
           </Pressable>
           <View style={styles.identityActions}>
