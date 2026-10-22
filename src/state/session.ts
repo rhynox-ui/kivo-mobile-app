@@ -7,7 +7,7 @@ import { configureMarketHosts } from '@kivo/trading/core/marketHosts';
 import { configureGaslessStatusUrl } from '@kivo/trading/kivo/gasless';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
-import { AppState } from 'react-native';
+import { AppState, NativeModules, Platform } from 'react-native';
 import { useEffect, useState } from 'react';
 import type { KeyValueStorage } from '@kivo/shared/storage';
 import { KivoApi } from '@kivo/shared/api/client';
@@ -15,6 +15,7 @@ import { activateChat, configureChat, startChatSync, stopChatSync } from '@kivo/
 import { activateProfileForWallet, configureProfileStore, getProfile, hasSavedProfile, updateProfile } from '@kivo/shared/profile/store';
 import { activateTradeHistory, configureTradeHistory } from '@kivo/trading/kivo/history';
 import { addNotification, setNotificationOwner } from './notificationStore';
+import { requestNotificationPermission } from '../notifications/localNotify';
 import { ed25519 } from '@noble/curves/ed25519';
 import bs58 from 'bs58';
 import { getWalletSession, requireSolana, subscribeToWallet, walletUnlockedOnDevice, withDeviceAccounts } from './walletStore';
@@ -49,6 +50,20 @@ export const storage: KeyValueStorage = {
 };
 
 export const api = new KivoApi({ baseUrl: KIVO_API_BASE_URL, storage, sessionStorage: secureSessionStorage, client: 'mobile' });
+
+/** Register this install's native FCM token against the currently authenticated Kivo wallet. */
+async function registerPushTokenForSession(): Promise<void> {
+  const native = NativeModules.KivoPushModule as {getToken?: () => Promise<string>} | undefined;
+  if (!api.signedInUserId() || typeof native?.getToken !== 'function') return;
+  try {
+    if (!(await requestNotificationPermission())) return;
+    const token = await native.getToken();
+    if (token) await api.registerPushDevice(token, Platform.OS === 'ios' ? 'ios' : 'android');
+  } catch {
+    // FCM is optional until the Firebase app config is present in the native build.
+  }
+}
+
 
 let started = false;
 let lastAddress: string | null | undefined;
@@ -120,7 +135,7 @@ export async function startKivoSession() {
   AppState.addEventListener('change', syncChatForAppState);
   // Link the device's Solana wallet to the account once (for Solana holder gates).
   subscribeToWallet(() => autoLinkSolana());
-  api.onSessionChange(() => autoLinkSolana());
+  api.onSessionChange(() => { autoLinkSolana(); void registerPushTokenForSession(); });
   subscribeToWallet(wallet => {
     const address = wallet?.address ?? null;
     if (address?.toLowerCase() === lastAddress?.toLowerCase()) return;
@@ -147,6 +162,7 @@ export async function startKivoSession() {
           return;
         }
         void pullServerProfile();
+        void registerPushTokenForSession();
         syncChatForAppState();
       }
     }).catch(() => {
@@ -188,6 +204,7 @@ export async function enableSocial() {
   if (!wallet) throw new Error('Set up a wallet first.');
   await api.signIn(wallet.address, message => signKivoMessage(message, 'sign-in'));
   await pullServerProfile();
+  await registerPushTokenForSession();
   syncChatForAppState();
 }
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, BackHandler, Linking, NativeEventEmitter, NativeModules, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChatListScreen } from './ChatListScreen';
 import type { TradeChain } from '@kivo/trading/core/chainData';
 import { FeedScreen } from './FeedScreen';
@@ -87,6 +87,27 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
     });
     return () => subscription.remove();
   }, [stack.length, back]);
+  // A followed-trade push opens the activity/history screen from cold start or foreground.
+  useEffect(() => {
+    let active = true;
+    const openTradeActivity = () => setStack(current => current.length > 1 && current[current.length - 1]?.name === 'activity'
+      ? current
+      : [...current.filter(item => item.name !== 'activity'), { name: 'activity' }]);
+    const native = NativeModules.KivoPushModule as { getInitialTradeRoute?: () => Promise<string | null> } | undefined;
+    const isTradeRoute = (route: string | null | undefined) => Boolean(route && (route.startsWith('kivo://trade') || route.startsWith('https://kivotrade.site/activity')));
+    const checkInitialRoute = () => void native?.getInitialTradeRoute?.().then(route => {
+      if (active && isTradeRoute(route)) openTradeActivity();
+    }).catch(() => {});
+    checkInitialRoute();
+    const appState = AppState.addEventListener('change', state => { if (state === 'active') checkInitialRoute(); });
+    const subscription = Linking.addEventListener('url', event => { if (isTradeRoute(event.url)) openTradeActivity(); });
+    const pushEmitter = native ? new NativeEventEmitter(NativeModules.KivoPushModule) : null;
+    const pushSubscription = pushEmitter?.addListener('KivoTradePushOpened', (route: unknown) => {
+      if (typeof route === 'string' && isTradeRoute(route)) openTradeActivity();
+    });
+    return () => { active = false; appState.remove(); subscription.remove(); pushSubscription?.remove(); };
+  }, []);
+
   // A referral link (kivotrade.site/r/<username>) opened while signed in: offer
   // "Who referred you?" pre-filled, only while the account can still set one.
   useEffect(() => {
