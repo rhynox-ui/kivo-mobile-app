@@ -423,7 +423,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
       const pollAuthor = Boolean(message.poll && !message.deleted && conversation?.kind !== 'dm');
       out.push({ type: 'message', key: message.id, message,
         showName: conversation?.kind !== 'dm' && (pollAuthor || (message.senderId !== me && visibleMessages[index - 1]?.senderId !== message.senderId)),
-        showAvatar: conversation?.kind !== 'dm' && (pollAuthor || (conversation?.kind === 'group' && message.senderId !== me && visibleMessages[index + 1]?.senderId !== message.senderId)) });
+        showAvatar: conversation?.kind !== 'dm' && conversation?.kind !== 'channel' && (pollAuthor || (conversation?.kind === 'group' && message.senderId !== me && visibleMessages[index + 1]?.senderId !== message.senderId)) });
     });
     return out;
   }, [messages, conversation?.kind, me, firstUnreadId]);
