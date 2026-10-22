@@ -384,16 +384,20 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       // Network failure is intentionally isolated from the completed trade UI.
       if (outcome.status === 'success' && outcome.txHashes[0]) {
         const isBuy = side === 'buy';
-        void api.notifyTradeFollowers({
-          chain: token.chainKey,
-          txHash: outcome.txHashes[0],
-          side: isBuy ? 'buy' : 'sell',
-          tokenSymbol: token.symbol,
-          tokenAmount: isBuy ? done.receive.amount : done.pay.amount,
-          quoteSymbol: isBuy ? done.pay.symbol : done.receive.symbol,
-          quoteAmount: isBuy ? done.pay.amount : done.receive.amount,
-          tokenAddress: token.tokenAddress,
-        }).catch(error => console.warn('[kivo-push] Trade notification dispatch failed:', error));
+        const tokenAmount = isBuy ? done.receive.amount : done.pay.amount;
+        const quoteAmount = isBuy ? done.pay.amount : done.receive.amount;
+        if (tokenAmount && quoteAmount) {
+          void api.notifyTradeFollowers({
+            chain: token.chainKey,
+            txHash: outcome.txHashes[0],
+            side: isBuy ? 'buy' : 'sell',
+            tokenSymbol: token.symbol,
+            tokenAmount,
+            quoteSymbol: isBuy ? done.pay.symbol : done.receive.symbol,
+            quoteAmount,
+            tokenAddress: token.tokenAddress,
+          }).catch((error: unknown) => console.warn('[kivo-push] Trade notification dispatch failed:', error));
+        }
       }
       // Referral rewards: the server verifies each trade on-chain (no-op without a referrer). A leg
       // Relay is still settling is reported a little later.
