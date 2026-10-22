@@ -17,7 +17,7 @@ const TABS: {key: Kind; label: string}[] = [
 /** X-style profile connections, using Kivo's existing social API and avatar components. */
 export function ConnectionsScreen({userId, initialKind, onBack, onOpenPerson}: {
   userId: string;
-  initialKind: 'followers' | 'following';
+  initialKind: 'followers' | 'following' | 'known';
   onBack: () => void;
   onOpenPerson: (userId: string) => void;
 }) {
