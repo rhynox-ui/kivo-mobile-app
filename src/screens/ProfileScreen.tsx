@@ -13,6 +13,7 @@ import { updateSettings, useSettings } from '../state/settingsStore';
 import { hasProfileLinks, type ProfileLinks, type ProfileSocial } from '@kivo/shared/api/types';
 import { ProfileLinkChips } from '../components/ProfileLinks';
 import { CallStatsCard } from '../components/CallStatsCard';
+import { ProfilePostsTimeline } from '../components/ProfilePostsTimeline';
 import { CHAIN_LABEL, tradeChainLabel } from '@kivo/trading/core/chainData';
 import { subscribeToTradeHistory, type TradeRecord } from '@kivo/trading/kivo/history';
 import { chartTotal, closedPositions, computePortfolioChange, fetchPortfolio, filterHistoryByRange, getPortfolioHistory, missingSourceNames, openHoldings, recordPortfolioSnapshot, type ChartTotal, type Portfolio, type PortfolioRange, type PortfolioSnapshot } from '@kivo/trading/kivo/portfolio';
@@ -435,6 +436,8 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
         </Pressable>
       </View>
       {settings.hideSmallBalances && hiddenOpen.length > 0 ? <Pressable style={styles.showHiddenPill} onPress={() => updateSettings({hideSmallBalances: false})}><Text style={styles.showHiddenText}>Show hidden ({hiddenOpen.length})</Text></Pressable> : null}
+
+      <ProfilePostsTimeline userId={profile.userId} />
 
       <View style={styles.positionsHead}>
         <Text style={styles.sectionTitle}>Joined groups</Text>
