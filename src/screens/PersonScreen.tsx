@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { kivoAlert } from '../components/KivoAlert';
 import { hasProfileLinks, shortWallet, walletAddressOfUserId, type ApiProfile, type ProfileLinks, type ProfileSocial, type PublicCommunityCard } from '@kivo/shared/api/types';
 import { openDirectMessage, rememberProfiles } from '@kivo/shared/chat/store';
@@ -17,6 +17,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
   const [groups, setGroups] = useState<PublicCommunityCard[]>([]);
   const [verifiedChannels, setVerifiedChannels] = useState<Set<string>>(() => new Set());
   const [blocked, setBlocked] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [postNotifications, setPostNotifications] = useState(false);
   const [postNotificationsLoaded, setPostNotificationsLoaded] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<{isVerified: boolean; expiresAt: number | null; permanent: boolean} | null>(null);
@@ -92,40 +93,79 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
     finally { busyRef.current = false; }
   };
   const name = person?.username ? '@' + person.username : shortWallet(address);
+  const shareProfile = async () => {
+    try {
+      await Share.share({ message: `Check out ${name} on Kivo${person?.username ? `: https://kivotrade.site/@${encodeURIComponent(person.username)}` : ''}` });
+    } catch {
+      kivoAlert('Kivo', 'Could not share this profile.');
+    }
+  };
+  const confirmBlock = () => kivoAlert(
+    blocked ? 'Unblock user?' : 'Block user?',
+    blocked ? 'This user is currently blocked. Unblocking will let them message you again.' : 'This user is not blocked. Blocking will stop them from sending you direct messages.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      { text: blocked ? 'Unblock user' : 'Block user', style: blocked ? 'default' : 'destructive', onPress: () => guard(async () => { if (blocked) await api.unblockUser(userId); else await api.blockUser(userId); setBlocked(!blocked); setMenuOpen(false); }) },
+    ],
+  );
   return (
     <View style={styles.root}>
-      <View style={styles.header}><Pressable onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.headerTitle}>Profile</Text></View>
+      <View style={styles.header}>
+        <Pressable onPress={onBack} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back" style={styles.backButton}>
+          <Text style={styles.back}>‹</Text>
+        </Pressable>
+      </View>
       <ScrollView contentContainerStyle={styles.body}>
-        <Avatar name={name} uri={person?.avatarUrl} size={96} verified={verificationStatus?.isVerified === true} />
-        <View style={styles.nameLine}><Text style={styles.name}>{name}</Text>{verificationStatus?.isVerified === true ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>
-        {verificationStatus?.isVerified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verificationBadge}>★ Blue Star Verified</Text> : null}
-        {person?.bio ? <Text style={styles.bio}>{person.bio}</Text> : null}
-        {links ? <ProfileLinkChips links={links} /> : null}
-        <Text style={styles.address}>{address.slice(0, 10)}…{address.slice(-8)}</Text>
-        <View style={styles.stats}>
-          <Stat value={stats?.following} label="Following" onPress={() => onOpenConnections?.('following')} />
-          <Stat value={stats?.followers} label="Followers" onPress={() => onOpenConnections?.('followers')} />
-          <Stat value={stats?.groups} label="Groups" />
+        <View style={styles.profileCard}>
+          <View style={styles.profileTop}>
+            <Avatar name={name} uri={person?.avatarUrl} size={58} verified={verificationStatus?.isVerified === true} />
+            <Pressable onPress={() => setMenuOpen(open => !open)} accessibilityRole="button" accessibilityLabel="Profile options" accessibilityState={{ expanded: menuOpen }} style={styles.menuButton}>
+              <Text style={styles.menuGlyph}>•••</Text>
+            </Pressable>
+            {menuOpen ? (
+              <View style={styles.overflowMenu}>
+                <Pressable onPress={() => { setMenuOpen(false); void shareProfile(); }} style={styles.menuItem}><Text style={styles.menuText}>↗  Share profile</Text></Pressable>
+                {api.signedInUserId() && api.signedInUserId() !== userId ? (
+                  <Pressable disabled={!postNotificationsLoaded} onPress={() => { setMenuOpen(false); void guard(async () => {
+                    const next = !postNotifications;
+                    const result = await api.setFeedPostNotificationSubscription(userId, next);
+                    setPostNotifications(result.enabled);
+                  }); }} style={styles.menuItem}><Text style={styles.menuText}>{postNotifications ? '♧  Turn off post notifications' : '♧  Turn on post notifications'}</Text></Pressable>
+                ) : null}
+                <View style={styles.menuDivider} />
+                <Pressable onPress={confirmBlock} style={styles.menuItem}><Text style={styles.menuDanger}>{blocked ? '⊘  Unblock user' : '⊘  Block user'}</Text></Pressable>
+              </View>
+            ) : null}
+          </View>
+          <View style={styles.nameLine}><Text style={styles.name}>{name}</Text>{verificationStatus?.isVerified === true ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>
+          {verificationStatus?.isVerified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verificationBadge}>★ Blue Star Verified</Text> : null}
+          {person?.bio ? <Text style={styles.bio}>{person.bio}</Text> : null}
+          {links ? <ProfileLinkChips links={links} /> : null}
+          <Text style={styles.address}>{address.slice(0, 10)}…{address.slice(-8)}</Text>
+          <View style={styles.stats}>
+            <Stat value={stats?.following} label="Following" onPress={() => onOpenConnections?.('following')} />
+            <Stat value={stats?.followers} label="Followers" onPress={() => onOpenConnections?.('followers')} />
+            <Stat value={stats?.groups} label="Groups" />
+          </View>
+          <View style={styles.joinedMeta}>
+            <Text style={styles.joinedMetaText}>›  Joined {person?.createdAt ? new Date(person.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'Kivo'}</Text>
+          </View>
+          <View style={styles.actions}>
+            <Pressable onPress={() => guard(async () => setStats(stats?.isFollowing ? await api.unfollow(userId) : await api.follow(userId)))} style={[styles.button, stats?.isFollowing ? styles.secondary : styles.primary]}>
+              <Text style={stats?.isFollowing ? styles.secondaryText : styles.primaryText}>{stats?.isFollowing ? 'Following' : 'Follow'}</Text>
+            </Pressable>
+            <Pressable onPress={() => guard(async () => onOpenChat(await openDirectMessage(person?.address ?? address)))} style={[styles.button, styles.secondary]}><Text style={styles.secondaryText}>Message</Text></Pressable>
+            {api.signedInUserId() && api.signedInUserId() !== userId ? (
+              <Pressable disabled={!postNotificationsLoaded} onPress={() => guard(async () => {
+                const next = !postNotifications;
+                const result = await api.setFeedPostNotificationSubscription(userId, next);
+                setPostNotifications(result.enabled);
+              })} accessibilityRole="button" accessibilityLabel={postNotifications ? 'Turn off post notifications' : 'Turn on post notifications'} style={[styles.notifyButton, { opacity: postNotificationsLoaded ? 1 : 0.55 }]}>
+                <Text style={styles.notifyGlyph}>{postNotifications ? '♧' : '♧'}</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
-        <View style={styles.actions}>
-          <Pressable onPress={() => guard(async () => setStats(stats?.isFollowing ? await api.unfollow(userId) : await api.follow(userId)))} style={[styles.button, stats?.isFollowing ? styles.secondary : styles.primary]}>
-            <Text style={stats?.isFollowing ? styles.secondaryText : styles.primaryText}>{stats?.isFollowing ? 'Following' : 'Follow'}</Text>
-          </Pressable>
-          <Pressable onPress={() => guard(async () => onOpenChat(await openDirectMessage(person?.address ?? address)))} style={[styles.button, styles.secondary]}><Text style={styles.secondaryText}>Message</Text></Pressable>
-        </View>
-        {api.signedInUserId() && api.signedInUserId() !== userId ? (
-          <Pressable disabled={!postNotificationsLoaded} onPress={() => guard(async () => {
-            const next = !postNotifications;
-            const result = await api.setFeedPostNotificationSubscription(userId, next);
-            setPostNotifications(result.enabled);
-          })} style={[styles.button, styles.secondary, { alignSelf: 'stretch', flex: 0, opacity: postNotificationsLoaded ? 1 : 0.55 }]}>
-            <Text style={styles.secondaryText}>{!postNotificationsLoaded ? 'Loading post notifications…' : postNotifications ? '🔔 Post notifications on' : '♧ Notify me when they post'}</Text>
-          </Pressable>
-        ) : null}
-        <Pressable onPress={() => kivoAlert(blocked ? 'Unblock user?' : 'Block user?', blocked ? 'This user is currently blocked. Unblocking will let them message you again.' : 'This user is not blocked. Blocking will stop them from sending you direct messages.', [
-          { text: 'Cancel', style: 'cancel' },
-          { text: blocked ? 'Unblock user' : 'Block user', style: blocked ? 'default' : 'destructive', onPress: () => guard(async () => { if (blocked) await api.unblockUser(userId); else await api.blockUser(userId); setBlocked(!blocked); }) },
-        ])} style={[styles.button, styles.blockButton, blocked && styles.blockedButton]}><Text style={[styles.blockButtonText, blocked && styles.blockedButtonText]}>{blocked ? 'Blocked · Tap to unblock' : 'Block user'}</Text></Pressable>
         <CallStatsCard loadKey={userId} load={() => api.userCalls(userId)} />
         <Text style={styles.note}>Usernames, avatars and follower counts are social signals — never proof of who owns a wallet.</Text>
         <Text style={styles.section}>Joined groups</Text>
@@ -138,7 +178,6 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
       </ScrollView>
     </View>
   );
-}
 
 function Stat({ value, label, onPress }: { value: number | undefined; label: string; onPress?: () => void }) {
   return <Pressable onPress={onPress} accessibilityRole={onPress ? 'button' : undefined} style={styles.stat}><Text style={styles.statValue}>{value ?? '–'}</Text><Text style={styles.statLabel}>{label}</Text></Pressable>;
