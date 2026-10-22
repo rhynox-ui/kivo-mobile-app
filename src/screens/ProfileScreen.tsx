@@ -437,8 +437,6 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
       </View>
       {settings.hideSmallBalances && hiddenOpen.length > 0 ? <Pressable style={styles.showHiddenPill} onPress={() => updateSettings({hideSmallBalances: false})}><Text style={styles.showHiddenText}>Show hidden ({hiddenOpen.length})</Text></Pressable> : null}
 
-      <ProfilePostsTimeline userId={profile.userId} />
-
       <View style={styles.positionsHead}>
         <Text style={styles.sectionTitle}>Joined groups</Text>
         {onOpenCommunities && <Pressable onPress={onOpenCommunities}><Text style={styles.seeAll}>See all</Text></Pressable>}
@@ -457,6 +455,9 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
           })}
       </ScrollView>
       ) : <Empty title="No groups yet" body={socialReady ? 'Join communities to make your profile social, not just financial.' : 'Turn on chats to join groups and channels.'} />}
+
+      <ProfilePostsTimeline userId={profile.userId} />
+
       <ConvertCashSheet visible={convertOpen} moveHome={moveHome} onClose={() => setConvertOpen(false)} onConverted={() => { void load(true); }} />
     </ScrollView>
   );
