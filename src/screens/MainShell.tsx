@@ -8,6 +8,7 @@ import { CommunitiesScreen } from './CommunitiesScreen';
 import { CommunityScreen } from './CommunityScreen';
 import { CommunitySettingsScreen } from './CommunitySettingsScreen';
 import { PersonScreen } from './PersonScreen';
+import { ConnectionsScreen } from './ConnectionsScreen';
 import { TradeScreen } from './TradeScreen';
 import { WalletSummaryScreen } from './WalletSummaryScreen';
 import { EditProfileScreen } from './EditProfileScreen';
@@ -35,6 +36,7 @@ type View_ =
   | { name: 'communitySettings'; id: string }
   | { name: 'communities'; kind: CommunityKind }
   | { name: 'person'; userId: string }
+  | { name: 'connections'; userId: string; kind: 'followers' | 'following' }
   | { name: 'verification'; subjectType: 'profile' | 'channel'; subjectId: string; subjectName: string }
   | { name: 'wallet'; action?: 'deposit' | 'withdraw' } | { name: 'editProfile' } | { name: 'settings' } | { name: 'notifications' } | { name: 'activity' } | { name: 'security' } | { name: 'rewards'; prefill?: string };
 
@@ -109,7 +111,8 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
     case 'community': return <CommunityScreen id={view.id} onBack={back} onOpenChat={openChat} onOpenPerson={userId => push({ name: 'person', userId })} onOpenVerification={(subjectType, subjectId, subjectName) => push({ name: 'verification', subjectType, subjectId, subjectName })} onOpenManage={id => push({ name: 'communitySettings', id })} />;
     case 'communitySettings': return <CommunitySettingsScreen id={view.id} onBack={back} onDeleted={() => home('Chats')} onOpenPerson={userId => push({ name: 'person', userId })} onOpenVerification={subjectId => push({ name: 'verification', subjectType: 'profile', subjectId, subjectName: 'your profile' })} />;
     case 'communities': return <CommunitiesScreen kind={view.kind} onBack={back} onOpenChat={openChat} onOpenInfo={openCommunity} onOpenVerification={subjectId => push({ name: 'verification', subjectType: 'profile', subjectId, subjectName: 'your profile' })} />;
-    case 'person': return <PersonScreen userId={view.userId} onBack={back} onOpenChat={openChat} onOpenCommunity={openCommunity} />;
+    case 'person': return <PersonScreen userId={view.userId} onBack={back} onOpenChat={openChat} onOpenCommunity={openCommunity} onOpenConnections={kind => push({ name: 'connections', userId: view.userId, kind })} />;
+    case 'connections': return <ConnectionsScreen userId={view.userId} initialKind={view.kind} onBack={back} onOpenPerson={userId => push({ name: 'person', userId })} />;
     case 'wallet': return <WalletSummaryScreen onBack={back} onTrade={() => home('Trade')} initialAction={view.action} />;
     case 'editProfile': return <EditProfileScreen onBack={back} onOpenVerification={(subjectId, subjectName) => push({ name: 'verification', subjectType: 'profile', subjectId, subjectName })} />;
     case 'notifications': return <NotificationScreen onBack={back} onOpenPost={postId => { back(); setPendingFeedPostId(postId); changeTab('Feed'); }} />;
@@ -140,6 +143,7 @@ export function MainShell({ onLogout }: { onLogout?: () => void }) {
           onOpenChats={() => changeTab('Chats')}
           onOpenVerification={(subjectId, subjectName) => push({ name: 'verification', subjectType: 'profile', subjectId, subjectName })}
           onOpenToken={openToken}
+          onOpenConnections={kind => push({ name: 'connections', userId: getWalletSession()?.userId ?? '', kind })}
         />}
       </View>
       <View style={styles.nav}>
