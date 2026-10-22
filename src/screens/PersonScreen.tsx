@@ -146,6 +146,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
             <Stat value={stats?.following} label="Following" onPress={() => onOpenConnections?.('following')} />
             <Stat value={stats?.followers} label="Followers" onPress={() => onOpenConnections?.('followers')} />
             <Stat value={stats?.groups} label="Groups" />
+            <Stat value={0} label="Trades" glyph="⇄" />
           </View>
           <View style={styles.joinedMeta}>
             <Text style={styles.joinedMetaText}>›  Joined {person?.createdAt ? new Date(person.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'Kivo'}</Text>
@@ -180,8 +181,11 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
   );
 }
 
-function Stat({ value, label, onPress }: { value: number | undefined; label: string; onPress?: () => void }) {
-  return <Pressable onPress={onPress} accessibilityRole={onPress ? 'button' : undefined} style={styles.stat}><Text style={styles.statValue}>{value ?? '–'}</Text><Text style={styles.statLabel}>{label}</Text></Pressable>;
+function Stat({ value, label, onPress, glyph }: { value: number | undefined; label: string; onPress?: () => void; glyph?: string }) {
+  return <Pressable onPress={onPress} accessibilityRole={onPress ? 'button' : undefined} style={styles.stat}>
+    {glyph ? <Text style={styles.statGlyph} accessibilityElementsHidden>{glyph}</Text> : null}
+    <Text style={styles.statValue}>{value ?? '–'}</Text><Text style={styles.statLabel}>{label}</Text>
+  </Pressable>;
 }
 
 const c = kivoTheme.colors;
@@ -191,7 +195,7 @@ const styles = StyleSheet.create({
   backButton: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
   back: { color: c.cream, fontSize: 26, lineHeight: 30, width: 24, textAlign: 'left' },
   body: { paddingHorizontal: 14, paddingTop: 0, alignItems: 'stretch', gap: 8, paddingBottom: 40 },
-  profileCard: { alignItems: 'stretch', gap: 8, padding: 12, borderRadius: 20, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+  profileCard: { alignItems: 'stretch', gap: 8, paddingHorizontal: 0, paddingTop: 12, paddingBottom: 16, borderRadius: 0, backgroundColor: 'transparent', borderWidth: 0, borderColor: 'transparent', borderBottomWidth: 1, borderBottomColor: c.border, marginBottom: 12 },
   profileTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', minHeight: 38, position: 'relative', zIndex: 2 },
   menuButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
   menuGlyph: { color: c.text, fontSize: 16, fontWeight: '900', letterSpacing: 1 },
@@ -205,11 +209,12 @@ const styles = StyleSheet.create({
   name: { color: c.text, fontSize: 22, fontWeight: '800' },
   verificationBadge: { color: '#C9F7A6', fontSize: 11, fontWeight: '900', textAlign: 'left', alignSelf: 'flex-start', backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: '#C9F7A6', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
   bio: { color: c.text, fontSize: 14, textAlign: 'left' },
-  address: { color: c.textMuted, fontSize: 12, alignSelf: 'flex-start', borderWidth: 1, borderColor: c.border, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  address: { color: c.textMuted, fontSize: 12, alignSelf: 'flex-start', borderWidth: 0, borderColor: 'transparent', borderRadius: 0, paddingHorizontal: 0, paddingVertical: 0, backgroundColor: 'transparent' },
   joinedMeta: { alignSelf: 'flex-start', paddingTop: 1 },
   joinedMetaText: { color: c.textMuted, fontSize: 12 },
   stats: { flexDirection: 'row', alignSelf: 'stretch', backgroundColor: 'transparent', borderRadius: 0, borderWidth: 0, paddingVertical: 3, marginTop: 0 },
   stat: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 3 },
+  statGlyph: { color: c.textMuted, fontSize: 15, fontWeight: '700' },
   statValue: { color: c.text, fontSize: 14, fontWeight: '800' },
   statLabel: { color: c.textMuted, fontSize: 13, marginTop: 0 },
   actions: { flexDirection: 'row', gap: 8, alignSelf: 'stretch', marginTop: 2 },
