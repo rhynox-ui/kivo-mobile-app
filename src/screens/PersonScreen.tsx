@@ -178,6 +178,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
       </ScrollView>
     </View>
   );
+}
 
 function Stat({ value, label, onPress }: { value: number | undefined; label: string; onPress?: () => void }) {
   return <Pressable onPress={onPress} accessibilityRole={onPress ? 'button' : undefined} style={styles.stat}><Text style={styles.statValue}>{value ?? '–'}</Text><Text style={styles.statLabel}>{label}</Text></Pressable>;
