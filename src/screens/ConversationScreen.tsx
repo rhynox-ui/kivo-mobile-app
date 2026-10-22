@@ -487,7 +487,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
       ...(message.text && canPost ? [{ text: 'Quote message', onPress: () => { setEditingMessageId(null); setReplyingTo(message); setQuoteText(message.text.slice(0, 1000)); } }] : []),
       ...(canPost ? [{ text: 'Reply', onPress: () => { setEditingMessageId(null); setReplyingTo(message); setQuoteText(null); } }] : []),
       ...(canPin ? (() => { const isPinned = pins.some(p => p.id === message.id); return [{ text: isPinned ? 'Unpin message' : 'Pin message', onPress: () => setPin(message.id, !isPinned) }]; })() : []),
-      ...(message.senderId === me ? [{ text: 'Edit message', onPress: () => { setReplyingTo(null); setEditingMessageId(message.id); setDraft(message.text); } }] : []),
+      ...(message.senderId === me ? [{ text: 'Edit message', onPress: () => { setReplyingTo(null); setQuoteText(null); setEditingMessageId(message.id); setDraft(message.text); } }] : []),
       { text: 'Forward message', onPress: () => setForwardingMessage(message) },
       ...(message.senderId === me || canModerate ? [{ text: 'Delete message', style: 'destructive' as const, onPress: () => kivoAlert('Delete message', 'Delete this message for everyone?', [
         { text: 'Cancel', style: 'cancel' },
