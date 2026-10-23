@@ -11,7 +11,7 @@ import {SOLANA_RPC_URL, SOLANA_USDC_MINT, WSOL_MINT} from '@kivo/trading/kivo/so
 import {TokenIcon} from './TokenIcon';
 import {kivoTheme} from '../theme/kivoTheme';
 import {api} from '../state/session';
-import {getWalletSession, localEvmSigner, withDeviceAccounts} from '../state/walletStore';
+import {getWalletSession, localEvmSigner, subscribeToWallet, withDeviceAccounts, type WalletSession} from '../state/walletStore';
 import {walletAddressOfUserId} from '@kivo/shared/api/types';
 
 const ABI = [{type:'function',name:'transfer',stateMutability:'nonpayable',inputs:[{name:'to',type:'address'},{name:'amount',type:'uint256'}],outputs:[{name:'',type:'bool'}]}] as const;
