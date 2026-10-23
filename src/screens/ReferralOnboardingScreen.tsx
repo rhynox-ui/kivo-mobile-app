@@ -140,7 +140,7 @@ export function ReferralOnboardingScreen({
         <Pressable accessibilityRole="button" disabled={busy} onPress={onDone} hitSlop={10}>
           <Text style={styles.noCode}>I don't have one</Text>
         </Pressable>
-        <KivoButton label="Finish setup" onPress={() => { void finish(); }} loading={busy} disabled={busy} style={styles.finish} />
+        <KivoButton label="Finish setup →" onPress={() => { void finish(); }} loading={busy} disabled={busy} style={styles.finish} />
       </View>
     </View>
   );
@@ -149,7 +149,7 @@ export function ReferralOnboardingScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: kivoTheme.colors.background,
+    backgroundColor: '#0B1E17',
     paddingHorizontal: 24,
     paddingTop: 10,
     paddingBottom: 16,
@@ -255,5 +255,7 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     minHeight: 60,
     borderRadius: kivoTheme.radius.lg,
+    backgroundColor: '#B7E27B',
+    borderColor: '#B7E27B',
   },
 });
