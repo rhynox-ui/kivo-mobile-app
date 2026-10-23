@@ -1,8 +1,12 @@
 import React, {useEffect, useState} from 'react';
 import {ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import {encodeFunctionData, isAddress, parseUnits} from 'viem';
-import {Connection, PublicKey, SystemProgram, Transaction} from '@solana/web3.js';
+import {Connection, PublicKey, SystemProgram} from '@solana/web3.js';
 import {createAssociatedTokenAccountInstruction, createTransferCheckedInstruction, getAssociatedTokenAddress} from '@solana/spl-token';
+import {getViemChain} from '@kivo/trading/core/chainRegistry';
+import {sendEvmCallsViaRelayGasless} from '@kivo/trading/core/relayGaslessEvm';
+import {SOLANA_NATIVE_SPEND} from '@kivo/trading/core/solanaSpendGuard';
+import {signAndSendSponsoredSolanaStep, type SolanaTransactionSigner} from '@kivo/trading/core/executeRelayQuote';
 import {CHAIN_LABEL, MAINNET_CHAIN_IDS, NATIVE_SYMBOL, TOKEN_ADDRESSES, type ChainKey} from '@kivo/trading/core/chainData';
 import {fetchPortfolio, type Holding} from '@kivo/trading/kivo/portfolio';
 import {getTradeHistory} from '@kivo/trading/kivo/history';
@@ -90,28 +94,36 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
     if(!isSolanaAddress(to))throw new Error('This asset needs a Solana recipient address.');
     const connection=new Connection(SOLANA_RPC_URL,'confirmed');
     const signature=await withDeviceAccounts('Confirm asset transfer',async({solana})=>{
-     if(!solana)throw new Error('This wallet has no Solana signing key.');
+     if(!solana)throw new Error('This wallet has no Solana signing key. Nothing was sent.');
      const destination=new PublicKey(to),owner=solana.publicKey;
-     const recent=await connection.getLatestBlockhash('confirmed');
-     const tx=new Transaction({feePayer:owner,recentBlockhash:recent.blockhash});
-     if(selected.kind==='native')tx.add(SystemProgram.transfer({fromPubkey:owner,toPubkey:destination,lamports:parseUnits(value,9)}));
-     else{
+     const instructions=[];
+     let spendIntent:{spend:string;maxSpend:bigint}|undefined;
+     if(selected.kind==='native'){
+      const rawAmount=parseUnits(value,9);
+      instructions.push(SystemProgram.transfer({fromPubkey:owner,toPubkey:destination,lamports:rawAmount}));
+      spendIntent={spend:SOLANA_NATIVE_SPEND,maxSpend:rawAmount};
+     }else{
       const mint=new PublicKey(selected.address),decimals=(await connection.getTokenSupply(mint,'confirmed')).value.decimals;
+      const rawAmount=parseUnits(value,decimals);
       const source=await getAssociatedTokenAddress(mint,owner),target=await getAssociatedTokenAddress(mint,destination);
-      if(!(await connection.getAccountInfo(target,'confirmed')))tx.add(createAssociatedTokenAccountInstruction(owner,target,destination,mint));
-      tx.add(createTransferCheckedInstruction(source,mint,target,owner,parseUnits(value,decimals),decimals));
+      if(!(await connection.getAccountInfo(target,'confirmed')))instructions.push(createAssociatedTokenAccountInstruction(owner,target,destination,mint));
+      instructions.push(createTransferCheckedInstruction(source,mint,target,owner,rawAmount,decimals));
+      spendIntent={spend:selected.address,maxSpend:rawAmount};
      }
-     tx.sign(solana);const sig=await connection.sendRawTransaction(tx.serialize(),{preflightCommitment:'confirmed',maxRetries:2});
-     await connection.confirmTransaction({signature:sig,blockhash:recent.blockhash,lastValidBlockHeight:recent.lastValidBlockHeight},'confirmed');return sig;
+     const signer:SolanaTransactionSigner={publicKey:owner,async sign(transaction){transaction.sign([solana]);return transaction;}};
+     const sponsored=await signAndSendSponsoredSolanaStep(instructions,[],signer,connection,spendIntent,{allowedAtaOwners:[destination.toBase58()]});
+     return sponsored.signature;
     });
     Alert.alert('Transfer submitted','Solana transaction: '+signature.slice(0,12)+'…',[{text:'Done',onPress:onClose}]);
    }else{
     if(!isAddress(to))throw new Error('This EVM asset needs an EVM recipient address.');
     const chainId=MAINNET_CHAIN_IDS[selected.chainKey as ChainKey];if(!chainId)throw new Error('Unsupported transfer network.');
-    const signer=await localEvmSigner();let hash:string;
-    if(selected.kind==='native')hash=await signer.sendTransaction({to,data:'0x',value:parseUnits(value,18),chainId});
-    else{const decimals=await readTokenDecimals(selected.chainKey as ChainKey,selected.address);hash=await signer.sendTransaction({to:selected.address as `0x${string}`,data:encodeFunctionData({abi:ABI,functionName:'transfer',args:[to,parseUnits(value,decimals)]}),value:0n,chainId});}
-    Alert.alert('Transfer submitted','Transaction: '+hash.slice(0,12)+'…',[{text:'Done',onPress:onClose}]);
+    const signer=await localEvmSigner();
+    const call=selected.kind==='native'
+     ? {to:to as `0x${string}`,value:parseUnits(value,18),data:'0x' as `0x${string}`}
+     : {to:selected.address as `0x${string}`,value:0n,data:encodeFunctionData({abi:ABI,functionName:'transfer',args:[to as `0x${string}`,parseUnits(value,await readTokenDecimals(selected.chainKey as ChainKey,selected.address))]})};
+    const result=await sendEvmCallsViaRelayGasless({chain:getViemChain(selected.chainKey as ChainKey),fromAddress:signer.address,account:signer,calls:[call]});
+    Alert.alert('Transfer submitted','Transaction: '+result.hash.slice(0,12)+'… · Kivo sponsored gas with Relay.',[{text:'Done',onPress:onClose}]);
    }
   }catch(e){setError(e instanceof Error?e.message:'Transfer failed.');}finally{setSending(false);}
  }
@@ -134,7 +146,7 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
     {loading?<ActivityIndicator color={kivoTheme.colors.accent}/>:null}
     <Text style={styles.muted}>{wallet?'Wallet '+wallet.address.slice(0,6)+'…'+wallet.address.slice(-4)+(wallet.solanaAddress?' · Solana connected':''):'Unlock or import your Kivo wallet to send.'}</Text>
     </>:null}
-    {step==='review'&&selected?<><Text style={styles.reviewTitle}>Review transfer</Text><View style={styles.reviewCard}><View style={styles.reviewRow}><Text style={styles.muted}>Recipient</Text><Text style={styles.reviewValue}>{resolvedUsername?'@'+resolvedUsername:resolvedAddress.slice(0,8)+'…'+resolvedAddress.slice(-6)}</Text></View><View style={styles.reviewRow}><Text style={styles.muted}>Asset / network</Text><Text style={styles.reviewValue}>{selected.symbol+' · '+(selected.chainKey==='solana'?'Solana':CHAIN_LABEL[selected.chainKey as ChainKey]||selected.chainKey)}</Text></View><View style={styles.reviewRow}><Text style={styles.muted}>Amount</Text><Text style={styles.reviewValue}>{amount+' '+selected.symbol}</Text></View><Text style={styles.muted}>Your wallet will show final transaction details and network fees before you approve.</Text></View></>:null}
+    {step==='review'&&selected?<><Text style={styles.reviewTitle}>Review transfer</Text><View style={styles.reviewCard}><View style={styles.reviewRow}><Text style={styles.muted}>Recipient</Text><Text style={styles.reviewValue}>{resolvedUsername?'@'+resolvedUsername:resolvedAddress.slice(0,8)+'…'+resolvedAddress.slice(-6)}</Text></View><View style={styles.reviewRow}><Text style={styles.muted}>Asset / network</Text><Text style={styles.reviewValue}>{selected.symbol+' · '+(selected.chainKey==='solana'?'Solana':CHAIN_LABEL[selected.chainKey as ChainKey]||selected.chainKey)}</Text></View><View style={styles.reviewRow}><Text style={styles.muted}>Amount</Text><Text style={styles.reviewValue}>{amount+' '+selected.symbol}</Text></View><Text style={styles.muted}>Kivo covers network gas through Relay where supported. Review and sign the transfer securely on your device.</Text></View></>:null}
     {error?<Text style={styles.error}>{error}</Text>:null}
     {step!=='recipient'?<Pressable onPress={()=>{setError('');setStep(step==='review'?'transfer':'recipient');}} style={styles.back}><Text style={styles.backText}>{step==='review'?'Back to amount':'Change recipient'}</Text></Pressable>:null}
     <Pressable disabled={loading||sending} onPress={()=>void submit()} style={[styles.send,(loading||sending)&&{opacity:0.65}]}><Text style={styles.sendText}>{sending?'Waiting for wallet…':step==='recipient'?'Continue':step==='transfer'?'Review transfer':'Confirm and sign'}</Text></Pressable>
