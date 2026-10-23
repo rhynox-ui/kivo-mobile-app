@@ -7,7 +7,9 @@ import {CHAIN_LABEL, MAINNET_CHAIN_IDS, NATIVE_SYMBOL, TOKEN_ADDRESSES, type Cha
 import {fetchPortfolio, type Holding} from '@kivo/trading/kivo/portfolio';
 import {getTradeHistory} from '@kivo/trading/kivo/history';
 import {readTokenDecimals} from '@kivo/trading/kivo/balances';
-import {SOLANA_RPC_URL, SOLANA_USDC_MINT, WSOL_MINT} from '@kivo/trading/kivo/solana';
+const SOLANA_RPC_URL = 'https://rpc.solanatracker.io/public';
+const SOLANA_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 import {TokenIcon} from './TokenIcon';
 import {kivoTheme} from '../theme/kivoTheme';
 import {api} from '../state/session';
@@ -39,8 +41,9 @@ export function SendAssetsSheet({visible,initialRecipient,recipientName,onClose}
  useEffect(()=>{
   if(!visible)return;let active=true;setLoading(true);
   const w=getWalletSession();
-  fetchPortfolio(w?.address||null,getTradeHistory(),{solanaOwner:w?.solanaAddress||null}).then(p=>{
-   if(!active)return;const real=p.holdings.filter(x=>x.amount>0);const base=defaults();
+  if(!w){setAssets(defaults());setSelectedKey('ethereum:native');setLoading(false);return()=>{active=false;};}
+  fetchPortfolio(w.address,getTradeHistory(),{solanaOwner:w.solanaAddress||null}).then(p=>{
+   if(!active)return;const real=p.holdings.filter(x=>x.amount>0&&x.chainKey!=='near');const base=defaults();
    const merged=real.concat(base.filter(x=>!real.some(y=>y.key.toLowerCase()===x.key.toLowerCase())));
    setAssets(merged);setSelectedKey(old=>merged.some(x=>x.key===old)?old:(merged.find(x=>x.amount>0)?.key||merged[0]?.key||''));
   }).catch(e=>{if(active)setError(e instanceof Error?e.message:'Could not read balances; standard assets remain listed.');}).finally(()=>{if(active)setLoading(false);});
@@ -103,8 +106,8 @@ export function SendAssetsSheet({visible,initialRecipient,recipientName,onClose}
     <Text style={styles.label}>Recipient username or wallet address</Text>
     <TextInput value={recipient} onChangeText={setRecipient} autoCapitalize="none" autoCorrect={false} placeholder="@username or wallet address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.input}/>
     <Text style={styles.label}>Asset</Text>
-    <Pressable style={styles.asset} onPress={()=>setMenuOpen(x=>!x)}><TokenIcon kind={selected?.kind||'native'} symbol={selected?.symbol||'ETH'} chainKey={selected?.chainKey||'ethereum'} address={selected?.address||ZERO} imageUrl={selected?.imageUrl} size={36}/><View style={styles.copy}><Text style={styles.assetTitle}>{selected?.symbol||'ETH'}</Text><Text style={styles.muted}>{selected?.name||'Ethereum'} · Available {fmt(selected?.amount||0)}</Text></View><Text style={styles.muted}>{menuOpen?'⌃':'⌄'}</Text></Pressable>
-    {menuOpen?<ScrollView style={styles.menu} nestedScrollEnabled>{list.map(item=><Pressable key={item.key} onPress={()=>{setSelectedKey(item.key);setMenuOpen(false);}} style={[styles.option,item.key===selected?.key&&styles.active]}><TokenIcon kind={item.kind} symbol={item.symbol} chainKey={item.chainKey} address={item.address} imageUrl={item.imageUrl} size={32}/><View style={styles.copy}><Text style={styles.assetTitle}>{item.symbol}</Text><Text style={styles.muted}>{item.name}</Text></View><Text style={styles.balance}>{fmt(item.amount)}</Text></Pressable>)}</ScrollView>:null}
+    <Pressable style={styles.asset} onPress={()=>setMenuOpen(x=>!x)}><TokenIcon kind={selected?.kind||'native'} symbol={selected?.symbol||'ETH'} chainKey={(selected?.chainKey as ChainKey)||'ethereum'} address={selected?.address||ZERO} imageUrl={selected?.imageUrl} size={36}/><View style={styles.copy}><Text style={styles.assetTitle}>{selected?.symbol||'ETH'}</Text><Text style={styles.muted}>{selected?.name||'Ethereum'} · Available {fmt(selected?.amount||0)}</Text></View><Text style={styles.muted}>{menuOpen?'⌃':'⌄'}</Text></Pressable>
+    {menuOpen?<ScrollView style={styles.menu} nestedScrollEnabled>{list.map(item=><Pressable key={item.key} onPress={()=>{setSelectedKey(item.key);setMenuOpen(false);}} style={[styles.option,item.key===selected?.key&&styles.active]}><TokenIcon kind={item.kind} symbol={item.symbol} chainKey={item.chainKey as ChainKey} address={item.address} imageUrl={item.imageUrl} size={32}/><View style={styles.copy}><Text style={styles.assetTitle}>{item.symbol}</Text><Text style={styles.muted}>{item.name}</Text></View><Text style={styles.balance}>{fmt(item.amount)}</Text></Pressable>)}</ScrollView>:null}
     <Text style={styles.label}>Amount</Text><TextInput value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.input}/>
     {loading?<ActivityIndicator color={kivoTheme.colors.accent}/>:null}
     <Text style={styles.muted}>{wallet?'Wallet '+wallet.address.slice(0,6)+'…'+wallet.address.slice(-4)+(wallet.solanaAddress?' · Solana connected':''):'Unlock or import your Kivo wallet to send.'}</Text>
