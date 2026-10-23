@@ -204,7 +204,7 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
         )}
         <ProfilePostsTimeline userId={userId} />
       </ScrollView>
-      <SendAssetsSheet visible={sendOpen} initialRecipient="" onClose={() => setSendOpen(false)} />
+      <SendAssetsSheet visible={sendOpen} initialRecipient={address} initialRecipientName={person?.username ? '@' + person.username : name} skipRecipientStep onClose={() => setSendOpen(false)} />
       {notificationToast ? (
         <View pointerEvents="none" accessibilityRole="alert" style={styles.notificationToast}>
           <Text style={styles.notificationToastText}>{notificationToast}</Text>
