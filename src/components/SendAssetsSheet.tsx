@@ -18,7 +18,7 @@ import {walletAddressOfUserId} from '@kivo/shared/api/types';
 
 const ABI = [{type:'function',name:'transfer',stateMutability:'nonpayable',inputs:[{name:'to',type:'address'},{name:'amount',type:'uint256'}],outputs:[{name:'',type:'bool'}]}] as const;
 const ZERO = '0x0000000000000000000000000000000000000000';
-type Props = {visible:boolean; initialRecipient?:string; recipientName?:string; onClose:()=>void};
+type Props = {visible:boolean; initialRecipient?:string; onClose:()=>void};
 type ProfileSearchResults = Awaited<ReturnType<typeof api.searchProfiles>>;
 const fmt = (n:number) => new Intl.NumberFormat(undefined,{maximumFractionDigits:n>=100?4:n>=1?6:9}).format(n);
 function isSolanaAddress(v:string){try{return !v.startsWith('0x')&&new PublicKey(v).toBase58()===v;}catch{return false;}}
@@ -118,7 +118,7 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
   <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS==='ios'?'padding':undefined}>
    <View style={styles.sheet}>
     <View style={styles.header}><Text style={styles.title}>Send assets</Text><Pressable onPress={onClose}><Text style={styles.close}>×</Text></Pressable></View>
-    <Text style={styles.muted}>{recipientName?'Send directly to '+recipientName+'. Confirm the address and network.':'Send to a username or wallet address.'}</Text>
+    <Text style={styles.muted}>Search for a Kivo user or enter a wallet address. Confirm the recipient and network before approving.</Text>
     <Text style={styles.label}>Recipient username or wallet address</Text>
     <TextInput value={recipient} onChangeText={setRecipient} autoCapitalize="none" autoCorrect={false} placeholder="@username or wallet address" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.input}/>
     <Text style={styles.label}>Asset</Text>
