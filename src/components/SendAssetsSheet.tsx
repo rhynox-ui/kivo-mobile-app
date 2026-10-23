@@ -17,8 +17,9 @@ const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 import {TokenIcon} from './TokenIcon';
 import {kivoTheme} from '../theme/kivoTheme';
 import {api} from '../state/session';
-import {getWalletSession, localEvmSigner, subscribeToWallet, withDeviceAccounts, type WalletSession} from '../state/walletStore';
+import {getWalletSession, subscribeToWallet, withDeviceAccounts, type WalletSession} from '../state/walletStore';
 import {walletAddressOfUserId} from '@kivo/shared/api/types';
+import {ResultCard} from './ResultCard';
 
 const ABI = [{type:'function',name:'transfer',stateMutability:'nonpayable',inputs:[{name:'to',type:'address'},{name:'amount',type:'uint256'}],outputs:[{name:'',type:'bool'}]}] as const;
 const ZERO = '0x0000000000000000000000000000000000000000';
@@ -39,10 +40,11 @@ function defaults():Holding[]{
  return rows;
 }
 export function SendAssetsSheet({visible,initialRecipient='',initialRecipientName='',skipRecipientStep=false,onClose}:Props){
+ const [transferResult,setTransferResult]=useState<{tone:'success'|'pending'|'error';message:string;amount:string;symbol:string;recipient:string;network:string;signature?:string;details?:string}|null>(null);
  const [recipient,setRecipient]=useState(initialRecipient),[assets,setAssets]=useState<Holding[]>(defaults()),[selectedKey,setSelectedKey]=useState(''),[amount,setAmount]=useState(''),[loading,setLoading]=useState(false),[sending,setSending]=useState(false),[error,setError]=useState(''),[menuOpen,setMenuOpen]=useState(false),[matches,setMatches]=useState<ProfileSearchResults>([]),[searching,setSearching]=useState(false),[step,setStep]=useState<'recipient'|'transfer'|'review'>('recipient'),[resolvedAddress,setResolvedAddress]=useState(''),[resolvedUsername,setResolvedUsername]=useState('');
  const wallet=getWalletSession();
  const selected=assets.find(x=>x.key===selectedKey)||assets.find(x=>x.amount>0)||assets[0];
- useEffect(()=>{if(visible){setRecipient(initialRecipient);setAmount('');setError('');setMenuOpen(false);setMatches([]);setStep(skipRecipientStep&&initialRecipient?'transfer':'recipient');setResolvedAddress(skipRecipientStep?initialRecipient:'');setResolvedUsername(skipRecipientStep?initialRecipientName.replace(/^@/,''):'');}},[visible,initialRecipient,initialRecipientName,skipRecipientStep]);
+ useEffect(()=>{if(visible){setTransferResult(null);setRecipient(initialRecipient);setAmount('');setError('');setMenuOpen(false);setMatches([]);setStep(skipRecipientStep&&initialRecipient?'transfer':'recipient');setResolvedAddress(skipRecipientStep?initialRecipient:'');setResolvedUsername(skipRecipientStep?initialRecipientName.replace(/^@/,''):'');}},[visible,initialRecipient,initialRecipientName,skipRecipientStep]);
  useEffect(()=>{
   if(!visible){setMatches([]);return;}
   const raw=recipient.trim();
@@ -114,21 +116,33 @@ export function SendAssetsSheet({visible,initialRecipient='',initialRecipientNam
      const sponsored=await signAndSendSponsoredSolanaStep(instructions,[],signer,connection,spendIntent,{allowedAtaOwners:[destination.toBase58()]});
      return sponsored.signature;
     });
-    Alert.alert('Transfer submitted','Solana transaction: '+signature.slice(0,12)+'…',[{text:'Done',onPress:onClose}]);
+    let confirmed=false,failed=false;
+    for(let attempt=0;attempt<8;attempt++){
+     const status=await connection.getSignatureStatuses([signature],{searchTransactionHistory:true});
+     const entry=status.value[0];
+     if(entry?.err){failed=true;break;}
+     if(entry?.confirmationStatus==='confirmed'||entry?.confirmationStatus==='finalized'){confirmed=true;break;}
+     await new Promise(resolve=>setTimeout(resolve,1500));
+    }
+    setTransferResult({tone:failed?'error':confirmed?'success':'pending',message:failed?'Solana reported that this transaction failed. Check the explorer for the final result.':confirmed?'Your transfer is confirmed on Solana.':'The transaction was submitted, but confirmation is still pending. Check its status before retrying.',amount:value,symbol:selected.symbol,recipient:resolvedUsername?'@'+resolvedUsername:to.slice(0,6)+'…'+to.slice(-5),network:'Solana',signature});
    }else{
     if(!isAddress(to))throw new Error('This EVM asset needs an EVM recipient address.');
     const chainId=MAINNET_CHAIN_IDS[selected.chainKey as ChainKey];if(!chainId)throw new Error('Unsupported transfer network.');
-    const signer=await localEvmSigner();
     const call=selected.kind==='native'
-     ? {to:to as `0x${string}`,value:parseUnits(value,18),data:'0x' as `0x${string}`}
-     : {to:selected.address as `0x${string}`,value:0n,data:encodeFunctionData({abi:ABI,functionName:'transfer',args:[to as `0x${string}`,parseUnits(value,await readTokenDecimals(selected.chainKey as ChainKey,selected.address))]})};
-    const result=await sendEvmCallsViaRelayGasless({chain:getViemChain(selected.chainKey as ChainKey),fromAddress:signer.address,account:signer,calls:[call]});
-    Alert.alert('Transfer submitted','Transaction: '+result.hash.slice(0,12)+'… · Kivo sponsored gas with Relay.',[{text:'Done',onPress:onClose}]);
+     ? {to:to as `0x${'${string}'}`,value:parseUnits(value,18),data:'0x' as `0x${'${string}'}`}
+     : {to:selected.address as `0x${'${string}'}`,value:0n,data:encodeFunctionData({abi:ABI,functionName:'transfer',args:[to as `0x${'${string}'}`,parseUnits(value,await readTokenDecimals(selected.chainKey as ChainKey,selected.address))]})};
+    const result=await withDeviceAccounts('Confirm asset transfer',async({evm})=>
+     sendEvmCallsViaRelayGasless({chain:getViemChain(selected.chainKey as ChainKey),fromAddress:evm.address,account:evm,calls:[call]}));
+    setTransferResult({tone:'pending',message:'Your transfer was submitted. Check the transaction explorer for confirmation before sending again.',amount:value,symbol:selected.symbol,recipient:resolvedUsername?'@'+resolvedUsername:to.slice(0,6)+'…'+to.slice(-4),network:CHAIN_LABEL[selected.chainKey as ChainKey]||selected.chainKey,signature:result.hash});
    }
-  }catch(e){setError(e instanceof Error?e.message:'Transfer failed.');}finally{setSending(false);}
+  }catch(e){
+   const message=e instanceof Error?e.message:'Transfer failed.';
+   setTransferResult({tone:'error',message,details:message,amount:value,symbol:selected?.symbol||'Asset',recipient:resolvedUsername?'@'+resolvedUsername:(resolvedAddress||recipient).slice(0,6)+'…'+(resolvedAddress||recipient).slice(-5),network:selected?.chainKey==='solana'?'Solana':CHAIN_LABEL[(selected?.chainKey||'ethereum') as ChainKey]||selected?.chainKey||'Network'});
+   setError(message);
+  }finally{setSending(false);}
  }
  const list=assets.filter(x=>x.amount>0||x.kind==='native'||x.symbol==='USDC');
- return <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+ return <><Modal visible={visible&&!transferResult} animationType="slide" transparent onRequestClose={onClose}>
   <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS==='ios'?'padding':undefined}>
    <View style={styles.sheet}>
     <View style={styles.header}><Text style={styles.title}>Send assets</Text><Pressable onPress={onClose}><Text style={styles.close}>×</Text></Pressable></View>
@@ -152,11 +166,33 @@ export function SendAssetsSheet({visible,initialRecipient='',initialRecipientNam
     <Pressable disabled={loading||sending} onPress={()=>void submit()} style={[styles.send,(loading||sending)&&{opacity:0.65}]}><Text style={styles.sendText}>{sending?'Waiting for wallet…':step==='recipient'?'Continue':step==='transfer'?'Review transfer':'Confirm and sign'}</Text></Pressable>
    </View>
   </KeyboardAvoidingView>
- </Modal>;
+ </Modal>
+ <Modal visible={visible&&Boolean(transferResult)} animationType="fade" transparent onRequestClose={()=>setTransferResult(null)}>
+  <View style={styles.resultOverlay}>
+   <View style={styles.resultSheet}>
+    <View style={styles.resultBrand}><Image source={require('../assets/kivo-logo.png')} style={styles.resultBrandLogo} resizeMode="contain"/><Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close transfer result"><Text style={styles.close}>×</Text></Pressable></View>
+    {transferResult?<ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.resultScroll}>
+     <ResultCard
+      tone={transferResult.tone}
+      kicker={transferResult.tone==='success'?'Transfer complete':transferResult.tone==='pending'?'Transfer submitted':'Transfer did not go through'}
+      headline={transferResult.tone==='success'?'Transfer successful':transferResult.tone==='pending'?'Awaiting confirmation':"Couldn't complete this"}
+      subline={transferResult.amount+' '+transferResult.symbol+' · '+transferResult.network}
+      hero={{symbol:transferResult.symbol}}
+      safeNote={transferResult.tone==='error'?{text:'Check the transaction status before trying again.',ok:false}:undefined}
+      reason={transferResult.tone==='error'?transferResult.message:undefined}
+      rows={[{label:'Recipient',value:transferResult.recipient},{label:'Network',value:transferResult.network},{label:'Status',value:transferResult.tone==='success'?'Confirmed':transferResult.tone==='pending'?'Pending confirmation':'Not completed'},...(transferResult.signature?[{label:'Transaction',value:transferResult.signature.slice(0,8)+'…'+transferResult.signature.slice(-6)}]:[])]}
+      links={transferResult.signature&&transferResult.network==='Solana'?[{label:'View on Solscan',url:'https://solscan.io/tx/'+encodeURIComponent(transferResult.signature)}]:[]}
+      primary={{label:transferResult.tone==='error'?'Try again':'Done',onPress:()=>{if(transferResult.tone==='error'){setTransferResult(null);setError('');}else{setTransferResult(null);onClose();}}}}
+      secondary={transferResult.tone==='error'?{label:'Close',onPress:()=>{setTransferResult(null);onClose();}}:undefined}
+     />
+    </ScrollView>:null}
+   </View>
+  </View>
+ </Modal></>;
 }
 const styles=StyleSheet.create({
  suggestions:{maxHeight:190,borderRadius:14,borderWidth:1,borderColor:'rgba(183,226,123,0.25)',backgroundColor:'#0B1E17',overflow:'hidden'},suggestion:{minHeight:58,paddingHorizontal:10,paddingVertical:8,flexDirection:'row',alignItems:'center',gap:10,borderBottomWidth:StyleSheet.hairlineWidth,borderBottomColor:'rgba(183,226,123,0.15)'},suggestionAvatar:{width:42,height:42,borderRadius:21,overflow:'hidden',alignItems:'center',justifyContent:'center',backgroundColor:'#12372D',borderWidth:1,borderColor:'rgba(183,226,123,0.3)'},suggestionAvatarImage:{width:42,height:42,borderRadius:21},suggestionInitial:{color:kivoTheme.colors.accent,fontWeight:'800'},recipientSummary:{padding:12,borderRadius:13,borderWidth:1,borderColor:kivoTheme.colors.border,backgroundColor:'rgba(183,226,123,0.05)',gap:5},quickAmounts:{flexDirection:'row',gap:8},quickAmount:{flex:1,minHeight:38,borderRadius:10,backgroundColor:'#12372D',alignItems:'center',justifyContent:'center'},quickAmountText:{color:kivoTheme.colors.text,fontWeight:'700'},reviewTitle:{color:kivoTheme.colors.text,fontSize:19,fontWeight:'800'},reviewCard:{padding:14,borderRadius:14,borderWidth:1,borderColor:kivoTheme.colors.border,backgroundColor:'#062F2C',gap:10},reviewRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'flex-start',gap:12,paddingBottom:10,borderBottomWidth:StyleSheet.hairlineWidth,borderBottomColor:kivoTheme.colors.border},reviewValue:{color:kivoTheme.colors.text,fontSize:13,fontWeight:'700',flexShrink:1,textAlign:'right'},back:{minHeight:46,alignItems:'center',justifyContent:'center'},backText:{color:kivoTheme.colors.accent,fontWeight:'700'},
- overlay:{flex:1,justifyContent:'flex-end',backgroundColor:'rgba(0,0,0,0.62)'},
+ resultOverlay:{flex:1,justifyContent:'center',padding:16,backgroundColor:'rgba(0,0,0,0.72)'},resultSheet:{maxHeight:'92%',padding:16,borderRadius:24,borderWidth:1,borderColor:'rgba(183,226,123,0.25)',backgroundColor:'#0B1E17'},resultBrand:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:8},resultBrandLogo:{width:76,height:28},resultScroll:{paddingBottom:4},overlay:{flex:1,justifyContent:'flex-end',backgroundColor:'rgba(0,0,0,0.62)'},
  sheet:{backgroundColor:'#0B1E17',borderColor:'rgba(183,226,123,0.25)',borderWidth:1,borderTopLeftRadius:26,borderTopRightRadius:26,padding:20,gap:10,maxHeight:'94%'},
  header:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},title:{color:kivoTheme.colors.text,fontSize:22,fontWeight:'800'},close:{color:kivoTheme.colors.text,fontSize:32,lineHeight:34},
  muted:{color:kivoTheme.colors.textMuted,fontSize:12},label:{color:kivoTheme.colors.text,fontSize:14,fontWeight:'700',marginTop:3},
