@@ -4,6 +4,8 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { KivoMark } from '../components/KivoMark';
 import { KivoButton } from '../components/KivoButton';
 import { kivoTheme } from '../theme/kivoTheme';
+import { getProfile } from '../state/profileStore';
+import { validProfileUsername } from '../domain/socialValidation';
 import {
   consumePendingReferralLink,
   getSuggestedReferrer,
@@ -52,6 +54,15 @@ export function ReferralOnboardingScreen({
     const username = code.trim().replace(/^@/, '');
     if (!username) {
       onDone();
+      return;
+    }
+    if (!validProfileUsername(username)) {
+      setError('Enter a valid Kivo username, or skip this step.');
+      return;
+    }
+    const ownUsername = getProfile().username.trim().replace(/^@/, '');
+    if (ownUsername && ownUsername.toLowerCase() === username.toLowerCase()) {
+      setError("You can't use your own username as a referral code.");
       return;
     }
     setBusy(true);
