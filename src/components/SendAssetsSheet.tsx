@@ -116,9 +116,14 @@ export function SendAssetsSheet({visible,initialRecipient='',initialRecipientNam
      const sponsored=await signAndSendSponsoredSolanaStep(instructions,[],signer,connection,spendIntent,{allowedAtaOwners:[destination.toBase58()]});
      return sponsored.signature;
     });
-    const status=await connection.getSignatureStatuses([signature],{searchTransactionHistory:true});
-    const confirmed=status.value[0]?.confirmationStatus==='confirmed'||status.value[0]?.confirmationStatus==='finalized';
-    const failed=Boolean(status.value[0]?.err);
+    let confirmed=false,failed=false;
+    for(let attempt=0;attempt<8;attempt++){
+     const status=await connection.getSignatureStatuses([signature],{searchTransactionHistory:true});
+     const entry=status.value[0];
+     if(entry?.err){failed=true;break;}
+     if(entry?.confirmationStatus==='confirmed'||entry?.confirmationStatus==='finalized'){confirmed=true;break;}
+     await new Promise(resolve=>setTimeout(resolve,1500));
+    }
     setTransferResult({tone:failed?'error':confirmed?'success':'pending',message:failed?'Solana reported that this transaction failed. Check the explorer for the final result.':confirmed?'Your transfer is confirmed on Solana.':'The transaction was submitted, but confirmation is still pending. Check its status before retrying.',amount:value,symbol:selected.symbol,recipient:resolvedUsername?'@'+resolvedUsername:to.slice(0,6)+'…'+to.slice(-5),network:'Solana',signature});
    }else{
     if(!isAddress(to))throw new Error('This EVM asset needs an EVM recipient address.');
@@ -176,7 +181,7 @@ export function SendAssetsSheet({visible,initialRecipient='',initialRecipientNam
       safeNote={transferResult.tone==='error'?{text:'Check the transaction status before trying again.',ok:false}:undefined}
       reason={transferResult.tone==='error'?transferResult.message:undefined}
       rows={[{label:'Recipient',value:transferResult.recipient},{label:'Network',value:transferResult.network},{label:'Status',value:transferResult.tone==='success'?'Confirmed':transferResult.tone==='pending'?'Pending confirmation':'Not completed'},...(transferResult.signature?[{label:'Transaction',value:transferResult.signature.slice(0,8)+'…'+transferResult.signature.slice(-6)}]:[])]}
-      links={transferResult.signature?[{label:'View on explorer',url:transferResult.network==='Solana'?'https://solscan.io/tx/'+encodeURIComponent(transferResult.signature):'https://blockscan.com/tx/'+encodeURIComponent(transferResult.signature)}]:[]}
+      links={transferResult.signature&&transferResult.network==='Solana'?[{label:'View on Solscan',url:'https://solscan.io/tx/'+encodeURIComponent(transferResult.signature)}]:[]}
       primary={{label:transferResult.tone==='error'?'Try again':'Done',onPress:()=>{if(transferResult.tone==='error'){setTransferResult(null);setError('');}else{setTransferResult(null);onClose();}}}}
       secondary={transferResult.tone==='error'?{label:'Close',onPress:()=>{setTransferResult(null);onClose();}}:undefined}
      />
