@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { KivoMark } from '../components/KivoMark';
 import { kivoTheme } from '../theme/kivoTheme';
