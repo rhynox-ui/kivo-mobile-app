@@ -335,7 +335,7 @@ export function RootNavigator() {
             <BiometricScreen
               password={route.params.password}
               // An imported or restored wallet keeps its Kivo profile: go straight home.
-              onContinue={() => { void hasExistingProfile().then(existing => navigation.replace(existing ? 'Home' : 'ProfileSetup')); }}
+              onContinue={() => { void hasExistingProfile().then(existing => navigation.replace(existing ? 'Home' : 'ReferralOnboarding')); }}
             />
           )}
         />
@@ -362,7 +362,7 @@ export function RootNavigator() {
         <Stack.Screen
           name="ProfileSetup"
           component={({ navigation }: NativeStackScreenProps<RootStackParamList, 'ProfileSetup'>) => (
-            <ProfileSetupScreen onDone={() => navigation.navigate('ReferralOnboarding')} />
+            <ProfileSetupScreen onDone={() => navigation.replace('Home')} />
           )}
         />
         <Stack.Screen
@@ -370,7 +370,7 @@ export function RootNavigator() {
           component={({ navigation }: NativeStackScreenProps<RootStackParamList, 'ReferralOnboarding'>) => (
             <ReferralOnboardingScreen
               onBack={() => navigation.goBack()}
-              onDone={() => navigation.replace('Home')}
+              onDone={() => { void hasExistingProfile().then(existing => navigation.replace(existing ? 'Home' : 'ProfileSetup')); }}
             />
           )}
         />
