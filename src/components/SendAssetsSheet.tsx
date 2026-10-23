@@ -72,13 +72,13 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
   const found=await api.searchProfiles(username);const p=found.find(x=>x.username?.toLowerCase()===username);
   const address=p?.address||(p?.userId?walletAddressOfUserId(p.userId):null);
   if(!address)throw new Error('No registered wallet found for @'+username+'.');
-  setResolvedUsername(p.username||username);return address;
+  setResolvedUsername(p?.username||username);return address;
  }
  async function submit(){
   if(sending)return;setError('');
   if(step==='recipient'){try{const to=await resolve();setResolvedAddress(to);setStep('transfer');}catch(e){setError(e instanceof Error?e.message:'Could not resolve recipient.');}return;}
   const value=amount.trim();
-  if(!value||!/^(?:\\d+\\.?\\d*|\\.\\d+)$/.test(value)||!Number.isFinite(Number(value))||Number(value)<=0){setError('Enter an amount greater than zero.');return;}
+  if(!value||!/^(?:\d+\.?\d*|\.\d+)$/.test(value)||!Number.isFinite(Number(value))||Number(value)<=0){setError('Enter an amount greater than zero.');return;}
   if(!selected){setError('Choose an asset.');return;}
   if(step==='transfer'){if(!wallet){setError('Unlock or import your Kivo wallet before sending.');return;}if(selected.amount<=0||Number(value)>selected.amount){setError('Insufficient '+selected.symbol+' balance. Available: '+fmt(selected.amount)+'.');return;}setStep('review');return;}
   if(!wallet){setError('Unlock or import your Kivo wallet before sending.');setStep('transfer');return;}
