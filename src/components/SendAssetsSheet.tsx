@@ -22,7 +22,7 @@ import {walletAddressOfUserId} from '@kivo/shared/api/types';
 
 const ABI = [{type:'function',name:'transfer',stateMutability:'nonpayable',inputs:[{name:'to',type:'address'},{name:'amount',type:'uint256'}],outputs:[{name:'',type:'bool'}]}] as const;
 const ZERO = '0x0000000000000000000000000000000000000000';
-type Props = {visible:boolean; initialRecipient?:string; onClose:()=>void};
+type Props = {visible:boolean; initialRecipient?:string; initialRecipientName?:string; skipRecipientStep?:boolean; onClose:()=>void};
 type ProfileSearchResults = Awaited<ReturnType<typeof api.searchProfiles>>;
 const fmt = (n:number) => new Intl.NumberFormat(undefined,{maximumFractionDigits:n>=100?4:n>=1?6:9}).format(n);
 function isSolanaAddress(v:string){try{return !v.startsWith('0x')&&new PublicKey(v).toBase58()===v;}catch{return false;}}
@@ -38,11 +38,11 @@ function defaults():Holding[]{
  rows.push({key:'solana:'+SOLANA_USDC_MINT,kind:'cash',chainKey:'solana' as ChainKey,address:SOLANA_USDC_MINT,symbol:'USDC',name:'USD Coin · Solana',amount:0,priceUsd:1,valueUsd:0,imageUrl:null});
  return rows;
 }
-export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
+export function SendAssetsSheet({visible,initialRecipient='',initialRecipientName='',skipRecipientStep=false,onClose}:Props){
  const [recipient,setRecipient]=useState(initialRecipient),[assets,setAssets]=useState<Holding[]>(defaults()),[selectedKey,setSelectedKey]=useState(''),[amount,setAmount]=useState(''),[loading,setLoading]=useState(false),[sending,setSending]=useState(false),[error,setError]=useState(''),[menuOpen,setMenuOpen]=useState(false),[matches,setMatches]=useState<ProfileSearchResults>([]),[searching,setSearching]=useState(false),[step,setStep]=useState<'recipient'|'transfer'|'review'>('recipient'),[resolvedAddress,setResolvedAddress]=useState(''),[resolvedUsername,setResolvedUsername]=useState('');
  const wallet=getWalletSession();
  const selected=assets.find(x=>x.key===selectedKey)||assets.find(x=>x.amount>0)||assets[0];
- useEffect(()=>{if(visible){setRecipient(initialRecipient);setAmount('');setError('');setMenuOpen(false);setMatches([]);setStep('recipient');setResolvedAddress('');setResolvedUsername('');}},[visible,initialRecipient]);
+ useEffect(()=>{if(visible){setRecipient(initialRecipient);setAmount('');setError('');setMenuOpen(false);setMatches([]);setStep(skipRecipientStep&&initialRecipient?'transfer':'recipient');setResolvedAddress(skipRecipientStep?initialRecipient:'');setResolvedUsername(skipRecipientStep?initialRecipientName.replace(/^@/,''):'');}},[visible,initialRecipient,initialRecipientName,skipRecipientStep]);
  useEffect(()=>{
   if(!visible){setMatches([]);return;}
   const raw=recipient.trim();
