@@ -34,8 +34,8 @@ function defaults():Holding[]{
  rows.push({key:'solana:'+SOLANA_USDC_MINT,kind:'cash',chainKey:'solana' as ChainKey,address:SOLANA_USDC_MINT,symbol:'USDC',name:'USD Coin · Solana',amount:0,priceUsd:1,valueUsd:0,imageUrl:null});
  return rows;
 }
-export function SendAssetsSheet({visible,initialRecipient,recipientName,onClose}:Props){
- const [recipient,setRecipient]=useState(initialRecipient),[assets,setAssets]=useState<Holding[]>(defaults()),[selectedKey,setSelectedKey]=useState(''),[amount,setAmount]=useState(''),[loading,setLoading]=useState(false),[sending,setSending]=useState(false),[error,setError]=useState(''),[menuOpen,setMenuOpen]=useState(false);
+export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
+ const [recipient,setRecipient]=useState(initialRecipient),[assets,setAssets]=useState<Holding[]>(defaults()),[selectedKey,setSelectedKey]=useState(''),[amount,setAmount]=useState(''),[loading,setLoading]=useState(false),[sending,setSending]=useState(false),[error,setError]=useState(''),[menuOpen,setMenuOpen]=useState(false),[matches,setMatches]=useState<ProfileSearchResults>([]),[searching,setSearching]=useState(false);
  const wallet=getWalletSession();
  const selected=assets.find(x=>x.key===selectedKey)||assets.find(x=>x.amount>0)||assets[0];
  useEffect(()=>{if(visible){setRecipient(initialRecipient);setAmount('');setError('');setMenuOpen(false);setMatches([]);}},[visible,initialRecipient]);
