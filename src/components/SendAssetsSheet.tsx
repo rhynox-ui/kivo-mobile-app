@@ -42,7 +42,7 @@ export function SendAssetsSheet({visible,initialRecipient,recipientName,onClose}
   if(!visible)return;let active=true;setLoading(true);
   const w=getWalletSession();
   if(!w){setAssets(defaults());setSelectedKey('ethereum:native');setLoading(false);return()=>{active=false;};}
-  fetchPortfolio(w.address,getTradeHistory(),{solanaOwner:w.solanaAddress||null}).then(p=>{
+  fetchPortfolio(w.address,getTradeHistory(),{solanaAddress:w.solanaAddress}).then(p=>{
    if(!active)return;const real=p.holdings.filter(x=>x.amount>0&&x.chainKey!=='near');const base=defaults();
    const merged=real.concat(base.filter(x=>!real.some(y=>y.key.toLowerCase()===x.key.toLowerCase())));
    setAssets(merged);setSelectedKey(old=>merged.some(x=>x.key===old)?old:(merged.find(x=>x.amount>0)?.key||merged[0]?.key||''));
