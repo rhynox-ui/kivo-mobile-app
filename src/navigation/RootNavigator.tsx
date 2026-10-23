@@ -250,7 +250,7 @@ export function RootNavigator() {
           component={({ navigation }: NativeStackScreenProps<RootStackParamList, 'ImportWallet'>) => (
             <ImportWalletScreen
               onBack={() => navigation.goBack()}
-              onDone={() => navigation.replace('Home')}
+              onDone={() => navigation.reset({ index: 0, routes: [{ name: 'Home' }] })}
               onPassword={(mnemonic) =>
                 navigation.navigate('PasswordSetup', { mnemonic, mode: 'import' })
               }
@@ -362,7 +362,7 @@ export function RootNavigator() {
         <Stack.Screen
           name="ProfileSetup"
           component={({ navigation }: NativeStackScreenProps<RootStackParamList, 'ProfileSetup'>) => (
-            <ProfileSetupScreen onDone={() => navigation.replace('ReferralOnboarding')} />
+            <ProfileSetupScreen onDone={() => navigation.navigate('ReferralOnboarding')} />
           )}
         />
         <Stack.Screen
