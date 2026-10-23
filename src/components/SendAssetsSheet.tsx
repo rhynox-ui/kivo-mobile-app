@@ -18,7 +18,8 @@ import {walletAddressOfUserId} from '@kivo/shared/api/types';
 
 const ABI = [{type:'function',name:'transfer',stateMutability:'nonpayable',inputs:[{name:'to',type:'address'},{name:'amount',type:'uint256'}],outputs:[{name:'',type:'bool'}]}] as const;
 const ZERO = '0x0000000000000000000000000000000000000000';
-type Props = {visible:boolean; initialRecipient:string; recipientName?:string; onClose:()=>void};
+type Props = {visible:boolean; initialRecipient?:string; recipientName?:string; onClose:()=>void};
+type ProfileSearchResults = Awaited<ReturnType<typeof api.searchProfiles>>;
 const fmt = (n:number) => new Intl.NumberFormat(undefined,{maximumFractionDigits:n>=100?4:n>=1?6:9}).format(n);
 function isSolanaAddress(v:string){try{return !v.startsWith('0x')&&new PublicKey(v).toBase58()===v;}catch{return false;}}
 function defaults():Holding[]{
@@ -37,7 +38,22 @@ export function SendAssetsSheet({visible,initialRecipient,recipientName,onClose}
  const [recipient,setRecipient]=useState(initialRecipient),[assets,setAssets]=useState<Holding[]>(defaults()),[selectedKey,setSelectedKey]=useState(''),[amount,setAmount]=useState(''),[loading,setLoading]=useState(false),[sending,setSending]=useState(false),[error,setError]=useState(''),[menuOpen,setMenuOpen]=useState(false);
  const wallet=getWalletSession();
  const selected=assets.find(x=>x.key===selectedKey)||assets.find(x=>x.amount>0)||assets[0];
- useEffect(()=>{if(visible){setRecipient(initialRecipient);setAmount('');setError('');setMenuOpen(false);}},[visible,initialRecipient]);
+ useEffect(()=>{if(visible){setRecipient(initialRecipient);setAmount('');setError('');setMenuOpen(false);setMatches([]);}},[visible,initialRecipient]);
+ useEffect(()=>{
+  if(!visible){setMatches([]);return;}
+  const raw=recipient.trim();
+  const username=raw.replace(/^@/,'').toLowerCase();
+  if(!username||isSolanaAddress(raw)||isAddress(raw)||!/^[a-z0-9_]{1,32}$/.test(username)){setMatches([]);setSearching(false);return;}
+  let active=true;
+  const timer=setTimeout(()=>{
+   setSearching(true);
+   void api.searchProfiles(username).then(profiles=>{
+    if(!active)return;
+    setMatches(profiles.filter(profile=>profile.username?.toLowerCase().includes(username)).slice(0,6));
+   }).catch(()=>{if(active)setMatches([]);}).finally(()=>{if(active)setSearching(false);});
+  },220);
+  return()=>{active=false;clearTimeout(timer);};
+ },[visible,recipient]);
  useEffect(()=>{
   if(!visible)return;let active=true;setLoading(true);
   const w=getWalletSession();
@@ -118,6 +134,7 @@ export function SendAssetsSheet({visible,initialRecipient,recipientName,onClose}
  </Modal>;
 }
 const styles=StyleSheet.create({
+ suggestions:{maxHeight:190,borderRadius:14,borderWidth:1,borderColor:'rgba(183,226,123,0.25)',backgroundColor:'#062F2C',overflow:'hidden'},suggestion:{minHeight:54,paddingHorizontal:10,paddingVertical:8,flexDirection:'row',alignItems:'center',gap:10,borderBottomWidth:StyleSheet.hairlineWidth,borderBottomColor:'rgba(183,226,123,0.15)'},suggestionAvatar:{width:34,height:34,borderRadius:17,alignItems:'center',justifyContent:'center',backgroundColor:'#12372D',borderWidth:1,borderColor:'rgba(183,226,123,0.3)'},suggestionInitial:{color:kivoTheme.colors.accent,fontWeight:'800'},
  overlay:{flex:1,justifyContent:'flex-end',backgroundColor:'rgba(0,0,0,0.62)'},
  sheet:{backgroundColor:'#0B1E17',borderColor:'rgba(183,226,123,0.25)',borderWidth:1,borderTopLeftRadius:26,borderTopRightRadius:26,padding:20,gap:10,maxHeight:'94%'},
  header:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},title:{color:kivoTheme.colors.text,fontSize:22,fontWeight:'800'},close:{color:kivoTheme.colors.text,fontSize:32,lineHeight:34},
