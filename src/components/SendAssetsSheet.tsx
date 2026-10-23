@@ -17,7 +17,7 @@ const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 import {TokenIcon} from './TokenIcon';
 import {kivoTheme} from '../theme/kivoTheme';
 import {api} from '../state/session';
-import {getWalletSession, localEvmSigner, subscribeToWallet, withDeviceAccounts, type WalletSession} from '../state/walletStore';
+import {getWalletSession, subscribeToWallet, withDeviceAccounts, type WalletSession} from '../state/walletStore';
 import {walletAddressOfUserId} from '@kivo/shared/api/types';
 import {ResultCard} from './ResultCard';
 
@@ -128,11 +128,11 @@ export function SendAssetsSheet({visible,initialRecipient='',initialRecipientNam
    }else{
     if(!isAddress(to))throw new Error('This EVM asset needs an EVM recipient address.');
     const chainId=MAINNET_CHAIN_IDS[selected.chainKey as ChainKey];if(!chainId)throw new Error('Unsupported transfer network.');
-    const signer=await localEvmSigner();
     const call=selected.kind==='native'
-     ? {to:to as `0x${string}`,value:parseUnits(value,18),data:'0x' as `0x${string}`}
-     : {to:selected.address as `0x${string}`,value:0n,data:encodeFunctionData({abi:ABI,functionName:'transfer',args:[to as `0x${string}`,parseUnits(value,await readTokenDecimals(selected.chainKey as ChainKey,selected.address))]})};
-    const result=await sendEvmCallsViaRelayGasless({chain:getViemChain(selected.chainKey as ChainKey),fromAddress:signer.address,account:signer,calls:[call]});
+     ? {to:to as `0x${'${string}'}`,value:parseUnits(value,18),data:'0x' as `0x${'${string}'}`}
+     : {to:selected.address as `0x${'${string}'}`,value:0n,data:encodeFunctionData({abi:ABI,functionName:'transfer',args:[to as `0x${'${string}'}`,parseUnits(value,await readTokenDecimals(selected.chainKey as ChainKey,selected.address))]})};
+    const result=await withDeviceAccounts('Confirm asset transfer',async({evm})=>
+     sendEvmCallsViaRelayGasless({chain:getViemChain(selected.chainKey as ChainKey),fromAddress:evm.address,account:evm,calls:[call]}));
     setTransferResult({tone:'pending',message:'Your transfer was submitted. Check the transaction explorer for confirmation before sending again.',amount:value,symbol:selected.symbol,recipient:resolvedUsername?'@'+resolvedUsername:to.slice(0,6)+'…'+to.slice(-4),network:CHAIN_LABEL[selected.chainKey as ChainKey]||selected.chainKey,signature:result.hash});
    }
   }catch(e){
