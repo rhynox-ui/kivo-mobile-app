@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import {ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
+import {ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import {encodeFunctionData, isAddress, parseUnits} from 'viem';
 import {Connection, PublicKey, SystemProgram, Transaction} from '@solana/web3.js';
 import {createAssociatedTokenAccountInstruction, createTransferCheckedInstruction, getAssociatedTokenAddress} from '@solana/spl-token';
@@ -35,10 +35,10 @@ function defaults():Holding[]{
  return rows;
 }
 export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
- const [recipient,setRecipient]=useState(initialRecipient),[assets,setAssets]=useState<Holding[]>(defaults()),[selectedKey,setSelectedKey]=useState(''),[amount,setAmount]=useState(''),[loading,setLoading]=useState(false),[sending,setSending]=useState(false),[error,setError]=useState(''),[menuOpen,setMenuOpen]=useState(false),[matches,setMatches]=useState<ProfileSearchResults>([]),[searching,setSearching]=useState(false);
+ const [recipient,setRecipient]=useState(initialRecipient),[assets,setAssets]=useState<Holding[]>(defaults()),[selectedKey,setSelectedKey]=useState(''),[amount,setAmount]=useState(''),[loading,setLoading]=useState(false),[sending,setSending]=useState(false),[error,setError]=useState(''),[menuOpen,setMenuOpen]=useState(false),[matches,setMatches]=useState<ProfileSearchResults>([]),[searching,setSearching]=useState(false),[step,setStep]=useState<'recipient'|'transfer'|'review'>('recipient'),[resolvedAddress,setResolvedAddress]=useState(''),[resolvedUsername,setResolvedUsername]=useState('');
  const wallet=getWalletSession();
  const selected=assets.find(x=>x.key===selectedKey)||assets.find(x=>x.amount>0)||assets[0];
- useEffect(()=>{if(visible){setRecipient(initialRecipient);setAmount('');setError('');setMenuOpen(false);setMatches([]);}},[visible,initialRecipient]);
+ useEffect(()=>{if(visible){setRecipient(initialRecipient);setAmount('');setError('');setMenuOpen(false);setMatches([]);setStep('recipient');setResolvedAddress('');setResolvedUsername('');}},[visible,initialRecipient]);
  useEffect(()=>{
   if(!visible){setMatches([]);return;}
   const raw=recipient.trim();
@@ -66,24 +66,26 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
   return()=>{active=false;};
  },[visible,wallet?.address,wallet?.solanaAddress]);
  async function resolve():Promise<string>{
-  const value=recipient.trim();if(isAddress(value)||isSolanaAddress(value))return value;
+  const value=recipient.trim();if(isAddress(value)||isSolanaAddress(value)){setResolvedUsername('');return value;}
   const username=value.replace(/^@/,'').toLowerCase();
   if(!/^[a-z0-9_]{3,32}$/.test(username))throw new Error('Enter a valid @username, EVM address, or Solana address.');
   const found=await api.searchProfiles(username);const p=found.find(x=>x.username?.toLowerCase()===username);
   const address=p?.address||(p?.userId?walletAddressOfUserId(p.userId):null);
   if(!address)throw new Error('No registered wallet found for @'+username+'.');
-  return address;
+  setResolvedUsername(p.username||username);return address;
  }
  async function submit(){
   if(sending)return;setError('');
+  if(step==='recipient'){try{const to=await resolve();setResolvedAddress(to);setStep('transfer');}catch(e){setError(e instanceof Error?e.message:'Could not resolve recipient.');}return;}
   const value=amount.trim();
   if(!value||!/^(?:\\d+\\.?\\d*|\\.\\d+)$/.test(value)||!Number.isFinite(Number(value))||Number(value)<=0){setError('Enter an amount greater than zero.');return;}
   if(!selected){setError('Choose an asset.');return;}
-  if(!wallet){setError('Unlock or import your Kivo wallet before sending.');return;}
-  if(selected.amount<=0||Number(value)>selected.amount){setError('Insufficient '+selected.symbol+' balance. Available: '+fmt(selected.amount)+'.');return;}
+  if(step==='transfer'){if(!wallet){setError('Unlock or import your Kivo wallet before sending.');return;}if(selected.amount<=0||Number(value)>selected.amount){setError('Insufficient '+selected.symbol+' balance. Available: '+fmt(selected.amount)+'.');return;}setStep('review');return;}
+  if(!wallet){setError('Unlock or import your Kivo wallet before sending.');setStep('transfer');return;}
+  if(selected.amount<=0||Number(value)>selected.amount){setError('Insufficient '+selected.symbol+' balance. Available: '+fmt(selected.amount)+'.');setStep('transfer');return;}
   setSending(true);
   try{
-   const to=await resolve();
+   const to=resolvedAddress||await resolve();
    if(selected.chainKey==='solana'){
     if(!isSolanaAddress(to))throw new Error('This asset needs a Solana recipient address.');
     const connection=new Connection(SOLANA_RPC_URL,'confirmed');
