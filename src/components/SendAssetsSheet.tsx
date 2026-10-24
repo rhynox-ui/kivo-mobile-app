@@ -6,7 +6,8 @@ import {createAssociatedTokenAccountInstruction, createTransferCheckedInstructio
 import {getViemChain} from '@kivo/trading/core/chainRegistry';
 import {sendEvmCallsViaRelayGasless} from '@kivo/trading/core/relayGaslessEvm';
 import {SOLANA_NATIVE_SPEND} from '@kivo/trading/core/solanaSpendGuard';
-import {signAndSendSponsoredSolanaStep, type SolanaTransactionSigner} from '@kivo/trading/core/executeRelayQuote';
+import {signAndSendSponsoredSolanaStep, sponsorRepaymentUsdcUnits, type SolanaTransactionSigner} from '@kivo/trading/core/executeRelayQuote';
+import {CLASSIC_TOKEN_ACCOUNT_SPACE, rentExemptLamports} from '@kivo/trading/core/solanaAccountCreation';
 import {CHAIN_LABEL, MAINNET_CHAIN_IDS, NATIVE_SYMBOL, TOKEN_ADDRESSES, type ChainKey} from '@kivo/trading/core/chainData';
 import {fetchPortfolio, type Holding} from '@kivo/trading/kivo/portfolio';
 import {getTradeHistory} from '@kivo/trading/kivo/history';
@@ -108,7 +109,19 @@ export function SendAssetsSheet({visible,initialRecipient='',initialRecipientNam
       const mint=new PublicKey(selected.address),decimals=(await connection.getTokenSupply(mint,'confirmed')).value.decimals;
       const rawAmount=parseUnits(value,decimals);
       const source=await getAssociatedTokenAddress(mint,owner),target=await getAssociatedTokenAddress(mint,destination);
-      if(!(await connection.getAccountInfo(target,'confirmed')))instructions.push(createAssociatedTokenAccountInstruction(owner,target,destination,mint));
+      if(!(await connection.getAccountInfo(target,'confirmed'))){
+       instructions.push(createAssociatedTokenAccountInstruction(owner,target,destination,mint));
+       // Kivo fronts the recipient's one-time token-account rent and this wallet repays it in the
+       // same transaction (USDC first, else SOL). Sending all of its USDC would leave nothing to repay with.
+       if(selected.address===TOKEN_ADDRESSES.USDC?.solana){
+        const rent=rentExemptLamports(CLASSIC_TOKEN_ACCOUNT_SPACE);
+        const [repay,held,lamports]=await Promise.all([sponsorRepaymentUsdcUnits(rent),connection.getTokenAccountBalance(source,'confirmed').then(r=>BigInt(r.value.amount)).catch(()=>null),connection.getBalance(owner,'confirmed').catch(()=>0)]);
+        if(held!==null&&repay>0n&&held<rawAmount+repay&&lamports<rent+10_000){
+         const most=held>repay?Number(held-repay)/10**decimals:0;
+         throw new Error('This recipient needs a one-time USDC account (about '+(Number(repay)/1e6).toFixed(2)+' USDC, repaid to Kivo in this transaction). Send at most '+most.toFixed(2)+' USDC. Nothing was sent.');
+        }
+       }
+      }
       instructions.push(createTransferCheckedInstruction(source,mint,target,owner,rawAmount,decimals));
       spendIntent={spend:selected.address,maxSpend:rawAmount};
      }

@@ -41,6 +41,7 @@ jobs:
       - run: npm run verify:one-click-deposits
       - run: npm run verify:near-account
       - run: npm run verify:near-signing
+      - run: npm run verify:sponsor-recovery
       - name: Verify Jupiter sell fee accounting
         run: node --experimental-strip-types scripts/verify-jupiter-sell-net-output.mjs
       - name: Bundle Android JavaScript
