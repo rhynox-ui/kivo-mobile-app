@@ -7,7 +7,9 @@ import { NetworkIcon } from '../wallet/NetworkIcon';
 import { TRADE_CHAIN_ORDER } from './SearchScreen';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, readTokenBalance, type CashBalanceRow, type TokenBalance } from '@kivo/trading/kivo/balances';
 import { PartialRouteError, combinedView, planUnifiedBuy, runLegsByNetwork, type UnifiedLeg, type UnifiedPlan } from '@kivo/trading/kivo/unified';
-import { HOME_CHAIN, homeCashAsset } from '@kivo/trading/kivo/home';
+import { HOME_CHAIN, homeCashAsset, onlyHomeCash } from '@kivo/trading/kivo/home';
+import { sweepCandidates } from '@kivo/trading/kivo/sweep';
+import { runAutoSweep } from '../wallet/autoSweep';
 import { assetLabel, clearSpendableBalanceCache, fetchTradeCash, nativeSpendable, spendOrder, spendableFor, totalSpendableUsd, type SpendableBalance } from '@kivo/trading/kivo/spendable';
 import { executeDirectPlan, planDirectTrade } from '@kivo/trading/kivo/direct';
 import { transactionLink, KivoExecutionError, preflightKivoQuote, relayRequestUrl, type ExecutionUpdate } from '@kivo/trading/kivo/execute';
@@ -87,6 +89,10 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   const [balanceNonce, setBalanceNonce] = useState(0);
   // When the balance can only partly cover a buy: the amount that CAN be bought.
   const [partialUsd, setPartialUsd] = useState<number | null>(null);
+  // A buy USDC elsewhere can't pay for directly (Kivo won't sponsor that leg)
+  // but can once it's home: the USD to move to Solana first, free.
+  const [moveHomeUsd, setMoveHomeUsd] = useState<number | null>(null);
+  const [movingHome, setMovingHome] = useState(false);
   const [tokenBalance, setTokenBalance] = useState<TokenBalance | null>(null);
   // Decimals of the token being bought, read on-chain (a 6- or 9-decimal
   // Solana token quoted as 18 shows a buy of 951 tokens as 0.000000000951).
@@ -223,7 +229,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     if (side === 'sell' && !tokenBalance) return;
     if (tokenDecimals == null) return;
     const seq = ++quoteSeq.current;
-    setQuoteState('loading'); setQuote(null); setQuoteError(''); setPartialUsd(null);
+    setQuoteState('loading'); setQuote(null); setQuoteError(''); setPartialUsd(null); setMoveHomeUsd(null);
     try {
       // Same network as the user's cash: straight to Uniswap, Relay pays the gas.
       // Native coins (ETH, SOL…) always route through Relay, which trades them directly.
@@ -250,8 +256,15 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       // Offer what the balance can buy instead of a dead end (never below the minimum).
       const covered = error instanceof PartialRouteError ? Math.floor(error.coveredUsd * 100) / 100 : 0;
       setPartialUsd(covered >= MIN_TRADE_USD ? covered : null);
+      // USDC on another network that couldn't be routed straight to the token
+      // still buys it once moved home (a sponsored, fee-free USDC move).
+      if (side === 'buy' && homeActive && spendable && token && parsed != null && error instanceof PartialRouteError) {
+        const homeUsd = totalSpendableUsd(spendableFor(onlyHomeCash(spendable), token));
+        const movableUsd = sweepCandidates(spendable).reduce((sum, asset) => sum + asset.valueUsd, 0);
+        if (movableUsd > 0 && homeUsd + movableUsd >= parsed - 1e-9) setMoveHomeUsd(Math.max(0.01, parsed - homeUsd));
+      }
     }
-  }, [token, address, parsed, amountProblem, side, cash, spendable, tokenBalance, tokenDecimals, amount, settings.slippageBps, gaslessTradingEnabled]);
+  }, [token, address, parsed, amountProblem, side, cash, spendable, tokenBalance, tokenDecimals, amount, settings.slippageBps, gaslessTradingEnabled, homeActive]);
 
   // Debounced auto-quote while typing.
   useEffect(() => { setNotice(''); reopenReview.current = false; }, [amount, selectedToken?.tokenAddress, side]);
@@ -498,14 +511,34 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     : !wallet ? 'Create or import a Kivo wallet on this phone to trade.'
     : amountProblem ?? (parsed == null ? `Enter an amount to ${side} ${token?.symbol ?? ''}`
       : quoteState === 'loading' ? 'Finding the best route…'
+      : movingHome ? 'Moving your USDC to Solana for this buy…'
+      : quoteState === 'error' && moveHomeUsd != null ? `Tap Buy: Kivo first moves your USDC to Solana (free), then shows the review.`
       : quoteState === 'error' ? quoteError
       : expired ? 'Quote expired — tap Refresh.'
       : view?.unsupportedReason ? view.unsupportedReason
       : belowMinimum ? `The minimum trade is ${formatUsd(MIN_TRADE_USD)}.`
       : quoteState === 'ready' ? `Review and ${side} ${token?.symbol ?? ''}` : '');
-  const hintIsError = Boolean(amountProblem) || quoteState === 'error' || Boolean(view?.unsupportedReason) || belowMinimum;
+  const hintIsError = Boolean(amountProblem) || (quoteState === 'error' && moveHomeUsd == null && !movingHome) || Boolean(view?.unsupportedReason) || belowMinimum;
   const pressSide = (target: TradeSide) => {
     if (target !== side) { setSide(target); return; }
+    if (quoteState === 'error' && moveHomeUsd != null) {
+      if (movingHome) return;
+      setMovingHome(true);
+      void runAutoSweep({ upToUsd: moveHomeUsd }).then(moved => {
+        setMovingHome(false);
+        if (!moved || moved.movedUsd <= 0) {
+          setMoveHomeUsd(null);
+          setQuoteError(moved?.failed[0]?.error ? `Couldn't move your USDC to Solana: ${moved.failed[0].error}` : 'Unlock your wallet and try again.');
+          return;
+        }
+        reopenReview.current = true;
+        // The moved USDC can take a few seconds to show on Solana: read again until it has.
+        setBalanceNonce(n => n + 1);
+        setTimeout(() => setBalanceNonce(n => n + 1), 8000);
+        setTimeout(() => setBalanceNonce(n => n + 1), 20000);
+      });
+      return;
+    }
     if (ready) setReviewOpen(true);
     else if (expired) fetchQuote();
   };
@@ -566,7 +599,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
             {hint ? <Text style={[styles.hint, hintIsError && styles.hintError]}>{hint}</Text> : null}
             {side === 'buy' && cashUnreadable ? <Pressable onPress={() => { clearCashBalanceCache(); setSpendable(null); setBalanceNonce(n => n + 1); }} style={styles.refresh} accessibilityRole="button"><Text style={styles.refreshText}>Couldn't read your USDC. Try again</Text></Pressable> : null}
             {quoteState === 'error' && partialUsd != null ? <Pressable onPress={() => setAmount(partialUsd.toFixed(2))} style={styles.refresh} accessibilityRole="button"><Text style={styles.refreshText}>Buy {formatUsd(partialUsd)} instead</Text></Pressable> : null}
-            {quoteState === 'error' || expired ? <Pressable onPress={fetchQuote} style={styles.refresh}><Text style={styles.refreshText}>{expired ? 'Refresh quote' : 'Try again'}</Text></Pressable> : null}
+            {(quoteState === 'error' && moveHomeUsd == null) || expired ? <Pressable onPress={fetchQuote} style={styles.refresh}><Text style={styles.refreshText}>{expired ? 'Refresh quote' : 'Try again'}</Text></Pressable> : null}
 
             <View style={styles.presets}>
               {[25, 50, 75, 100].map(pct => (
