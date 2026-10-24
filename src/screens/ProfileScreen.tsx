@@ -464,7 +464,7 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
       <ProfilePostsTimeline userId={profile.userId} />
 
       <ConvertCashSheet visible={convertOpen} moveHome={moveHome} onClose={() => setConvertOpen(false)} onConverted={() => { void load(true); }} />
-      <SendAssetsSheet visible={sendOpen} initialRecipient="" onClose={() => { setSendOpen(false); void load(true); }} />
+      <SendAssetsSheet visible={sendOpen} onClose={() => { setSendOpen(false); void load(true); }} />
     </ScrollView>
   );
 }
