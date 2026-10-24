@@ -203,7 +203,9 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   type MenuItem = { text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void };
   const [optionsMenu, setOptionsMenu] = useState<MenuItem[] | null>(null);
-  const [selectingText, setSelectingText] = useState<string | null>(null);
+  const [selectingMessage, setSelectingMessage] = useState<LocalMessage | null>(null);
+  // The quoted fragment to mark inside the original after a quote is tapped.
+  const [highlightedFragment, setHighlightedFragment] = useState<{ id: string; text: string } | null>(null);
   const [optionsMessage, setOptionsMessage] = useState<LocalMessage | null>(null);
   // Distinguish a text-selection long press from a long press on the surrounding message panel.
   const textTouchingMessage = useRef<string | null>(null);
@@ -252,6 +254,17 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 1000 }).current;
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: { key: string; isViewable: boolean }[] }) => viewabilityHandler.current(viewableItems.filter(v => v.isViewable).map(v => v.key))).current;
   // @username taps open that Kivo profile.
+  /** Message text with links/mentions; the quoted fragment is marked while its original is highlighted. */
+  const renderMessageText = (message: LocalMessage): React.ReactNode[] => {
+    const fragment = highlightedFragment?.id === message.id && highlightedId === message.id ? highlightedFragment.text : null;
+    const at = fragment ? message.text.indexOf(fragment) : -1;
+    if (!fragment || at < 0) return renderLinkedText(message.text, myUsername, openMention);
+    return [
+      <React.Fragment key="before">{renderLinkedText(message.text.slice(0, at), myUsername, openMention)}</React.Fragment>,
+      <Text key="quoted" style={styles.quotedFragment}>{renderLinkedText(fragment, myUsername, openMention)}</Text>,
+      <React.Fragment key="after">{renderLinkedText(message.text.slice(at + fragment.length), myUsername, openMention)}</React.Fragment>,
+    ];
+  };
   const openMention = (username: string) => {
     resolveUsername(username).then(userId => { if (userId) onOpenPerson?.(userId); else kivoAlert('Mention', `No Kivo user @${username}`); })
       .catch(error => kivoAlert('Mention', error instanceof Error ? error.message : 'Could not open this profile.'));
@@ -350,11 +363,11 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const [pinsOpen, setPinsOpen] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [pendingQuoteJumpId, setPendingQuoteJumpId] = useState<string | null>(null);
-  useEffect(() => { if (!highlightedId) return; const timer = setTimeout(() => setHighlightedId(null), 1600); return () => clearTimeout(timer); }, [highlightedId]);
+  useEffect(() => { if (!highlightedId) { setHighlightedFragment(null); return; } const timer = setTimeout(() => setHighlightedId(null), 2400); return () => clearTimeout(timer); }, [highlightedId]);
   const shownPinIndex = pins.length ? Math.min(pinIndex, pins.length - 1) : 0;
   const pinned = pins[shownPinIndex] ?? null;
   useEffect(() => { if (!pins.length) setPinsOpen(false); }, [pins.length]);
-  const listExtra = useMemo(() => ({ extras, highlightedId }), [extras, highlightedId]);
+  const listExtra = useMemo(() => ({ extras, highlightedId, highlightedFragment }), [extras, highlightedId, highlightedFragment]);
   // @-mentions: groups, channels (admins post there) and DMs (the other person).
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [forcedSelection, setForcedSelection] = useState<{ start: number; end: number } | null>(null);
@@ -436,7 +449,9 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     if (!scrollToItem(messageId)) { kivoAlert(what, 'This message is older than the history on this phone.'); return false; }
     atBottom.current = false; setHighlightedId(messageId); return true;
   };
-  const jumpToQuotedMessage = async (messageId: string) => {
+  const jumpToQuotedMessage = async (messageId: string, fragment?: string | null) => {
+    // Mark the quoted words inside the original while it flashes.
+    setHighlightedFragment(fragment?.trim() ? { id: messageId, text: fragment.trim() } : null);
     const known = (getChatState().messages[id] ?? []).find(message => message.id === messageId);
     if (known?.deleted) { kivoAlert('Quoted message', 'That message has been deleted.'); return; }
     if (jumpToMessage(messageId, 'Quoted message')) return;
@@ -528,7 +543,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     setOptionsMenu([
       ...(message.text ? [
         // Partial selection: a native selectable view of the message (Android long-press handles + Copy).
-        { text: 'Select text', onPress: () => { const text = message.text; setTimeout(() => setSelectingText(text), 250); } },
+        { text: canPost ? 'Select text / quote part' : 'Select text', onPress: () => { setTimeout(() => setSelectingMessage(message), 250); } },
         { text: 'Copy text', onPress: () => { Clipboard.setString(message.text); kivoAlert('Copied', 'Message copied to clipboard.'); } },
       ] : []),
       ...(message.text && canPost ? [{ text: 'Quote message', onPress: () => { setEditingMessageId(null); setReplyingTo(message); setQuoteText(message.text.slice(0, 1000)); } }] : []),
@@ -653,7 +668,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                 {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} fullWidth={isChannel} />}
                 {message.replyTo && !message.deleted ? (() => {
                   const quoted = messages.find(item => item.id === message.replyTo);
-                  return <Pressable style={styles.replyQuote} onPress={() => { void jumpToQuotedMessage(message.replyTo!); }} accessibilityRole="button" accessibilityLabel={`Jump to original message from ${quoted ? displayName(quoted.senderId) : 'sender'}`}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={3}>{message.quoteText ?? (quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available')}</Text></Pressable>;
+                  return <Pressable style={styles.replyQuote} onPress={() => { void jumpToQuotedMessage(message.replyTo!, message.quoteText); }} accessibilityRole="button" accessibilityLabel={`Jump to original message from ${quoted ? displayName(quoted.senderId) : 'sender'}`}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={3}>{message.quoteText ?? (quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available')}</Text></Pressable>;
                 })() : null}
                 {message.deleted ? <Text style={styles.deletedText}>Message deleted{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text> : message.text ? (() => {
                   // Long messages collapse after ~12 lines so one post can't take over the chat.
@@ -687,7 +702,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                       }}
                       style={[styles.text, isChannel && styles.postText]}
                       numberOfLines={long && !open ? 12 : undefined}
-                    >{renderLinkedText(message.text, myUsername, openMention)}{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text>
+                    >{renderMessageText(message)}{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text>
                     {long ? <Pressable hitSlop={6} onPress={() => setExpanded(prev => ({ ...prev, [message.id]: !open }))}><Text style={styles.showMore}>{open ? 'Show less' : 'Show more'}</Text></Pressable> : null}
                   </View>;
                 })() : null}
@@ -818,7 +833,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           </View>
         </View>
       </KivoModal>
-      <SelectTextSheet visible={selectingText !== null} text={selectingText ?? ''} onClose={() => setSelectingText(null)} onMention={openMention} />
+      <SelectTextSheet visible={selectingMessage !== null} text={selectingMessage?.text ?? ''} onClose={() => setSelectingMessage(null)} onMention={openMention}
+        onQuote={canPost && selectingMessage ? fragment => { const target = selectingMessage; setEditingMessageId(null); setReplyingTo(target); setQuoteText(fragment); } : undefined} />
       <BottomSheet visible={!!optionsMenu} onClose={() => { setOptionsMenu(null); setOptionsMessage(null); }}>
         <Text style={styles.sheetTitle}>Message options</Text>
         {optionsMessage && canReact && (
@@ -912,6 +928,7 @@ const styles = StyleSheet.create({
   pinSegment: { flex: 1, borderRadius: 2, backgroundColor: c.border },
   pinSegmentActive: { backgroundColor: c.accent },
   bubbleHighlight: { borderWidth: 2, borderColor: c.accent },
+  quotedFragment: { backgroundColor: 'rgba(183,226,123,0.32)', borderRadius: 3 },
   bubbleMention: { borderLeftWidth: 3, borderLeftColor: '#2589F5', backgroundColor: '#22384F' },
   pinsScreen: { flex: 1, backgroundColor: c.background },
   pinsHeader: { minHeight: 60, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: 1, borderBottomColor: c.border },

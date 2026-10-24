@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { KivoModal } from './KivoModal';
 import { kivoAlert } from './KivoAlert';
@@ -43,14 +43,30 @@ function shortValue(part: Part): string {
   return part.text.length > 42 ? part.text.slice(0, 40) + '…' : part.text;
 }
 
+/** The selected part of `text`, trimmed, or '' when nothing (or only spaces) is selected. Exported for tests. */
+export function selectedFragment(text: string, selection: { start: number; end: number }): string {
+  const start = Math.max(0, Math.min(selection.start, selection.end));
+  const end = Math.min(text.length, Math.max(selection.start, selection.end));
+  return text.slice(start, end).trim();
+}
+
 /**
- * "Select text" for a chat message or post. The text is a native selectable
- * Text with no touch handlers on it or around it, so Android's long-press
- * selection works: drag the handles to pick part of the message, then Copy.
- * Links, mentions and addresses stay usable as buttons underneath.
+ * "Select text" for a chat message or post (Telegram-style). The message is a
+ * read-only native text field: long-press a word and drag the handles to pick
+ * any part of it (the system toolbar offers Copy too). Kivo's bar then offers
+ * Copy, Quote (reply quoting only the selected fragment) and Select all.
+ * The keyboard never opens and edits are discarded. Links, mentions and
+ * addresses stay usable as buttons underneath.
  */
-export function SelectTextSheet({ visible, text, title = 'Select text', onClose, onMention }: { visible: boolean; text: string; title?: string; onClose: () => void; onMention?: (username: string) => void }) {
+export function SelectTextSheet({ visible, text, title = 'Select text', onClose, onMention, onQuote }: { visible: boolean; text: string; title?: string; onClose: () => void; onMention?: (username: string) => void; onQuote?: (fragment: string) => void }) {
   const parts = useMemo(() => splitSelectableText(text), [text]);
+  const [selection, setSelection] = useState({ start: 0, end: 0 });
+  const [forced, setForced] = useState<{ start: number; end: number } | undefined>(undefined);
+  useEffect(() => { if (visible) { setSelection({ start: 0, end: 0 }); setForced(undefined); } }, [visible, text]);
+  const fragment = selectedFragment(text, selection);
+  const copySelection = () => { Clipboard.setString(fragment); kivoAlert('Copied', 'Selected text copied to clipboard.'); };
+  const selectAll = () => { const all = { start: 0, end: text.length }; setForced(all); setSelection(all); };
+  const quote = () => { const value = fragment.slice(0, 1000); onClose(); onQuote?.(value); };
   const actions = useMemo(() => {
     const seen = new Set<string>();
     return parts.filter(part => part.kind && part.value && (part.kind !== 'mention' || onMention) && !seen.has(part.kind + part.value) && seen.add(part.kind + part.value)).slice(0, 12);
@@ -70,14 +86,28 @@ export function SelectTextSheet({ visible, text, title = 'Select text', onClose,
             <Text style={styles.title}>{title}</Text>
             <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close" style={styles.close}><Text style={styles.closeText}>✕</Text></Pressable>
           </View>
-          <Text style={styles.hint}>Long-press a word, drag the handles to choose the part you want, then tap Copy.</Text>
-          <ScrollView style={styles.textBox} contentContainerStyle={styles.textBoxContent}>
-            <Text selectable selectionColor={c.accent} style={styles.text}>
-              {parts.map((part, index) => part.kind
-                ? <Text key={index} style={part.kind === 'mention' ? styles.mention : part.kind === 'hashtag' ? styles.hashtag : part.kind === 'ticker' ? styles.ticker : styles.link}>{part.text}</Text>
-                : part.text)}
-            </Text>
-          </ScrollView>
+          <Text style={styles.hint}>Long-press a word and drag the handles to choose any part of the message.</Text>
+          <TextInput
+            value={text}
+            // Read-only: any edit is discarded (the value stays `text`) and no keyboard opens.
+            onChangeText={() => setForced(undefined)}
+            showSoftInputOnFocus={false}
+            caretHidden
+            multiline
+            scrollEnabled
+            autoCorrect={false}
+            spellCheck={false}
+            selection={forced}
+            onSelectionChange={event => { setSelection(event.nativeEvent.selection); setForced(undefined); }}
+            selectionColor={c.accent}
+            style={[styles.textBox, styles.text]}
+            accessibilityLabel="Message text"
+          />
+          <View style={styles.selectionBar}>
+            <Pressable disabled={!fragment} onPress={copySelection} style={[styles.barButton, !fragment && styles.barDisabled]} accessibilityRole="button"><Text style={styles.barText}>Copy</Text></Pressable>
+            {onQuote ? <Pressable disabled={!fragment} onPress={quote} style={[styles.barButton, !fragment && styles.barDisabled]} accessibilityRole="button" accessibilityLabel="Quote the selected text in a reply"><Text style={styles.barText}>❝ Quote</Text></Pressable> : null}
+            <Pressable onPress={selectAll} style={styles.barButton} accessibilityRole="button"><Text style={styles.barText}>Select all</Text></Pressable>
+          </View>
           {actions.length ? (
             <View style={styles.actions}>
               {actions.map(part => (
@@ -103,13 +133,12 @@ const styles = StyleSheet.create({
   close: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface },
   closeText: { color: c.textMuted, fontSize: 16, fontWeight: '900' },
   hint: { color: c.textMuted, fontSize: 12, lineHeight: 17 },
-  textBox: { flexGrow: 0, flexShrink: 1, borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
-  textBoxContent: { padding: 14 },
+  textBox: { flexShrink: 1, maxHeight: 360, borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, padding: 14, textAlignVertical: 'top' },
+  selectionBar: { flexDirection: 'row', gap: 8 },
+  barButton: { flex: 1, height: 40, borderRadius: 20, borderWidth: 1, borderColor: c.border, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
+  barDisabled: { opacity: 0.4 },
+  barText: { color: c.text, fontWeight: '800', fontSize: 14 },
   text: { color: c.text, fontSize: 16, lineHeight: 23 },
-  link: { color: c.accent, textDecorationLine: 'underline' },
-  mention: { color: c.accent, fontWeight: '800' },
-  hashtag: { color: '#9BC9FF', textDecorationLine: 'underline' },
-  ticker: { color: c.accent, fontWeight: '800' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { maxWidth: '100%', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 14, borderWidth: 1, borderColor: c.border, backgroundColor: c.surfaceRaised },
   chipText: { color: c.accent, fontSize: 13, fontWeight: '700' },
