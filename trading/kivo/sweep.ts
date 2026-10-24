@@ -1,10 +1,6 @@
-// Automatic "move home": funds that land on another network or in another
-// coin (USDC on Base, ETH, BNB, SOL…) are moved to the user's USDC on Solana
-// without the user doing anything, like a CEX balance. Each asset is one
-// Relay route straight to Solana USDC. Costs: USDC->USDC has no Relay
-// platform fee; Kivo sponsors the gas and, if that costs more than the
-// tiny app fee carried, the server raises that move's fee just enough to
-// recover it. Native coins pay their own gas from the reserve kept on them.
+// Automatic "move home" is strictly USDC cash across networks -> USDC on Solana.
+// Never sell native coins (SOL/ETH/BNB), USDT, or investment tokens to fund a trade.
+// USDC->USDC has no Relay platform fee; Kivo sponsors gas subject to its fee guard.
 
 import {parseUnits} from 'viem';
 import {TOKEN_ADDRESSES} from '../core/chainData';
@@ -21,9 +17,14 @@ export type SweepResult = {movedUsd: number; moved: SpendableAsset[]; failed: {a
 
 /** The assets an automatic move would take home, largest first. */
 export function sweepCandidates(balance: SpendableBalance): SpendableAsset[] {
-  // SOL on Solana stays as SOL: it is the home network's own gas coin, and
-  // selling it would only cost a route fee for no benefit.
-  return awayFromHome(balance).filter(asset => asset.valueUsd >= MIN_SWEEP_USD && asset.chainKey !== 'near' as never && !(asset.chainKey === HOME_CHAIN && asset.kind === 'native'));
+  // Only USDC-like cash is eligible. Never convert SOL/ETH/BNB, USDT, or
+  // investment holdings automatically; those are not Trade-section cash.
+  return awayFromHome(balance).filter(asset =>
+    asset.valueUsd >= MIN_SWEEP_USD &&
+    asset.kind === 'cash' &&
+    ['USDC', 'USDG'].includes(asset.symbol.toUpperCase()) &&
+    asset.chainKey !== HOME_CHAIN
+  );
 }
 
 function units(asset: SpendableAsset, amount = asset.spendableAmount): string {
