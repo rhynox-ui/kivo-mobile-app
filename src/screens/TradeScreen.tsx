@@ -28,6 +28,7 @@ import { addNotification } from '../state/notificationStore';
 import { api } from '../state/session';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { TokenChartPanel } from '../components/TokenChartPanel';
+import { TokenIcon } from '../components/TokenIcon';
 import { MAINNET_CHAIN_IDS } from '@kivo/trading/core/chainData';
 import { MIN_TRADE_USD, formatKivoFee } from '@kivo/trading/core/fees';
 import { checkSolanaTokenSecurity, checkTokenSecurity } from '@kivo/trading/core/goplusTokenSecurity';
@@ -569,7 +570,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       </View>
 
       <Pressable onPress={onToken} style={styles.tokenRow} accessibilityRole="button">
-        {selectedToken?.imageUrl ? <Image source={{ uri: selectedToken.imageUrl }} style={styles.tokenIcon} /> : <View style={styles.tokenIcon}><Text style={styles.tokenLetter}>{(selectedToken?.symbol ?? '⌕').slice(0, 1)}</Text></View>}
+        {selectedToken ? <TokenIcon kind="token" symbol={selectedToken.symbol} chainKey={selectedToken.chainKey as ChainKey} address={selectedToken.tokenAddress} imageUrl={selectedToken.imageUrl} size={36} /> : <View style={styles.tokenIcon}><Text style={styles.tokenLetter}>⌕</Text></View>}
         <View style={styles.flex}>
           <Text style={styles.tokenSymbol}>{selectedToken ? selectedToken.symbol : 'Choose a token'}</Text>
           <Text style={styles.muted} numberOfLines={1}>{selectedToken ? `${selectedToken.name} · ${chainLabel(selectedToken.chainKey)}` : 'Search any token, any chain'}</Text>
@@ -647,7 +648,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
             <View style={styles.card}>
               <Text style={styles.cardLabel}>YOU PAY</Text>
               <View style={styles.cardRow}>
-                <AssetChip symbol={side === 'buy' ? 'USDC' : token!.symbol} uri={side === 'buy' ? null : token!.imageUrl} />
+                <AssetChip symbol={side === 'buy' ? 'USDC' : token!.symbol} uri={side === 'buy' ? null : token!.imageUrl} token={side === 'buy' ? undefined : token!} />
                 <TextInput ref={amountRef} editable={!disabledInput} value={amount} onChangeText={value => setAmount(normalizeAmountInput(value))} onFocus={() => { amountFocused.current = true; setTimeout(revealAmount, 120); }} onBlur={() => { amountFocused.current = false; }} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.amountInput} accessibilityLabel={side === 'buy' ? 'USDC to spend' : `${token!.symbol} to sell`} />
               </View>
               <Text style={styles.avail}>{!wallet ? '' : available != null ? (side === 'buy' ? `${settings.hideBalances ? '••••' : formatBalanceUsd(available)} avail.` : `${formatAmount(available)} avail.`) : (side === 'sell' && balanceError) || (side === 'buy' && cashUnreadable) ? 'Balance unavailable' : 'Reading balance…'}</Text>
@@ -655,7 +656,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
             <View style={styles.card}>
               <Text style={styles.cardLabel}>YOU RECEIVE</Text>
               <View style={styles.cardRow}>
-                <AssetChip symbol={receiveSymbol} uri={side === 'buy' ? token!.imageUrl : null} />
+                <AssetChip symbol={receiveSymbol} uri={side === 'buy' ? token!.imageUrl : null} token={side === 'buy' ? token! : undefined} />
                 {quoteState === 'loading' ? <ActivityIndicator color={kivoTheme.colors.accent} /> : <Text style={styles.receive} numberOfLines={1} adjustsFontSizeToFit>{view?.receive.amount ? formatAmount(Number(view.receive.amount)) : '—'}</Text>}
               </View>
               <Text style={styles.avail}>{view?.receive.usd != null ? `≈ ${formatUsd(view.receive.usd)}` : ''}</Text>
@@ -852,11 +853,13 @@ function cashLabel(symbol: string): string {
   return symbol === 'USDG' ? 'USDC' : symbol;
 }
 
-function AssetChip({ symbol, uri }: { symbol: string; uri?: string | null }) {
+function AssetChip({ symbol, uri, token }: { symbol: string; uri?: string | null; token?: { chainKey: string; tokenAddress: string } }) {
   const imageUri = uri ?? (symbol.toUpperCase() === 'USDC' ? USDC_LOGO_URI : null);
   // A logo that fails to load falls back to the letter mark.
   const [failed, setFailed] = useState(false);
   useEffect(() => { setFailed(false); }, [imageUri]);
+  // A traded token: its own logo, then DexScreener's for that contract, then the letter.
+  if (token) return <View style={styles.chipAsset}><TokenIcon kind="token" symbol={symbol} chainKey={token.chainKey as ChainKey} address={token.tokenAddress} imageUrl={uri} size={16} /><Text style={styles.chipSymbol}>{symbol}</Text></View>;
   return (
     <View style={styles.chipAsset}>
       {imageUri && !failed ? (

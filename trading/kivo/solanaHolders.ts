@@ -9,9 +9,14 @@ const TIMEOUT_MS = 8_000;
 const CACHE_MS = 60_000;
 const cache = new Map<string, {at: number; value: Promise<TokenHolder[]>}>();
 
+// Public RPCs commonly refuse getTokenLargestAccounts (an indexed query), so
+// Kivo's relay, which asks its dedicated providers first, is tried first.
+const KIVO_RPC = SOLANA_READ_RPCS.find(url => url.includes('kivotrade.site'));
+const HOLDER_RPCS = [...new Set([...(KIVO_RPC ? [KIVO_RPC] : []), ...SOLANA_READ_RPCS])];
+
 async function rpc<T>(method: string, params: unknown[]): Promise<T> {
   let lastError: unknown = null;
-  for (const url of SOLANA_READ_RPCS) {
+  for (const url of HOLDER_RPCS) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
