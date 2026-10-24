@@ -216,7 +216,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   // quote below re-checks it once the route's real output is known).
   const tradeUsd = parsed == null ? null : side === 'buy' ? parsed : token?.priceUsd != null && token.priceUsd > 0 ? parsed * token.priceUsd : null;
   const amountProblem = !amount.trim() ? null : parsed == null ? 'Enter a valid amount greater than zero.'
-    : available != null && parsed > available + 1e-12 ? (side === 'buy' ? (homeActive && awayUsd >= 0.5 ? `More than your USDC on Solana (${formatBalanceUsd(available)}). You have ${formatBalanceUsd(awayUsd)} elsewhere: Kivo moves it to Solana when you tap Buy.` : `More than your available balance (${formatBalanceUsd(available)}).`) : `More than your available ${formatAmount(available)} ${token?.symbol ?? ''}.`)
+    : available != null && parsed > available + 1e-12 ? (side === 'buy' ? (homeActive && awayUsd >= 0.5 ? `Your USDC across networks is ${formatBalanceUsd(available)}; ${formatBalanceUsd(homeAvailable)} is on Solana and ${formatBalanceUsd(awayUsd)} is elsewhere. Kivo can move the shortfall when you tap Buy.` : `More than your available balance (${formatBalanceUsd(available)}).`) : `More than your available ${formatAmount(available)} ${token?.symbol ?? ''}.`)
     : tradeUsd != null && tradeUsd < MIN_TRADE_USD ? `The minimum trade is ${formatUsd(MIN_TRADE_USD)}.` : null;
 
   const fetchQuote = useCallback(async () => {
@@ -514,7 +514,8 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       if (movingHome) return;
       setMovingHome(true);
       setNotice('Moving your funds to Solana for this buy…');
-      void runAutoSweep({ upToUsd: (parsed ?? 0) - (available ?? 0) }).then(result => {
+      // Move only the amount missing on Solana; `available` is the cross-network total, not the home balance.
+      void runAutoSweep({ upToUsd: Math.max(0, (parsed ?? 0) - (homeAvailable ?? 0)) }).then(result => {
         setMovingHome(false);
         if (!result || result.movedUsd <= 0) { setNotice(result?.failed[0]?.error ? `Couldn't move your funds: ${result.failed[0].error}` : 'Unlock your wallet and try again.'); return; }
         setNotice('');
