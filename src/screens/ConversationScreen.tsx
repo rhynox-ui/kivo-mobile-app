@@ -20,6 +20,7 @@ import { ChatPollCard } from '../components/ChatPollCard';
 import { sendPoll } from '@kivo/shared/chat/store';
 import { DEFAULT_POLL_SETTINGS, POLL_DURATION_OPTIONS, normalizePollQuestion, normalizePollDescription, normalizePollOptions, type PollSettings } from '@kivo/shared/polls/types';
 
+import { SelectTextSheet } from '../components/SelectTextSheet';
 type Item = { type: 'day'; key: string; label: string } | { type: 'unread'; key: string } | { type: 'message'; key: string; message: LocalMessage; showName: boolean; showAvatar: boolean };
 
 // Server-defined reactions: one per person per message, members only.
@@ -202,6 +203,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   type MenuItem = { text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void };
   const [optionsMenu, setOptionsMenu] = useState<MenuItem[] | null>(null);
+  const [selectingText, setSelectingText] = useState<string | null>(null);
   const [optionsMessage, setOptionsMessage] = useState<LocalMessage | null>(null);
   // Distinguish a text-selection long press from a long press on the surrounding message panel.
   const textTouchingMessage = useRef<string | null>(null);
@@ -524,7 +526,11 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     // Match Web: show quick reactions in the same message-options sheet.
     setOptionsMessage(message);
     setOptionsMenu([
-      ...(message.text ? [{ text: 'Copy message', onPress: () => { Clipboard.setString(message.text); kivoAlert('Copied', 'Message copied to clipboard.'); } }] : []),
+      ...(message.text ? [
+        // Partial selection: a native selectable view of the message (Android long-press handles + Copy).
+        { text: 'Select text', onPress: () => { const text = message.text; setTimeout(() => setSelectingText(text), 250); } },
+        { text: 'Copy text', onPress: () => { Clipboard.setString(message.text); kivoAlert('Copied', 'Message copied to clipboard.'); } },
+      ] : []),
       ...(message.text && canPost ? [{ text: 'Quote message', onPress: () => { setEditingMessageId(null); setReplyingTo(message); setQuoteText(message.text.slice(0, 1000)); } }] : []),
       ...(canPost ? [{ text: 'Reply', onPress: () => { setEditingMessageId(null); setReplyingTo(message); setQuoteText(null); } }] : []),
       ...(canPin ? (() => { const isPinned = pins.some(p => p.id === message.id); return [{ text: isPinned ? 'Unpin message' : 'Pin message', onPress: () => setPin(message.id, !isPinned) }]; })() : []),
@@ -812,6 +818,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           </View>
         </View>
       </KivoModal>
+      <SelectTextSheet visible={selectingText !== null} text={selectingText ?? ''} onClose={() => setSelectingText(null)} onMention={openMention} />
       <BottomSheet visible={!!optionsMenu} onClose={() => { setOptionsMenu(null); setOptionsMessage(null); }}>
         <Text style={styles.sheetTitle}>Message options</Text>
         {optionsMessage && canReact && (

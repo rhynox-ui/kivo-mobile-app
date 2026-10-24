@@ -5,6 +5,7 @@ import { getNotifications, markAllNotificationsRead, subscribeToNotifications, t
 import { api, enableSocial, socialReady } from '../state/session';
 import type { FeedPostNotification } from '@kivo/shared/api/client';
 
+import { userHandle } from '@kivo/shared/profile/userLabel';
 type Props = {onBack?:()=>void; onOpenPost?:(postId:string)=>void};
 type FeedItem = FeedPostNotification & {source:'feed'};
 type LocalItem = KivoNotification & {source:'local'};
@@ -33,7 +34,7 @@ export function NotificationScreen({onBack,onOpenPost}:Props){
    <ScrollView contentContainerStyle={styles.body}>
     {loading&&<Text style={styles.status}>Syncing feed notifications…</Text>}
     {!!error&&<Text style={styles.status}>{error}</Text>}
-    {merged.length===0 ? <View style={styles.card}><Text style={styles.cardTitle}>You're all caught up</Text><Text style={styles.cardText}>Likes, comments, new posts and messages will appear here.</Text>{!socialReady()&&<Pressable onPress={()=>void enableSocial().then(refresh).catch(e=>setError(e instanceof Error?e.message:'Could not connect social account.'))}><Text style={styles.read}>Connect Kivo Social</Text></Pressable>}</View> : merged.map(item=><Pressable key={item.source+item.id} onPress={()=>openItem(item)} disabled={item.source==='local'} style={[styles.item,(item.source==='feed'?!item.readAt:!item.read)&&styles.unread]}><View style={styles.dot}/><View style={styles.copy}><Text style={styles.itemTitle}>{item.source==='feed'?item.actorUsername+' '+kindLabel(item):item.title}</Text><Text style={styles.itemBody}>{item.source==='feed'?item.postPreview:item.body}</Text><Text style={styles.time}>{new Date(item.createdAt).toLocaleString()}</Text>{item.source==='feed'&&<Text style={styles.openPost}>Open post ›</Text>}</View></Pressable>)}
+    {merged.length===0 ? <View style={styles.card}><Text style={styles.cardTitle}>You're all caught up</Text><Text style={styles.cardText}>Likes, comments, new posts and messages will appear here.</Text>{!socialReady()&&<Pressable onPress={()=>void enableSocial().then(refresh).catch(e=>setError(e instanceof Error?e.message:'Could not connect social account.'))}><Text style={styles.read}>Connect Kivo Social</Text></Pressable>}</View> : merged.map(item=><Pressable key={item.source+item.id} onPress={()=>openItem(item)} disabled={item.source==='local'} style={[styles.item,(item.source==='feed'?!item.readAt:!item.read)&&styles.unread]}><View style={styles.dot}/><View style={styles.copy}><Text style={styles.itemTitle}>{item.source==='feed'?userHandle(item.actorUsername,item.actorId)+' '+kindLabel(item):item.title}</Text><Text style={styles.itemBody}>{item.source==='feed'?item.postPreview:item.body}</Text><Text style={styles.time}>{new Date(item.createdAt).toLocaleString()}</Text>{item.source==='feed'&&<Text style={styles.openPost}>Open post ›</Text>}</View></Pressable>)}
     {unread>0&&<Text style={styles.footer}>{unread} unread</Text>}
    </ScrollView>
  </View>
