@@ -3,6 +3,7 @@
 // itself, one fee per order, parallel-by-network execution and the spam filter.
 import assert from 'node:assert/strict';
 import {nativeSpendable, spendOrder, spendableFor, totalSpendableUsd} from '../trading/kivo/spendable.ts';
+import {usdcOnly} from '../trading/kivo/home.ts';
 import {legUnits, runLegsByNetwork} from '../trading/kivo/unified.ts';
 import {kivoFeeBps, kivoFeeUsd} from '../trading/core/fees.ts';
 import {isNativeToken, marketAddressFor} from '../trading/kivo/tokens.ts';
@@ -18,6 +19,19 @@ const balance = {assets: [
   asset('robinhood', 'USDG', 'cash', 4),
 ], errors: []};
 assert.equal(totalSpendableUsd(balance), 10);
+
+// Trade spendability is deliberately narrower than the full wallet inventory:
+// USDC on supported networks and Robinhood's explicitly mapped USDG only.
+const tradeCash = usdcOnly({assets: [
+  asset('solana', 'USDC', 'cash', 10),
+  asset('base', 'USDC', 'cash', 10),
+  asset('robinhood', 'USDG', 'cash', 10),
+  asset('base', 'USDT', 'stable', 10),
+  asset('solana', 'SOL', 'native', 10, 150),
+  asset('base', '$chartgpt', 'stable', 10),
+], errors: []});
+assert.deepEqual(tradeCash.assets.map(a => a.symbol), ['USDC', 'USDC', 'USDG']);
+assert.equal(totalSpendableUsd(tradeCash), 30);
 
 // Cash first (largest first), then native; the token's own network leads within a kind.
 assert.deepEqual(spendOrder(balance.assets, 'arbitrum').map(a => a.chainKey), ['robinhood', 'bnb', 'base', 'solana']);
