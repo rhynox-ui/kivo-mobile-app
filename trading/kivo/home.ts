@@ -2,7 +2,7 @@
 // every buy is paid from it and every sell lands back in it, so a trade is
 // one route instead of many small pieces from coins on several networks
 // (each piece paid Relay's fixed cost again: ~6-8% lost on small buys).
-// Funds elsewhere stay usable through Convert ("Move to Solana").
+// USDC on other supported networks is moved here only when a buy needs it.
 
 import type {ChainKey} from '../core/chainData';
 import type {SpendableAsset, SpendableBalance} from './spendable';
