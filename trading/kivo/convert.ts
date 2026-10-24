@@ -90,7 +90,18 @@ export function convertQuoteParams(params: {
     // EVM/Calibur-only parameter; Solana-origin quotes must not carry it.
     ...(from.chainKey !== 'solana' ? {originGasOverhead: '80000'} : {}),
     ...(cashMove
-      ? (to.chainKey === 'base' && from.chainKey !== 'solana' && from.symbol === 'USDC' ? {fundingTransfer: true} : {waiveAppFee: true})
+      ? to.chainKey === 'base' && from.chainKey !== 'solana' && from.symbol === 'USDC'
+        // Existing Base funding-transfer path: Kivo sponsors this move without
+        // charging an app fee, and the backend records the quote for /execute.
+        ? {fundingTransfer: true}
+        // Solana is Kivo Mobile's home network. An EVM-origin USDC move home
+        // must carry the minimal sweepHome fee so the Kivo quote proxy requests
+        // sponsorship and records the requestId required by /relay/execute.
+        // waiveAppFee would make sponsorship false, so /execute rejects the
+        // otherwise-valid quote as unrecognized.
+        : to.chainKey === 'solana' && from.chainKey !== 'solana'
+          ? {sweepHome: true}
+          : {waiveAppFee: true}
       : {}),
   };
 }
