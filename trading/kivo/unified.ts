@@ -65,8 +65,16 @@ export async function planUnifiedBuy(params: {
 }): Promise<UnifiedPlan> {
   const {token, amountUsd, userAddress, solanaAddress, tokenDecimals = 18, balance, slippageBps} = params;
   if (token.chainKey === 'solana' && !solanaAddress) throw new Error('This wallet has no Solana address for this route.');
-  // Never pay for a coin with itself (buying ETH on Base doesn't spend ETH on Base).
-  const pool = spendOrder(spendableFor(balance, token).assets.filter(asset => asset.valueUsd >= MIN_LEG_USD && (asset.chainKey !== 'solana' || solanaAddress)), token.chainKey);
+  // Defence in depth: this unified trade path is USDC-cash-only. Never spend
+  // native coins, USDT/USDT0, or investment tokens even if a caller passes the
+  // raw wallet portfolio instead of the TradeScreen's already-filtered balance.
+  const tradeCash = balance.assets.filter(asset =>
+    asset.kind === 'cash' &&
+    (asset.symbol.toUpperCase() === 'USDC' ||
+      (asset.chainKey === 'robinhood' && asset.symbol.toUpperCase() === 'USDG'))
+  );
+  // Never pay for a coin with itself.
+  const pool = spendOrder(spendableFor({...balance, assets: tradeCash}, token).assets.filter(asset => asset.valueUsd >= MIN_LEG_USD && (asset.chainKey !== 'solana' || solanaAddress)), token.chainKey);
   let remainingUsd = amountUsd;
   const legs: UnifiedLeg[] = [];
   const failures: {label: string; reason: string}[] = [];
