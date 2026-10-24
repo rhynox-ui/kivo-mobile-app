@@ -1,23 +1,11 @@
-// Unified-balance buys for Kivo mobile (FOMO-style "use everything I hold"),
-// grown from mango-pro's TokenTradeScreen multi-source plan.
-//
-// The user sees ONE balance in dollars (cash, dollar coins and native coins on
-// every network, see spendable.ts) and never picks a chain. Relay still needs
-// one concrete origin per quote, so a buy is split into legs underneath: each
-// leg spends one asset on one network and routes straight to the token's
-// chain (no separate bridging step, nothing left stranded half-way).
-// Rules:
-//   - assets are drawn in spendOrder: cash, dollar coins, then native coins;
-//     the token's own network first, then the largest balances;
-//   - all legs are quoted at once; a leg that can't be routed (no route,
-//     price impact beyond ±50%) is dropped and the next asset fills its gap;
-//   - Kivo's fee is computed on the whole order and shared across the legs
-//     (feeBasisUsd), so splitting a buy never costs more in fees;
-//   - if the balance can't be fully routed the plan is refused with a
-//     PartialRouteError saying how much CAN be bought, so the screen can offer
-//     that amount instead of a dead end.
-// Every leg is a normal gasless Kivo quote, so each one still passes the
-// intent firewall before the device signs it.
+// Unified-balance buys for Kivo mobile. The Trade section is USDC-cash-only.
+// The user sees one balance in dollars from USDC on supported networks
+// (Robinhood USDG is the explicitly supported cash equivalent). Solana USDC
+// is the home balance; remote USDC is moved home first. Native coins, other
+// stablecoins, and investment tokens are never buy inputs.
+// Kivo's fee is computed on the whole order and shared across any supported
+// legs. A buy is refused when its requested amount cannot be safely routed.
+// Every execution still passes the transaction-intent firewall before signing.
 
 import type {ChainKey} from '../core/chainData';
 import {recordDiagnosticEvent} from '../../src/debug/diagnosticLog';
