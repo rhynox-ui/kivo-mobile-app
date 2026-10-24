@@ -12,6 +12,8 @@ import { Avatar } from './ChatListScreen';
 import { api } from '../state/session';
 import { useProfile } from '../state/profileStore';
 import { KivoModal } from '../components/KivoModal';
+import { useSettings } from '../state/settingsStore';
+import { chatLineHeight, chatThemeById } from '../theme/chatThemes';
 import { BottomSheet } from '../components/BottomSheet';
 import { PhotoViewer } from '../components/PhotoViewer';
 import { TokenAttachmentCard } from '../components/TokenAttachmentCard';
@@ -367,7 +369,11 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const shownPinIndex = pins.length ? Math.min(pinIndex, pins.length - 1) : 0;
   const pinned = pins[shownPinIndex] ?? null;
   useEffect(() => { if (!pins.length) setPinsOpen(false); }, [pins.length]);
-  const listExtra = useMemo(() => ({ extras, highlightedId, highlightedFragment }), [extras, highlightedId, highlightedFragment]);
+  // Chat Settings: colour theme and message text size (rows re-render when they change).
+  const { chatTheme, chatTextSize } = useSettings();
+  const look = chatThemeById(chatTheme);
+  const messageText = useMemo(() => ({ fontSize: chatTextSize, lineHeight: chatLineHeight(chatTextSize) }), [chatTextSize]);
+  const listExtra = useMemo(() => ({ extras, highlightedId, highlightedFragment, look, messageText }), [extras, highlightedId, highlightedFragment, look, messageText]);
   // @-mentions: groups, channels (admins post there) and DMs (the other person).
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [forcedSelection, setForcedSelection] = useState<{ start: number; end: number } | null>(null);
@@ -617,7 +623,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           <Pressable hitSlop={10} onPress={() => setPinsOpen(true)} accessibilityRole="button" accessibilityLabel="All pinned messages"><Text style={styles.pinnedListIcon}>☰</Text></Pressable>
         </Pressable>
       ) : null}
-      <View style={styles.listWrap}>
+      <View style={[styles.listWrap, { backgroundColor: look.background }]}>
       <FlatList
         ref={list}
         data={items}
@@ -660,9 +666,9 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           return (
             <View style={[styles.bubbleRow, mine && styles.bubbleRowMine, conversation?.kind === 'group' && !mine && styles.bubbleRowGroupIncoming, isChannel && styles.channelBubbleRow]}>
               {conversation?.kind !== 'dm' && item.showAvatar && !mine ? <View style={styles.avatarColumn}><Avatar name={displayName(message.senderId)} uri={state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /></View> : null}
-              <Pressable onLongPress={() => { if (textTouchingMessage.current !== message.id) onLongPress(message); }} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted, unreadMentionSet.has(message.id) && styles.bubbleMention, message.id === highlightedId && styles.bubbleHighlight]}>
+              <Pressable onLongPress={() => { if (textTouchingMessage.current !== message.id) onLongPress(message); }} style={[styles.bubble, mine && styles.bubbleMine, { backgroundColor: mine ? look.mine : look.theirs }, isChannel && styles.post, message.deleted && styles.deleted, unreadMentionSet.has(message.id) && styles.bubbleMention, message.id === highlightedId && styles.bubbleHighlight]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
-                {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{message.senderId === me && message.poll ? '@' + (profile.username || 'You') : displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
+                {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={[styles.sender, { color: look.accent }]}>{message.senderId === me && message.poll ? '@' + (profile.username || 'You') : displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
                 {message.token && <TokenAttachmentCard token={message.token} compact onPress={onOpenToken ? () => onOpenToken(message.token!) : undefined} />}
                 {message.poll && !message.deleted && <ChatPollCard messageId={message.id} onError={message=>kivoAlert('Poll',message)} />}
                 {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} fullWidth={isChannel} />}
@@ -700,7 +706,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                           textTouchResetTimer.current = null;
                         }, 700);
                       }}
-                      style={[styles.text, isChannel && styles.postText]}
+                      style={[styles.text, isChannel && styles.postText, messageText]}
                       numberOfLines={long && !open ? 12 : undefined}
                     >{renderMessageText(message)}{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text>
                     {long ? <Pressable hitSlop={6} onPress={() => setExpanded(prev => ({ ...prev, [message.id]: !open }))}><Text style={styles.showMore}>{open ? 'Show less' : 'Show more'}</Text></Pressable> : null}

@@ -12,6 +12,9 @@ export type KivoSettings = {
   hideBalances: boolean;
   /** Max slippage for trade routes in basis points; null lets the router choose (Auto). */
   slippageBps: number | null;
+  /** Chat Settings: colour theme id (theme/chatThemes.ts) and message text size in points. */
+  chatTheme: string;
+  chatTextSize: number;
 };
 
 const DEFAULT_SETTINGS: KivoSettings = {
@@ -21,6 +24,8 @@ const DEFAULT_SETTINGS: KivoSettings = {
   hideSmallBalances: false,
   hideBalances: false,
   slippageBps: null,
+  chatTheme: 'kivo',
+  chatTextSize: 15,
 };
 
 let settings: KivoSettings = { ...DEFAULT_SETTINGS };
