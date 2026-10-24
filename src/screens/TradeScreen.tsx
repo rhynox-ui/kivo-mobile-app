@@ -691,9 +691,9 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
         <Pressable style={styles.sheetBackdrop} onPress={() => setChainOpen(false)}>
           <Pressable style={styles.sheet} onPress={() => {}}>
             <Text style={styles.sheetTitle}>Your balance</Text>
-            <Text style={styles.noticeText}>Buys spend everything below, on every network: cash first, then other dollar coins, then each network's own coin (a little is always kept back). You never pick a chain: Kivo routes each part straight to {tradeChain ? chainLabel(tradeChain) : 'the token'}, gas-free. Tokens you bought are never sold to pay.</Text>
+            <Text style={styles.noticeText}>Trade spendable means USDC cash across supported networks only. Kivo uses Solana USDC first and can move the required USDC shortfall from another network when you tap Buy. Native coins (SOL, ETH, BNB, etc.), USDT, and tokens you hold such as $chartgpt or $manga are never auto-converted or sold to fund a buy.</Text>
             <ScrollView style={styles.balanceList} showsVerticalScrollIndicator={false}>
-              {spendOrder(spendable?.assets ?? [], tradeChain ?? 'base').map(asset => {
+              {spendOrder(allSpendable?.assets ?? [], tradeChain ?? 'base').map(asset => {
                 const leg = plan?.legs.find(l => l.chainKey === asset.chainKey && l.asset.address === asset.address);
                 return (
                   <View key={`${asset.chainKey}:${asset.address}`} style={[styles.payRow, leg && styles.payRowSelected]}>
@@ -704,7 +704,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
                   </View>
                 );
               })}
-              {(spendable?.errors ?? []).map(item => (
+              {(allSpendable?.errors ?? []).map(item => (
                 <View key={`err:${item.chainKey}:${item.symbol}`} style={styles.payRow}>
                   <Text style={styles.payName}>{item.symbol} · {CHAIN_LABEL[item.chainKey]}</Text>
                   <Text style={styles.payAmount}>Unavailable</Text>
