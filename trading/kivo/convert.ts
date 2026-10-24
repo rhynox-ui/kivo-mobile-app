@@ -6,8 +6,9 @@
 // destination network. NEAR USDC keeps its separate NEAR Intents path
 // (ConvertCashSheet), which only moves cash.
 //
-// Fees: a pure cash move (USDC/USDG -> USDC/USDG) stays free, exactly as
-// before (moves to Base are sponsored as funding transfers). A conversion
+// Fees: a pure cash move (USDC/USDG -> USDC/USDG) stays free (moves to Base
+// are sponsored as funding transfers, moves home to Solana as fee-free home
+// moves, except from Ethereum mainnet where the fee recovers the gas). A conversion
 // that changes asset is a swap and pays Kivo's normal fee (fees.ts kivoFeeUsd, max $50).
 
 import {CHAIN_LABEL, MAINNET_CHAIN_IDS, type ChainKey} from '../core/chainData';
@@ -15,6 +16,7 @@ import type {getRelayQuote} from '../core/relayQuote';
 import {CASH_CHAINS, cashAssetSymbol} from './balances';
 import {nativeAsset, usdcAsset, verifiedAsset, type QuoteAsset} from './quote';
 import type {SpendableAsset, SpendableKind} from './spendable';
+import {cachedHomeProof} from './homeProof';
 
 type RelayQuoteParams = Parameters<typeof getRelayQuote>[0];
 
@@ -64,6 +66,20 @@ export function isCashMove(from: Pick<ConvertAsset, 'kind'>, to: Pick<ConvertAss
   return from.kind === 'cash' && to.kind === 'cash';
 }
 
+/** Where gas costs dollars, a move home is not fee-free: it pays its own gas through the fee (server homeMoveCap). */
+export const HOME_MOVE_FEE_CHAINS = new Set<ChainKey>(['ethereum']);
+
+/**
+ * Quote flags for moving the user's own cash (USDC/USDG) on an EVM network to
+ * their USDC on Solana: a fee-free sponsored move home (with the Solana
+ * wallet's proof when one was signed this session), or on Ethereum mainnet
+ * the fee-carrying sweep whose fee only recovers the gas Kivo pays.
+ */
+export function homeMoveFlags(fromChain: ChainKey, homeProof?: string): Pick<RelayQuoteParams, 'homeMove' | 'homeProof' | 'sweepHome'> {
+  if (HOME_MOVE_FEE_CHAINS.has(fromChain)) return {sweepHome: true};
+  return {homeMove: true, ...(homeProof ? {homeProof} : {})};
+}
+
 /** The Relay quote request for one conversion. */
 export function convertQuoteParams(params: {
   from: ConvertAsset;
@@ -94,13 +110,10 @@ export function convertQuoteParams(params: {
         // Existing Base funding-transfer path: Kivo sponsors this move without
         // charging an app fee, and the backend records the quote for /execute.
         ? {fundingTransfer: true}
-        // Solana is Kivo Mobile's home network. An EVM-origin USDC move home
-        // must carry the minimal sweepHome fee so the Kivo quote proxy requests
-        // sponsorship and records the requestId required by /relay/execute.
-        // waiveAppFee would make sponsorship false, so /execute rejects the
-        // otherwise-valid quote as unrecognized.
+        // Solana is Kivo Mobile's home network: an EVM-origin cash move home
+        // is fee-free yet sponsored and recorded for /execute (homeMoveFlags).
         : to.chainKey === 'solana' && from.chainKey !== 'solana'
-          ? {sweepHome: true}
+          ? homeMoveFlags(from.chainKey, cachedHomeProof(evmAddress, solanaAddress))
           : {waiveAppFee: true}
       : {}),
   };

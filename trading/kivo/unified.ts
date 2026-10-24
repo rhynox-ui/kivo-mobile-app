@@ -1,14 +1,17 @@
 // Unified-balance buys for Kivo mobile (FOMO-style "use everything I hold"),
 // grown from mango-pro's TokenTradeScreen multi-source plan.
 //
-// The user sees ONE balance in dollars (cash, dollar coins and native coins on
-// every network, see spendable.ts) and never picks a chain. Relay still needs
+// The user sees ONE balance in dollars (USDC/USDG on every network, see
+// spendable.ts fetchTradeCash) and never picks a chain. Only cash is ever
+// spent: native coins and other tokens are holdings, never a buy's source. Relay still needs
 // one concrete origin per quote, so a buy is split into legs underneath: each
 // leg spends one asset on one network and routes straight to the token's
 // chain (no separate bridging step, nothing left stranded half-way).
 // Rules:
-//   - assets are drawn in spendOrder: cash, dollar coins, then native coins;
-//     the token's own network first, then the largest balances;
+//   - cash is drawn in spendOrder: the token's own network first, then
+//     Solana (home), then the largest balances, Ethereum mainnet last;
+//   - a gas-free EVM leg Kivo's server would not sponsor (requireSponsored)
+//     is dropped like an unroutable one, so cash elsewhere covers it;
 //   - all legs are quoted at once; a leg that can't be routed (no route,
 //     price impact beyond ±50%) is dropped and the next asset fills its gap;
 //   - Kivo's fee is computed on the whole order and shared across the legs
@@ -22,6 +25,7 @@
 import type {ChainKey} from '../core/chainData';
 import {recordDiagnosticEvent} from '../../src/debug/diagnosticLog';
 import {requestKivoQuote, type KivoQuote, type KivoQuoteView} from './quote';
+import {quoteSponsorshipStatus} from '../core/relayQuote';
 import type {DirectPlan} from './direct';
 import type {KivoToken} from './tokens';
 import {assetLabel, spendOrder, spendableFor, type SpendableAsset, type SpendableBalance, type SpendableKind} from './spendable';
@@ -48,10 +52,24 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error ?? 'No route.');
 }
 
+/** A leg sent gas-free through Kivo's /execute: EVM origin without Solana instructions. */
+export function legNeedsSponsorship(quote: KivoQuote, originChain: ChainKey): boolean {
+  if (originChain === 'solana') return false;
+  return !(quote.quote.steps ?? []).some(step => (step.items ?? []).some(item => Boolean(item.data?.instructions)));
+}
+
 /** Units of `asset` worth legUsd; the whole spendable amount when the leg takes all of it. */
 export function legUnits(asset: SpendableAsset, legUsd: number): string {
   const units = legUsd >= asset.valueUsd - 1e-9 ? asset.spendableAmount : legUsd / asset.priceUsd;
   return floorUsdAmount(Math.min(units, asset.spendableAmount), asset.decimals);
+}
+
+/**
+ * What a buy may draw from, in order: USDC/USDG only (never native coins or
+ * other tokens), never the coin being bought, Solana only with a Solana wallet.
+ */
+export function buyPool(balance: SpendableBalance, token: {chainKey: ChainKey; tokenAddress: string}, solanaAddress?: string): SpendableAsset[] {
+  return spendOrder(spendableFor(balance, token).assets.filter(asset => asset.kind === 'cash' && asset.valueUsd >= MIN_LEG_USD && (asset.chainKey !== 'solana' || Boolean(solanaAddress))), token.chainKey);
 }
 
 export async function planUnifiedBuy(params: {
@@ -62,11 +80,13 @@ export async function planUnifiedBuy(params: {
   tokenDecimals?: number;
   balance: SpendableBalance;
   slippageBps?: number;
+  /** Drop gas-free EVM legs whose quote Kivo's server did not sponsor (the wallet holds no gas). */
+  requireSponsored?: boolean;
 }): Promise<UnifiedPlan> {
-  const {token, amountUsd, userAddress, solanaAddress, tokenDecimals = 18, balance, slippageBps} = params;
+  const {token, amountUsd, userAddress, solanaAddress, tokenDecimals = 18, balance, slippageBps, requireSponsored = false} = params;
   if (token.chainKey === 'solana' && !solanaAddress) throw new Error('This wallet has no Solana address for this route.');
   // Never pay for a coin with itself (buying ETH on Base doesn't spend ETH on Base).
-  const pool = spendOrder(spendableFor(balance, token).assets.filter(asset => asset.valueUsd >= MIN_LEG_USD && (asset.chainKey !== 'solana' || solanaAddress)), token.chainKey);
+  const pool = buyPool(balance, token, solanaAddress);
   let remainingUsd = amountUsd;
   const legs: UnifiedLeg[] = [];
   const failures: {label: string; reason: string}[] = [];
@@ -87,6 +107,9 @@ export async function planUnifiedBuy(params: {
       throw new Error(Math.abs(impact) >= 100 ? 'fees on this route are more than the amount itself' : `fees and price impact would take about ${Math.round(Math.abs(impact))}% of this part`);
     }
     if (quote.view.unsupportedReason) throw new Error(quote.view.unsupportedReason);
+    if (requireSponsored && legNeedsSponsorship(quote, asset.chainKey) && !(quoteSponsorshipStatus(quote.quote) ?? '').startsWith('on')) {
+      throw new Error('Kivo can\'t pay the network fee for this part right now');
+    }
     const out = quote.view.receive.usd ?? Number(quote.view.receive.amount ?? NaN);
     if (!(out > 0)) throw new Error('the route returned no output');
     return {chainKey: asset.chainKey, amountUsd: legUsd, quote, asset: {symbol: asset.symbol, address: asset.address, kind: asset.kind}};

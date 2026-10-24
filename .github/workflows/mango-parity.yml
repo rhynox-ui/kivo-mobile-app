@@ -42,6 +42,10 @@ jobs:
       - run: npm run verify:near-account
       - run: npm run verify:near-signing
       - run: npm run verify:sponsor-recovery
+      - run: npm run verify:unified-balance
+      - run: npm run verify:convert
+      - run: npm run verify:send-guards
+      - run: npm run verify:trade-cash
       - name: Verify Jupiter sell fee accounting
         run: node --experimental-strip-types scripts/verify-jupiter-sell-net-output.mjs
       - name: Bundle Android JavaScript
