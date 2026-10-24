@@ -80,6 +80,58 @@ export function homeMoveFlags(fromChain: ChainKey, homeProof?: string): Pick<Rel
   return {homeMove: true, ...(homeProof ? {homeProof} : {})};
 }
 
+export type ConvertGasPath = {
+  /** sponsored: Kivo pays (on Ethereum repaid in the fee); user-fee: the user confirmed paying the gas from the amount; own-gas: the wallet pays gas in its own coin. */
+  mode: 'sponsored' | 'user-fee' | 'own-gas' | 'needs-gas';
+  /** Shown before confirming; null when there is nothing to say. */
+  note: string | null;
+};
+
+const usdText = (n: number) => `$${n < 0.01 ? n.toFixed(4) : n.toFixed(2)}`;
+
+/**
+ * How a conversion starting on an EVM network pays its network fee. Owner
+ * rule: never trap funds, never a dead end, and Kivo recovers its gas.
+ *   1. Kivo's server sponsored the quote ("on…"): gas-free (on Ethereum
+ *      mainnet the move's fee repays the gas, shown before confirming).
+ *   2. Otherwise, re-quoted with the user paying the gas from the amount
+ *      (userPaysGas) and sponsored that way: the cost is shown and the user
+ *      confirms it.
+ *   3. Otherwise (gas above half the amount), the wallet pays gas in its own
+ *      coin when it holds some; only with none is it "needs-gas".
+ * Solana and native-coin origins pay their own way and are always 'sponsored'
+ * here (nothing to decide). `awaitingProof`: a fee-free move home quoted
+ * before its Solana proof; it is re-quoted with the proof at confirmation.
+ */
+export function convertGasPath(params: {fromChain: ChainKey; fromKind: ConvertAsset['kind']; sponsorship: string | null; userFeeSponsorship?: string | null; userFeeUsd?: number | null; appFeeUsd?: number | null; gasUsd?: number | null; hasNativeGas?: boolean; awaitingProof?: boolean}): ConvertGasPath {
+  const {fromChain, fromKind, sponsorship, userFeeSponsorship, userFeeUsd, appFeeUsd, gasUsd, hasNativeGas, awaitingProof} = params;
+  const label = CHAIN_LABEL[fromChain] ?? fromChain;
+  if (fromChain === 'solana' || fromKind === 'native' || awaitingProof) return {mode: 'sponsored', note: null};
+  if ((sponsorship ?? '').startsWith('on')) {
+    return {mode: 'sponsored', note: HOME_MOVE_FEE_CHAINS.has(fromChain) ? `${label} gas is paid by Kivo and repaid in this move's fee${appFeeUsd != null ? `: ${usdText(appFeeUsd)}` : ''}.` : null};
+  }
+  if ((userFeeSponsorship ?? '').startsWith('on')) {
+    return {mode: 'user-fee', note: `Kivo can't cover the ${label} network fee for free on this amount. It costs ${userFeeUsd != null ? usdText(userFeeUsd) : 'the fee shown'}, taken from the amount. Confirm to pay it.`};
+  }
+  const gas = gasUsd != null && gasUsd > 0 ? ` (about ${usdText(gasUsd)})` : '';
+  if (hasNativeGas) return {mode: 'own-gas', note: `The ${label} network fee${gas} is more than half this amount, so it is paid with your ${label} gas coin. Confirm to pay it.`};
+  return {mode: 'needs-gas', note: `The ${label} network fee${gas} is more than half this amount. Convert a larger amount, or add a little gas coin on ${label} to pay it yourself.`};
+}
+
+/** Kivo's app fee in a Relay quote, USD (null when Relay does not report it). */
+export function quoteAppFeeUsd(quote: {fees?: {app?: {amountUsd?: string | number}}} | null | undefined): number | null {
+  const n = Number(quote?.fees?.app?.amountUsd);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** USD Kivo would sponsor for a quote as Relay priced it (the gas), from "sponsoring $X" or the quote's gas fee. */
+export function quoteGasUsd(sponsorship: string | null, quote: {fees?: {gas?: {amountUsd?: string | number}}} | null | undefined): number | null {
+  const fromHeader = sponsorship?.match(/sponsoring \$([0-9.]+)/);
+  if (fromHeader) return Number(fromHeader[1]);
+  const n = Number(quote?.fees?.gas?.amountUsd);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /** The Relay quote request for one conversion. */
 export function convertQuoteParams(params: {
   from: ConvertAsset;

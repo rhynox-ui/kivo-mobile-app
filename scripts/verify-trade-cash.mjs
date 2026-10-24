@@ -14,7 +14,10 @@ import bs58 from 'bs58';
 import {cashOnly, onlyCash, spendOrder, totalSpendableUsd} from '../trading/kivo/spendable.ts';
 import {buyPool, legNeedsSponsorship} from '../trading/kivo/unified.ts';
 import {sweepCandidates} from '../trading/kivo/sweep.ts';
-import {homeMoveFlags} from '../trading/kivo/convert.ts';
+import {convertGasPath, homeMoveFlags, quoteGasUsd} from '../trading/kivo/convert.ts';
+import {MIN_ETHEREUM_SWEEP_USD} from '../trading/kivo/sweep.ts';
+import {evmWithdrawalCalls} from '../trading/kivo/cash.ts';
+import {withdrawalFeeUsd} from '../trading/core/fees.ts';
 import {homeMoveMessage, homeProofFor, cachedHomeProof, clearHomeProofs} from '../trading/kivo/homeProof.ts';
 import {configureRelayEndpoints, getRelayQuote} from '../trading/core/relayQuote.ts';
 import {TOKEN_ADDRESSES} from '../trading/core/chainData.ts';
@@ -87,5 +90,44 @@ assert.equal(sentBody.kivoHome, true);
 assert.equal(sentBody.kivoHomeProof, proof);
 assert.equal(sentBody.sponsoredFeeComponents, undefined, 'the server decides what a move home sponsors');
 assert.equal(sentBody.recipient, solPub);
+
+// --- Ethereum mainnet: Kivo recovers its gas, funds are never stuck ---------
+// Auto-sweep only from $50 (gas is then a small share); below that it stays on Ethereum and is still spent by buys, last.
+assert.equal(MIN_ETHEREUM_SWEEP_USD, 50);
+const ethSmall = {assets: [asset('ethereum', 'USDC', 'cash', 30), asset('base', 'USDC', 'cash', 2)], errors: []};
+assert.deepEqual(sweepCandidates(ethSmall).map(a => a.chainKey), ['base']);
+assert.deepEqual(sweepCandidates({assets: [asset('ethereum', 'USDC', 'cash', 60)], errors: []}).map(a => a.chainKey), ['ethereum']);
+assert.equal(buyPool(ethSmall, token, 'So1').at(-1).chainKey, 'ethereum', 'small Ethereum USDC is still spendable, as the last source');
+// A move from Ethereum carries a fee the server raises to cover the gas (never fee-free).
+assert.deepEqual(homeMoveFlags('ethereum'), {sweepHome: true});
+// Convert decides how the network fee is paid, always with a way forward.
+let path = convertGasPath({fromChain: 'ethereum', fromKind: 'cash', sponsorship: 'on: fee raised to 4.00% to cover network gas', appFeeUsd: 2.4});
+assert.equal(path.mode, 'sponsored');
+assert.match(path.note, /repaid in this move's fee: \$2\.40/, 'the Ethereum fee is shown before confirming');
+path = convertGasPath({fromChain: 'ethereum', fromKind: 'cash', sponsorship: 'dropped: sponsoring $2.0000 would exceed the $0.0020 fee', userFeeSponsorship: 'on: fee raised to 12.50% to cover network gas', userFeeUsd: 2.5});
+assert.equal(path.mode, 'user-fee', '5% not enough: the user is shown the cost and confirms paying it');
+assert.match(path.note, /\$2\.50.*Confirm/);
+path = convertGasPath({fromChain: 'ethereum', fromKind: 'cash', sponsorship: 'dropped: x', userFeeSponsorship: 'dropped: sponsoring $2.0000 would exceed', gasUsd: 2, hasNativeGas: true});
+assert.equal(path.mode, 'own-gas', 'gas above half the amount: paid with the wallet\'s own ETH');
+path = convertGasPath({fromChain: 'ethereum', fromKind: 'cash', sponsorship: 'dropped: x', userFeeSponsorship: 'dropped: y', gasUsd: 2, hasNativeGas: false});
+assert.equal(path.mode, 'needs-gas');
+assert.match(path.note, /larger amount|gas coin/);
+assert.equal(convertGasPath({fromChain: 'base', fromKind: 'cash', sponsorship: 'on: fee-free move home'}).note, null);
+assert.equal(convertGasPath({fromChain: 'base', fromKind: 'cash', sponsorship: 'off: the Solana recipient…', awaitingProof: true}).mode, 'sponsored', 're-quoted with the proof at confirmation');
+assert.equal(quoteGasUsd('dropped: sponsoring $2.0000 would exceed the $0.0020 fee', null), 2);
+// Transfers on Ethereum are sponsored like every network, paying the $3 withdrawal fee that covers L1 gas (no ETH needed).
+assert.equal(withdrawalFeeUsd('ethereum'), 3);
+assert.equal(evmWithdrawalCalls('ethereum', '0x' + '4'.repeat(40), 10_000_000n).length, 2);
+
+// A confirmed user-paid gas fee: sponsored, never the free cash-move flags.
+sentBody = null;
+await getRelayQuote({fromChainKey: 'ethereum', toChainKey: 'solana', originCurrency: TOKEN_ADDRESSES.USDC.ethereum, destinationCurrency: TOKEN_ADDRESSES.USDC.solana, amountBaseUnits: '20000000', userAddress: evm, recipientAddress: solPub, originAmountUsd: 20, ...homeMoveFlags('ethereum'), userPaysGas: true}).catch(() => {});
+assert.equal(sentBody.kivoUserPaysGas, true);
+assert.equal(sentBody.subsidizeFees, true);
+assert.equal(sentBody.appFees[0].fee, '10', 'a cash move pays only the gas the server sizes, no Kivo margin on top');
+assert.equal(sentBody.kivoHome, undefined);
+sentBody = null;
+await getRelayQuote({fromChainKey: 'base', toChainKey: 'solana', originCurrency: TOKEN_ADDRESSES.USDC.base, destinationCurrency: TOKEN_ADDRESSES.USDC.solana, amountBaseUnits: '5000000', userAddress: evm, recipientAddress: solPub, originAmountUsd: 5, ...homeMoveFlags('base', proof), userPaysGas: true}).catch(() => {});
+assert.equal(sentBody.kivoHome, undefined, 'userPaysGas replaces the free move-home path');
 
 console.log('trade cash checks passed');

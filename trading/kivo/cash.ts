@@ -1,8 +1,9 @@
-// Gasless USDC withdrawal (mobile), ported from Mango Pro's sendUsdc: one
-// ERC-20 transfer signed on the device and submitted by Relay with Kivo
-// paying gas, so a wallet holding only USDC can always move its cash.
-// There is no fallback to a gas-paying transfer (that is exactly what used
-// to fail with "insufficient ETH for gas" in Mango).
+// USDC withdrawals (mobile). Kivo pays the gas on every network, Ethereum
+// included, and each withdrawal pays Kivo's flat withdrawal fee (fees.ts) out
+// of the amount, so a wallet holding only USDC can always move its cash. If
+// Kivo can't sponsor one at that moment, the app offers a higher fee or the
+// wallet's own gas coin, with the cost shown first: never a dead end, and
+// never a silent switch to a gas-paying transfer.
 
 import {createWalletClient, encodeFunctionData, isAddress, parseUnits, type Address} from 'viem';
 import bs58 from 'bs58';
