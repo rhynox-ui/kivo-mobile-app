@@ -247,18 +247,35 @@ export function kivoFeeUsd(input: KivoFeeInput): number {
   return Math.min(fee, DEV_FEE_MAX_USD);
 }
 
+/** True when `amountUsd` is a usable trade size. */
+function isTradeSize(amount: number | null | undefined): amount is number {
+  return typeof amount === 'number' && Number.isFinite(amount) && amount > 0;
+}
+
+/**
+ * True when this trade's fee depends on a size the caller does not have:
+ * the Solana minimum (min(2%, $0.95)) can only be applied to a known USD
+ * size. Callers must then get the size another way (the route's own USD
+ * value, a re-quote) or refuse — never fall back to the bare percentage.
+ * Kivo's server does this for Relay quotes (relay.ts minimum fee check).
+ */
+export function kivoFeeNeedsTradeSize(input: KivoFeeInput): boolean {
+  return !isTradeSize(input.amountUsd) && input.chainKey === 'solana' && !isBlueChip(input.chainKey, input.tokenAddress);
+}
+
 /**
  * kivoFeeUsd() as whole bps of amountUsd, for bps-shaped fee APIs. Rounded
- * down (never charges more than kivoFeeUsd), at least 1 while a fee is due,
- * never above MAX_KIVO_FEE_BPS. Without a real trade size this is the
- * percentage rate alone (the Solana minimum needs a size to apply).
+ * down (never charges more than kivoFeeUsd, so the $50 cap holds at every
+ * size: above $500k the capped fee is under 1 bps and
+ * this is 0), never above MAX_KIVO_FEE_BPS. Without a real trade size this
+ * is the percentage rate alone; see kivoFeeNeedsTradeSize() for the trades
+ * where that is not enough (the Solana minimum needs a size to apply).
  */
 export function kivoFeeBps(input: KivoFeeInput): string {
   const amount = input.amountUsd;
-  const sized = typeof amount === 'number' && Number.isFinite(amount) && amount > 0;
-  const ratio = sized ? kivoFeeUsd(input) / amount : kivoFeePct(input);
+  const ratio = isTradeSize(amount) ? kivoFeeUsd(input) / amount : kivoFeePct(input);
   const bps = Math.floor(ratio * 10_000 + 1e-6);
-  return String(Math.min(MAX_KIVO_FEE_BPS, Math.max(1, bps)));
+  return String(Math.min(MAX_KIVO_FEE_BPS, Math.max(0, bps)));
 }
 
 function trimNumber(value: number, decimals: number): string {
