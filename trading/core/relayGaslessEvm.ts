@@ -79,10 +79,10 @@ async function postRelayExecute(body: Record<string, unknown>): Promise<RelayExe
   let parsed: RelayExecuteResponse = {};
   try { parsed = JSON.parse(text) as RelayExecuteResponse; } catch {}
   if (res.status === 403 && (!parsed.message || /^forbidden$/i.test(parsed.message.trim()))) {
-    // Relay refused to sponsor gas here (gasless execution is enabled per API key and chain). Nothing was sent.
-    const chainId = Number((body.data as {chainId?: unknown} | undefined)?.chainId);
-    const chainName = viemChainForChainId(chainId)?.name ?? `chain ${chainId}`;
-    throw new Error(`Gas-free trading isn't switched on for ${chainName} yet, so nothing was sent and your tokens are untouched. Trades starting on other networks still work.`);
+    // A generic 403 does not prove that gasless execution is disabled for
+    // this chain: Kivo's proxy can also reject a quote that was not recorded
+    // as eligible for sponsorship. Do not misdiagnose that as a chain toggle.
+    throw new Error('Kivo could not authorize gasless execution for this quote (HTTP 403). Nothing was sent. Refresh the quote and try again.');
   }
   if (!res.ok) throw new Error(parsed.message || parsed.error || `Relay gasless execution failed (HTTP ${res.status}).`);
   if (!parsed.requestId) throw new Error('Relay accepted gasless execution without a requestId.');
