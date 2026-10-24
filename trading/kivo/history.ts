@@ -48,6 +48,7 @@ export function configureTradeHistory(options: {storage: KeyValueStorage}) {
 export async function activateTradeHistory(address: string | null) {
   wallet = address ? address.toLowerCase() : null;
   records = [];
+  void loadTransfers();
   if (wallet && storage) {
     try {
       const raw = await storage.getItem(KEY_PREFIX + wallet);
@@ -83,4 +84,82 @@ export function subscribeToTradeHistory(listener: (value: TradeRecord[]) => void
   listeners.add(listener);
   listener(getTradeHistory());
   return () => { listeners.delete(listener); };
+}
+
+// Sends and withdrawals (wallet-to-wallet transfers). Kept apart from trades
+// so they never feed cost basis, PnL or trade counts. Only transfers that were
+// signed and may have reached the network are recorded.
+
+export type TransferRecord = {
+  id: string;
+  wallet: string;
+  createdAt: number;
+  kind: 'send' | 'withdraw';
+  chainKey: string;
+  /** EVM chain id for explorer links; null for Solana/NEAR. */
+  chainId: number | null;
+  symbol: string;
+  amount: string;
+  to: string;
+  /** "@username" when sent to a Kivo user. */
+  toLabel?: string;
+  txHash: string | null;
+  requestId: string | null;
+  status: TradeRecordStatus;
+  error?: string;
+};
+
+const TRANSFER_KEY_PREFIX = 'kivo:transfers:v1:';
+let transfers: TransferRecord[] = [];
+const transferListeners = new Set<(value: TransferRecord[]) => void>();
+
+function emitTransfers() {
+  const snapshot = transfers.map(record => ({...record}));
+  transferListeners.forEach(listener => listener(snapshot));
+}
+
+function persistTransfers() {
+  if (!storage || !wallet) return;
+  void Promise.resolve(storage.setItem(TRANSFER_KEY_PREFIX + wallet, JSON.stringify(transfers))).catch(() => {});
+}
+
+async function loadTransfers() {
+  const owner = wallet;
+  transfers = [];
+  if (owner && storage) {
+    try {
+      const raw = await storage.getItem(TRANSFER_KEY_PREFIX + owner);
+      const parsed = raw ? (JSON.parse(raw) as TransferRecord[]) : [];
+      if (wallet !== owner) return;
+      transfers = Array.isArray(parsed) ? parsed.filter(item => item && typeof item.id === 'string' && (item.txHash || item.requestId)) : [];
+    } catch {
+      transfers = [];
+    }
+  }
+  emitTransfers();
+}
+
+export function recordTransfer(record: Omit<TransferRecord, 'id' | 'createdAt' | 'wallet'>): TransferRecord | null {
+  if (!wallet || (!record.txHash && !record.requestId)) return null;
+  const full: TransferRecord = {...record, id: `transfer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, createdAt: Date.now(), wallet};
+  transfers = [full, ...transfers].slice(0, MAX_RECORDS);
+  persistTransfers();
+  emitTransfers();
+  return full;
+}
+
+export function updateTransferStatus(id: string, status: TradeRecordStatus) {
+  transfers = transfers.map(record => record.id === id ? {...record, status} : record);
+  persistTransfers();
+  emitTransfers();
+}
+
+export function getTransferHistory(): TransferRecord[] {
+  return transfers.map(record => ({...record}));
+}
+
+export function subscribeToTransferHistory(listener: (value: TransferRecord[]) => void) {
+  transferListeners.add(listener);
+  listener(getTransferHistory());
+  return () => { transferListeners.delete(listener); };
 }

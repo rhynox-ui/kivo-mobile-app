@@ -30,6 +30,7 @@
 // so there's nothing left to unwrap (see mobile's own long comment on
 // why that fix made the whole cleanup path unnecessary going forward).
 
+import {markMaybeBroadcast, solanaSubmitDefinitelyRejected} from './broadcastState.ts';
 import {privateKeyToAccount} from 'viem/accounts';
 import {Buffer} from 'buffer';
 import {viemChainForChainId} from './chainRegistry.ts';
@@ -231,7 +232,8 @@ const ARC_INSUFFICIENT_MESSAGE = "Insufficient USDC for network fees on Arc. Gas
 async function confirmSolanaSignature(connection: InstanceType<typeof import('@solana/web3.js').Connection>, signature: string): Promise<string> {
   const deadline = Date.now() + 90_000;
   for (;;) {
-    const {value} = await connection.getSignatureStatuses([signature]);
+    // A failed status read is not a failed transaction: keep polling until the deadline.
+    const {value} = await connection.getSignatureStatuses([signature]).catch(() => ({value: [null]}));
     const status = value?.[0];
     if (status) {
       if (status.err) {
@@ -241,7 +243,7 @@ async function confirmSolanaSignature(connection: InstanceType<typeof import('@s
       }
       if (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized') return signature;
     }
-    if (Date.now() >= deadline) throw new Error(`Timed out waiting for transaction ${signature} to confirm.`);
+    if (Date.now() >= deadline) throw markMaybeBroadcast(new Error(`Transaction ${signature} was sent but is not confirmed yet. Do not retry; check its status first.`), {signature});
     await new Promise<void>(r => setTimeout(r, 1200));
   }
 }
@@ -761,7 +763,12 @@ export async function signAndSendSponsoredSolanaStep(
 
   const signedTransaction = VersionedTransaction.deserialize(Buffer.from(sponsoredTransactionBase64, 'base64'));
   const signature = bs58.encode(signedTransaction.signatures[0]);
-  await connection.sendRawTransaction(signedTransaction.serialize());
+  try {
+    await connection.sendRawTransaction(signedTransaction.serialize());
+  } catch (sendError) {
+    // Only a preflight rejection proves the signed transaction never reached the network.
+    throw solanaSubmitDefinitelyRejected(sendError) ? sendError : markMaybeBroadcast(sendError, {signature});
+  }
   return {signature: await confirmSolanaSignature(connection, signature), warnings};
 }
 
@@ -988,7 +995,8 @@ async function signAndSendRelaySolanaStepViaParticle(item: RelayTransactionStepI
 
   const deadline = Date.now() + 90_000;
   for (;;) {
-    const {value} = await connection.getSignatureStatuses([signature]);
+    // A failed status read is not a failed transaction: keep polling until the deadline.
+    const {value} = await connection.getSignatureStatuses([signature]).catch(() => ({value: [null]}));
     const status = value?.[0];
     if (status) {
       if (status.err) {
@@ -998,7 +1006,7 @@ async function signAndSendRelaySolanaStepViaParticle(item: RelayTransactionStepI
       }
       if (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized') return {signature, warnings: solanaWarnings};
     }
-    if (Date.now() >= deadline) throw new Error(`Timed out waiting for transaction ${signature} to confirm.`);
+    if (Date.now() >= deadline) throw markMaybeBroadcast(new Error(`Transaction ${signature} was sent but is not confirmed yet. Do not retry; check its status first.`), {signature});
     await new Promise<void>(r => setTimeout(r, 1200));
   }
 }

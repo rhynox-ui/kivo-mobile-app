@@ -1,5 +1,5 @@
 import { ResultCard, splitError } from '../components/ResultCard';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -30,7 +30,10 @@ import { useSettings } from '../state/settingsStore';
 import { addNotification } from '../state/notificationStore';
 import { markOwnAction } from '../wallet/depositWatcher';
 import { CHAIN_LABEL, MAINNET_CHAIN_IDS, NATIVE_SYMBOL, type ChainKey } from '@kivo/trading/core/chainData';
-import { transactionLink } from '@kivo/trading/kivo/execute';
+import { relayRequestUrl, transactionLink } from '@kivo/trading/kivo/execute';
+import { classifyTransferError } from '@kivo/trading/core/broadcastState';
+import { checkTransferStatus } from '@kivo/trading/kivo/transferStatus';
+import { recordTransfer, updateTransferStatus } from '@kivo/trading/kivo/history';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, CASH_CHAINS, cashAssetSymbol, type CashBalanceRow } from '@kivo/trading/kivo/balances';
 import { isValidRecipientAddress, quoteHomeWithdrawal, withdrawFromHome, withdrawUsdc } from '@kivo/trading/kivo/cash';
 import { fetchGaslessStatus, type GaslessStatus } from '@kivo/trading/kivo/gasless';
@@ -383,7 +386,9 @@ function WithdrawSheet({
   const [review, setReview] = useState(false);
   // Full result screen after a send (success or failure), instead of a small line of text.
   const [showOutcome, setShowOutcome] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; message: string; hash?: string; chainId?: number; amount?: string; symbol?: string; to?: string; network?: string; submitted?: boolean } | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; message: string; hash?: string; requestId?: string; chainId?: number; amount?: string; symbol?: string; to?: string; network?: string; submitted?: boolean; maybeSent?: boolean; failedOnChain?: boolean; transferId?: string } | null>(null);
+  const sendLock = useRef(false);
+  const [checking, setChecking] = useState(false);
 
   // Mango parity: the withdrawal picker always shows every supported cash network, not only networks with a positive balance. The selected network then shows its live available balance (including 0), so users can still choose the network before funding it.
   // Kivo's home balance (USDC on Solana) pays every withdrawal: the chosen
@@ -403,6 +408,9 @@ function WithdrawSheet({
   const nearDestinationReady = chain !== 'near' || nearCashMoveChains().includes(destination);
   const sponsorshipReady = !sponsorshipNeeded || gasless?.available === true;
   const canReview = Boolean(chain && addressValid && amountValid && sponsorshipReady && nearDestinationReady && !busy);
+  // A cross-network withdrawal can only be confirmed against a ready quote: the amount shown is the amount enforced.
+  const reviewedReceive = homeQuote.state === 'ready' && homeQuote.received != null && Number.isFinite(Number(homeQuote.received)) ? Number(homeQuote.received) : null;
+  const canConfirm = canReview && (!crossNetwork || reviewedReceive !== null);
 
   useEffect(() => {
     if (!visible) return;
@@ -445,15 +453,21 @@ function WithdrawSheet({
                 : null;
 
   const executeSend = async () => {
-    if (!chain || !canReview) return;
+    if (!chain || !canConfirm || sendLock.current) return;
+    sendLock.current = true;
     setBusy(true);
     setResult(null);
+    const sentAmount = amount;
+    const sentTo = to.trim();
+    const symbol = cashCoin(chain);
+    const network = chain === 'near' ? CHAIN_LABEL[destination] : CHAIN_LABEL[chain as ChainKey];
+    const chainId = chain === 'near' || crossNetwork ? undefined : MAINNET_CHAIN_IDS[chain as ChainKey];
     try {
-      const outcome = await withDeviceAccounts(`Send ${amount} ${cashCoin(chain)}`, async accounts => {
-        if (crossNetwork) return withdrawFromHome(chain as ChainKey, accounts.relay, to.trim(), amount);
-        if (chain !== 'near') return withdrawUsdc(chain, accounts.evm, accounts.solana, to.trim(), amount);
+      const outcome: { hash?: string; requestId?: string; pending?: boolean } = await withDeviceAccounts(`Send ${sentAmount} ${symbol}`, async accounts => {
+        if (crossNetwork) return withdrawFromHome(chain as ChainKey, accounts.relay, sentTo, sentAmount, reviewedReceive ?? undefined);
+        if (chain !== 'near') return withdrawUsdc(chain, accounts.evm, accounts.solana, sentTo, sentAmount);
         const tokens = await fetchOneClickTokens();
-        const move = nearCashMoveRequest({direction: 'from-near', chainKey: destination, amountBaseUnits: parseUnits(amount, NEAR_USDC_DECIMALS).toString(), session: accounts.relay, tokens, dry: false, recipient: to.trim()});
+        const move = nearCashMoveRequest({direction: 'from-near', chainKey: destination, amountBaseUnits: parseUnits(sentAmount, NEAR_USDC_DECIMALS).toString(), session: accounts.relay, tokens, dry: false, recipient: sentTo});
         const response = await requestOneClickQuote(move.request);
         const record = await fundOneClickQuote({
           response, expected: move.expected, originChainKey: 'near', originSymbol: 'USDC', originDecimals: NEAR_USDC_DECIMALS,
@@ -468,32 +482,63 @@ function WithdrawSheet({
         return {hash: record.depositTxHash || undefined};
       });
       clearCashBalanceCache();
+      const submitted = chain === 'near' || Boolean(outcome.pending);
+      const entry = recordTransfer({kind: 'withdraw', chainKey: chain === 'near' ? destination : chain, chainId: chainId ?? null, symbol, amount: sentAmount, to: sentTo, txHash: outcome.hash || null, requestId: outcome.requestId ?? null, status: submitted ? 'pending' : 'success'});
       setResult({
         ok: true,
         // A NEAR withdrawal is delivered by NEAR Intents after the deposit lands; it is not "sent" yet.
-        message: chain === 'near' ? `Submitted: ${amount} USDC from NEAR to ${shortAddress(to.trim())} on ${CHAIN_LABEL[destination]}. NEAR Intents delivers it in a few minutes.` : `Sent ${amount} ${cashCoin(chain)} on ${CHAIN_LABEL[chain]}.`,
-        hash: outcome.hash,
-        chainId: chain === 'near' || crossNetwork ? undefined : MAINNET_CHAIN_IDS[chain as ChainKey],
-        amount, symbol: cashCoin(chain), to: to.trim(), network: chain === 'near' ? CHAIN_LABEL[destination] : CHAIN_LABEL[chain as ChainKey], submitted: chain === 'near',
+        message: chain === 'near' ? `Submitted: ${sentAmount} USDC from NEAR to ${shortAddress(sentTo)} on ${CHAIN_LABEL[destination]}. NEAR Intents delivers it in a few minutes.` : outcome.pending ? `Submitted: ${sentAmount} ${symbol} to ${shortAddress(sentTo)} on ${network}. It is still settling; do not send it again.` : `Sent ${sentAmount} ${symbol} on ${network}.`,
+        hash: outcome.hash, requestId: outcome.requestId, chainId,
+        amount: sentAmount, symbol, to: sentTo, network, submitted, transferId: entry?.id,
       });
-      addNotification(chain === 'near' ? 'Withdrawal submitted' : 'Withdrawal sent', `${amount} ${cashCoin(chain)} to ${shortAddress(to.trim())}`);
+      addNotification(submitted ? 'Withdrawal submitted' : 'Withdrawal sent', `${sentAmount} ${symbol} to ${shortAddress(sentTo)}`);
       setAmount('');
       setTo('');
       setReview(false);
       setShowOutcome(true);
       onDone();
     } catch (error) {
-      setResult({ ok: false, message: error instanceof Error ? error.message : 'Withdrawal failed. Nothing was sent.' });
+      const classified = classifyTransferError(error);
+      if (classified.state === 'maybe-sent') {
+        // Possibly on-chain: never offer a plain retry or say nothing was sent.
+        clearCashBalanceCache();
+        const hash = classified.txHashes[classified.txHashes.length - 1] ?? classified.signature;
+        const entry = recordTransfer({kind: 'withdraw', chainKey: chain === 'near' ? destination : chain, chainId: chainId ?? null, symbol, amount: sentAmount, to: sentTo, txHash: hash ?? null, requestId: classified.requestId ?? null, status: 'pending', error: classified.message});
+        setResult({ ok: false, maybeSent: true, message: classified.message, hash, requestId: classified.requestId, chainId, amount: sentAmount, symbol, to: sentTo, network, transferId: entry?.id });
+        setReview(false);
+        onDone();
+      } else if (classified.state === 'failed-on-chain') {
+        setResult({ ok: false, failedOnChain: true, message: classified.message, hash: classified.signature, requestId: classified.requestId, chainId, amount: sentAmount, symbol, to: sentTo, network });
+      } else {
+        setResult({ ok: false, message: classified.message || 'Withdrawal failed. Nothing was sent.' });
+      }
       setShowOutcome(true);
     } finally {
+      sendLock.current = false;
       setBusy(false);
+    }
+  };
+
+  const recheckOutcome = async () => {
+    if (!result || checking) return;
+    setChecking(true);
+    try {
+      const status = await checkTransferStatus({txHash: result.hash, requestId: result.requestId, chainId: result.chainId});
+      if (status === 'pending') return;
+      if (result.transferId) updateTransferStatus(result.transferId, status === 'confirmed' ? 'success' : 'failed');
+      setResult(current => current && (status === 'confirmed'
+        ? { ...current, ok: true, submitted: false, maybeSent: false, message: `Sent ${current.amount} ${current.symbol} on ${current.network}.` }
+        : { ...current, ok: false, submitted: false, maybeSent: false, failedOnChain: true, message: 'The transfer did not complete on-chain, so your funds did not move (a bridged withdrawal is refunded to your Solana USDC).' }));
+      if (status === 'confirmed') clearCashBalanceCache();
+    } finally {
+      setChecking(false);
     }
   };
 
   // Final check in Kivo's own style (was a system Alert): the review card already shows the details.
   const [confirming, setConfirming] = useState(false);
   const confirmSend = () => {
-    if (!canReview || !chain) return;
+    if (!canConfirm || !chain) return;
     setConfirming(true);
   };
 
@@ -502,22 +547,36 @@ function WithdrawSheet({
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable style={styles.backdrop} onPress={() => { if (!busy) onClose(); }}>
           <Pressable style={styles.sheet} onPress={() => {}}>
-            {showOutcome && result ? (
-              <ResultCard
-                tone={result.ok ? (result.submitted ? 'pending' : 'success') : 'error'}
-                hero={{ symbol: result.symbol ?? 'USDC' }}
-                kicker={result.ok ? (result.submitted ? 'Withdrawal submitted' : 'Sent') : 'Withdrawal failed'}
-                headline={result.ok ? `${result.amount} ${result.symbol}` : splitError(result.message).headline}
-                reason={result.ok ? undefined : splitError(result.message).reason}
-                subline={result.ok ? (result.submitted ? 'NEAR Intents delivers it in a few minutes.' : `on ${result.network} · network fee paid by Kivo`) : undefined}
-                safeNote={result.ok ? undefined : result.hash ? { ok: false, text: 'A transaction was sent. Check it below before trying again.' } : { ok: true, text: 'Nothing was sent. Your balance is unchanged.' }}
-                steps={result.submitted ? [{ label: 'Sent from NEAR', state: 'done' }, { label: 'NEAR Intents is delivering', state: 'now' }, { label: `Arrives on ${result.network}`, state: 'todo' }] : undefined}
-                rows={result.ok && result.to ? [{ label: 'To', value: shortAddress(result.to) }] : undefined}
-                links={result.hash ? [{ label: shortAddress(result.hash), url: transactionLink(result.hash, result.chainId) }] : undefined}
-                primary={result.ok ? { label: 'Done', onPress: () => { setShowOutcome(false); setResult(null); onClose(); } } : { label: 'Try again', onPress: () => { setShowOutcome(false); setResult(null); } }}
-                secondary={result.ok ? undefined : { label: 'Close', onPress: () => { setShowOutcome(false); setResult(null); onClose(); } }}
-              />
-            ) : !review ? (
+            {showOutcome && result ? (() => {
+              const pendingTone = result.ok ? Boolean(result.submitted) : Boolean(result.maybeSent);
+              const links = [
+                ...(result.hash ? [{ label: shortAddress(result.hash), url: transactionLink(result.hash, result.chainId) }] : []),
+                ...(result.requestId ? [{ label: 'Route status', url: relayRequestUrl(result.requestId) }] : []),
+              ];
+              const close = { label: 'Close', onPress: () => { setShowOutcome(false); setResult(null); onClose(); } };
+              return (
+                <ResultCard
+                  tone={pendingTone ? 'pending' : result.ok ? 'success' : 'error'}
+                  hero={{ symbol: result.symbol ?? 'USDC' }}
+                  kicker={result.ok ? (result.submitted ? 'Withdrawal submitted' : 'Sent') : result.maybeSent ? 'Withdrawal pending' : 'Withdrawal failed'}
+                  headline={result.ok || result.maybeSent ? `${result.amount} ${result.symbol}` : splitError(result.message).headline}
+                  reason={result.ok ? undefined : result.maybeSent ? result.message : splitError(result.message).reason}
+                  subline={result.ok ? (result.submitted ? (result.requestId || result.hash ? 'Still settling. Do not send it again.' : 'NEAR Intents delivers it in a few minutes.') : `on ${result.network} · network fee paid by Kivo`) : result.maybeSent ? 'It may still go through. Do not send it again.' : undefined}
+                  safeNote={result.ok ? undefined
+                    : result.maybeSent ? { ok: false, text: 'This withdrawal may already be on-chain. Do not try again: check its status first.' }
+                    : result.failedOnChain ? { ok: true, text: 'The transaction failed on-chain, so your funds did not move.' }
+                    : { ok: true, text: 'Nothing was sent. Your balance is unchanged.' }}
+                  steps={result.ok && result.submitted && !result.requestId && !result.hash ? [{ label: 'Sent from NEAR', state: 'done' }, { label: 'NEAR Intents is delivering', state: 'now' }, { label: `Arrives on ${result.network}`, state: 'todo' }] : undefined}
+                  rows={result.to ? [{ label: 'To', value: shortAddress(result.to) }] : undefined}
+                  links={links.length ? links : undefined}
+                  primary={pendingTone && (result.hash || result.requestId)
+                    ? { label: checking ? 'Checking…' : 'Check status', onPress: () => { void recheckOutcome(); } }
+                    : result.ok || result.maybeSent ? { label: 'Done', onPress: close.onPress }
+                    : { label: 'Try again', onPress: () => { setShowOutcome(false); setResult(null); } }}
+                  secondary={result.ok && !pendingTone ? undefined : close}
+                />
+              );
+            })() : !review ? (
               <>
                 <View style={styles.sheetHeader}>
                   <Text style={styles.sheetTitle}>Withdraw {chain ? cashCoin(chain) : 'cash'}</Text>
@@ -623,10 +682,11 @@ function WithdrawSheet({
                 <ReviewRow label="Amount" value={`${amount} ${homeMode ? 'USDC' : cashCoin(chain)}`} />
                 {crossNetwork ? (
                   homeQuote.state === 'loading' ? <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginVertical: 8 }} />
-                    : homeQuote.state === 'error' ? <Text style={styles.warn}>{homeQuote.error}</Text>
+                    : homeQuote.state === 'error' ? <Text style={styles.warn}>{homeQuote.error} Go back and review again to get a new price.</Text>
                     : homeQuote.state === 'ready' ? <>
                       <ReviewRow label="They receive" value={`≈ ${homeQuote.received ? formatAmount(Number(homeQuote.received), 4) : '—'} ${cashCoin(chain)}`} />
                       <ReviewRow label="Bridge & network cost" value={homeQuote.feeUsd != null ? formatUsd(homeQuote.feeUsd) : '—'} />
+                      <Text style={styles.note}>If the price moves by more than 1% before sending, Kivo stops and nothing is sent.</Text>
                     </> : null
                 ) : null}
                 <View style={styles.reviewAddressBlock}>
@@ -647,12 +707,12 @@ function WithdrawSheet({
                     </Text>
                     <View style={styles.confirmButtons}>
                       <Pressable onPress={() => setConfirming(false)} style={[styles.confirmButton, styles.confirmCancel]}><Text style={styles.confirmCancelText}>Cancel</Text></Pressable>
-                      <Pressable onPress={() => { setConfirming(false); void executeSend(); }} style={[styles.confirmButton, styles.confirmGo]}><Text style={styles.primaryText}>Send now</Text></Pressable>
+                      <Pressable disabled={busy || !canConfirm} onPress={() => { setConfirming(false); void executeSend(); }} style={[styles.confirmButton, styles.confirmGo]}><Text style={styles.primaryText}>Send now</Text></Pressable>
                     </View>
                   </View>
                 ) : (
-                  <Pressable disabled={busy} onPress={confirmSend} style={[styles.primary, busy && styles.disabled]}>
-                    {busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep} /> : <Text style={styles.primaryText}>Confirm withdrawal</Text>}
+                  <Pressable disabled={busy || !canConfirm} onPress={confirmSend} style={[styles.primary, (busy || !canConfirm) && styles.disabled]}>
+                    {busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep} /> : <Text style={styles.primaryText}>{crossNetwork && !canConfirm && homeQuote.state !== 'error' ? 'Getting price…' : 'Confirm withdrawal'}</Text>}
                   </Pressable>
                 )}
                 <Pressable onPress={() => { setConfirming(false); setReview(false); }} disabled={busy} style={styles.ghost}><Text style={styles.ghostText}>Edit</Text></Pressable>
