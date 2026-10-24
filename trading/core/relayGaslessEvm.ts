@@ -78,13 +78,14 @@ async function postRelayExecute(body: Record<string, unknown>): Promise<RelayExe
   }
   let parsed: RelayExecuteResponse = {};
   try { parsed = JSON.parse(text) as RelayExecuteResponse; } catch {}
-  if (res.status === 403 && (!parsed.message || /^forbidden$/i.test(parsed.message.trim()))) {
-    // A generic 403 does not prove that gasless execution is disabled for
-    // this chain: Kivo's proxy can also reject a quote that was not recorded
-    // as eligible for sponsorship. Do not misdiagnose that as a chain toggle.
-    throw new Error('Kivo could not authorize gasless execution for this quote (HTTP 403). Nothing was sent. Refresh the quote and try again.');
+  // Kivo's proxy returns its own validation failures in `error`, while
+  // Relay responses commonly use `message`. Preserve either detail before
+  // treating a bare "Forbidden" as a generic sponsorship failure.
+  const detail = parsed.message || parsed.error;
+  if (res.status === 403 && (!detail || /^forbidden$/i.test(detail.trim()))) {
+    throw new Error('Relay refused gasless execution for this quote (HTTP 403). Nothing was sent. Refresh the quote and try again.');
   }
-  if (!res.ok) throw new Error(parsed.message || parsed.error || `Relay gasless execution failed (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(detail || `Relay gasless execution failed (HTTP ${res.status}).`);
   if (!parsed.requestId) throw new Error('Relay accepted gasless execution without a requestId.');
   return parsed;
 }
