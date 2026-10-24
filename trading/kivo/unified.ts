@@ -24,6 +24,7 @@ import {recordDiagnosticEvent} from '../../src/debug/diagnosticLog';
 import {requestKivoQuote, type KivoQuote, type KivoQuoteView} from './quote';
 import type {DirectPlan} from './direct';
 import type {KivoToken} from './tokens';
+import {usdcOnly} from './home';
 import {assetLabel, spendOrder, spendableFor, type SpendableAsset, type SpendableBalance, type SpendableKind} from './spendable';
 
 export type UnifiedLeg = {chainKey: ChainKey; amountUsd: number; quote: KivoQuote; asset: {symbol: string; address: string; kind: SpendableKind | 'token'}};
@@ -68,13 +69,9 @@ export async function planUnifiedBuy(params: {
   // Defence in depth: this unified trade path is USDC-cash-only. Never spend
   // native coins, USDT/USDT0, or investment tokens even if a caller passes the
   // raw wallet portfolio instead of the TradeScreen's already-filtered balance.
-  const tradeCash = balance.assets.filter(asset =>
-    asset.kind === 'cash' &&
-    (asset.symbol.toUpperCase() === 'USDC' ||
-      (asset.chainKey === 'robinhood' && asset.symbol.toUpperCase() === 'USDG'))
-  );
+  const tradeCash = usdcOnly(balance);
   // Never pay for a coin with itself.
-  const pool = spendOrder(spendableFor({...balance, assets: tradeCash}, token).assets.filter(asset => asset.valueUsd >= MIN_LEG_USD && (asset.chainKey !== 'solana' || solanaAddress)), token.chainKey);
+  const pool = spendOrder(spendableFor(tradeCash, token).assets.filter(asset => asset.valueUsd >= MIN_LEG_USD && (asset.chainKey !== 'solana' || solanaAddress)), token.chainKey);
   let remainingUsd = amountUsd;
   const legs: UnifiedLeg[] = [];
   const failures: {label: string; reason: string}[] = [];
