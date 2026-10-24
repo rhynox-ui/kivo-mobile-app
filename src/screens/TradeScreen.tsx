@@ -45,6 +45,9 @@ type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
  */
 const directUnavailable = new Set<string>();
 const DIRECT_UNAVAILABLE = /isn't switched on for/;
+// Kivo only sponsors an Ethereum mainnet direct swap whose fee covers the gas
+// (server directSwap.ts MIN_FEE_MICROS_ETHEREUM): smaller ones go via Relay.
+const DIRECT_FEE_TOO_SMALL = /does not cover Ethereum gas/;
 // A pool program (e.g. PumpSwap) charging the wallet itself for a one-time
 // account: a wallet with no SOL can't pay it, so that token re-routes via Relay.
 const DIRECT_NEEDS_SOL = /insufficient lamports \d+, need (\d+)/i;
@@ -118,7 +121,21 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   const [showDetails, setShowDetails] = useState(false);
   const [caCopied, setCaCopied] = useState(false);
   const [gaslessTradingEnabled, setGaslessTradingEnabled] = useState(true);
-  const extremePriceImpact = plan?.legs.some(leg => leg.quote.view.priceImpactPct != null && Math.abs(leg.quote.view.priceImpactPct) > 50) ?? false;
+  // Every route's price impact, direct plans included: the plan's own view and
+  // Jupiter's priceImpactPct (a fraction: 0.5 = 50%).
+  const impacts: (number | null)[] = !plan ? [] : plan.direct
+    ? [plan.direct.view.priceImpactPct, plan.direct.kind === 'jupiter' && plan.direct.quote.priceImpactPct != null ? Number(plan.direct.quote.priceImpactPct) * 100 : null]
+    : plan.legs.map(leg => leg.quote.view.priceImpactPct);
+  const extremePriceImpact = impacts.some(impact => impact != null && Number.isFinite(impact) && Math.abs(impact) > 50);
+  // A gas-free (Relay /execute) EVM leg only runs when Kivo's server confirmed
+  // Relay accepted sponsorship for its quote ("on…"); otherwise /execute
+  // refuses it and the wallet holds no gas, so the trade is blocked up front.
+  const unsponsoredLeg = plan?.direct ? null : plan?.legs.find(leg => {
+    const hasSolanaStep = (leg.quote.quote.steps ?? []).some(step => (step.items ?? []).some(item => Boolean(item.data?.instructions)));
+    const gasless = !hasSolanaStep && leg.quote.input.chainKey !== 'solana' && gaslessTradingEnabled && leg.asset.kind !== 'native';
+    return gasless && !(quoteSponsorshipStatus(leg.quote.quote) ?? '').startsWith('on');
+  }) ?? null;
+  const unsponsoredMessage = unsponsoredLeg ? `Kivo can't pay the network fee for this route on ${chainLabel(unsponsoredLeg.quote.input.chainKey)} right now, so it was not sent. Try another amount, or refresh the quote in a moment.` : null;
   const quoteSeq = useRef(0);
   const amountRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const settings = useSettings();
@@ -289,6 +306,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     // A ref, not state: two taps in the same frame must not start two trades.
     if (!plan || !token || running || executingRef.current) return;
     if (extremePriceImpact) { setResult({tone:'error',message:'Trade blocked: route price impact is above 50%.',hashes:[],chainIds:[],requestId:null}); return; }
+    if (unsponsoredMessage) { setResult({tone:'error',message:unsponsoredMessage,hashes:[],chainIds:[],requestId:null}); return; }
     executingRef.current = true;
     setRunning(true); setResult(null); setUpdate(null);
     const view = plan.view;
@@ -402,14 +420,16 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       // Referral rewards: the server verifies each trade on-chain (no-op without a referrer). A leg
       // Relay is still settling is reported a little later.
       // Only report a referral trade after Relay has completed successfully; pending outcomes are not success signals.
-      outcome.referralReports.filter(report => !report.pending).forEach(report => reportReferralTrade(report));
+      // A leg Relay is still settling is reported after a delay (the server
+      // verifies it on-chain then), like ConvertCashSheet.
+      outcome.referralReports.forEach(report => reportReferralTrade({ chain: report.chain, txHash: report.txHash, requestId: report.requestId }, report.pending ? 90_000 : 0));
       addNotification(outcome.status === 'success' ? (side === 'buy' ? `Bought ${token.symbol}` : `Sold ${token.symbol}`) : outcome.status === 'refunded' ? 'Trade refunded' : 'Trade submitted', `${payLabel(done.pay)}${done.receive.amount ? ` → ${Number(done.receive.amount).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${cashLabel(done.receive.symbol)}` : ''} on ${chainLabel(token.chainKey)}`);
     } catch (error) {
       const hashes = error instanceof KivoExecutionError ? error.txHashes : [];
       const message = error instanceof Error ? error.message : 'Trade failed.';
       // Relay refused to sponsor the direct swap on this network and nothing
       // was sent: re-quote through a sponsored Relay route for a new review.
-      if (plan.direct && !hashes.length && (DIRECT_UNAVAILABLE.test(message) || DIRECT_NEEDS_SOL.test(message))) {
+      if (plan.direct && !hashes.length && (DIRECT_UNAVAILABLE.test(message) || DIRECT_NEEDS_SOL.test(message) || DIRECT_FEE_TOO_SMALL.test(message))) {
         directUnavailable.add(DIRECT_UNAVAILABLE.test(message) ? token.chainKey : `${token.chainKey}:${token.tokenAddress}`);
         setReviewOpen(false); setResult(null); setUpdate(null);
         setNotice(`Nothing was sent. Finding another gas-free route on ${chainLabel(token.chainKey)}…`);
@@ -445,13 +465,13 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   // The route's own USD value decides the minimum when the token had no live price.
   const quotedUsd = view ? (side === 'buy' ? view.pay.usd : view.receive.usd) : null;
   const belowMinimum = quotedUsd != null && quotedUsd < MIN_TRADE_USD;
-  const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && !belowMinimum && !extremePriceImpact && walletKind(wallet) === 'evm-local';
+  const ready = quoteState === 'ready' && Boolean(view) && !expired && !view?.unsupportedReason && !belowMinimum && !extremePriceImpact && !unsponsoredMessage && walletKind(wallet) === 'evm-local';
   // Honest gas line: only say Kivo pays when it really does. Solana trades
   // are paid by Kivo's fee payer and direct swaps by Relay; Relay-routed EVM
   // legs only when Kivo's server confirmed Relay accepted sponsorship.
   const gasSponsored = !plan ? null
     : plan.direct ? true
-    : plan.legs.every(leg => leg.chainKey === 'solana' || quoteSponsorshipStatus(leg.quote.quote) === 'on');
+    : plan.legs.every(leg => leg.chainKey === 'solana' || (quoteSponsorshipStatus(leg.quote.quote) ?? '').startsWith('on'));
   // The wallet(s) that sign: each leg signs on its origin network (Solana or EVM).
   const signingWallets = (() => {
     const origins = plan?.direct ? [plan.direct.view.pay.chainKey] : plan?.legs.map(leg => leg.quote.input.chainKey) ?? [];
@@ -464,6 +484,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   const tradeChain: ChainKey | null = token?.chainKey ?? (selectedToken?.chainKey !== 'near' ? selectedToken?.chainKey ?? null : null);
   const receiveSymbol = side === 'buy' ? token?.symbol ?? '' : token ? cashLabel(sellProceedsAsset(token.chainKey).symbol) : '';
   const hint = extremePriceImpact ? 'Trade blocked — route price impact is above 50%.'
+    : unsponsoredMessage && quoteState === 'ready' ? unsponsoredMessage
     : !wallet ? 'Create or import a Kivo wallet on this phone to trade.'
     : amountProblem ?? (parsed == null ? `Enter an amount to ${side} ${token?.symbol ?? ''}`
       : quoteState === 'loading' ? 'Finding the best route…'
