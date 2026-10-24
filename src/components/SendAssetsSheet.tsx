@@ -1,9 +1,10 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
+import {ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import {formatUnits, parseUnits} from 'viem';
 import {Connection, PublicKey, SystemProgram} from '@solana/web3.js';
 import {TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, calculateEpochFee, createAssociatedTokenAccountInstruction, createTransferCheckedInstruction, getAccountLenForMint, getAssociatedTokenAddress, getMint, getTransferFeeConfig} from '@solana/spl-token';
 import {getViemChain} from '@kivo/trading/core/chainRegistry';
+import {KivoModal} from './KivoModal';
 import {SOLANA_NATIVE_SPEND} from '@kivo/trading/core/solanaSpendGuard';
 import {signAndSendSponsoredSolanaStep, sponsorRepaymentUsdcUnits, type SolanaTransactionSigner} from '@kivo/trading/core/executeRelayQuote';
 import {CLASSIC_TOKEN_ACCOUNT_SPACE, rentExemptLamports} from '@kivo/trading/core/solanaAccountCreation';
@@ -232,7 +233,7 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
   ...(transferResult.hash?[{label:transferResult.network==='Solana'?'View on Solscan':'View on explorer',url:transactionLink(transferResult.hash,transferResult.chainId)}]:[]),
   ...(transferResult.requestId?[{label:'Route status',url:relayRequestUrl(transferResult.requestId)}]:[]),
  ]:[];
- return <><Modal visible={visible&&!transferResult} animationType="slide" transparent onRequestClose={onClose}>
+ return <><KivoModal visible={visible&&!transferResult} animationType="slide" transparent onRequestClose={onClose}>
   <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS==='ios'?'padding':undefined}>
    <View style={styles.sheet}>
     <View style={styles.header}><Text style={styles.title}>Send assets</Text><Pressable onPress={onClose}><Text style={styles.close}>×</Text></Pressable></View>
@@ -263,8 +264,8 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
     {(()=>{const disabled=loading||sending||(step==='recipient'&&!addressCheck.ok)||(step==='transfer'&&!selected);return <Pressable disabled={disabled} onPress={()=>void submit()} style={[styles.send,disabled&&{opacity:0.65}]}><Text style={styles.sendText}>{sending?(step==='review'?'Sending…':'Checking…'):step==='recipient'?'Continue':step==='transfer'?'Review transfer':'Confirm and sign'}</Text></Pressable>;})()}
    </View>
   </KeyboardAvoidingView>
- </Modal>
- <Modal visible={visible&&Boolean(transferResult)} animationType="fade" transparent onRequestClose={()=>{setTransferResult(null);onClose();}}>
+ </KivoModal>
+ <KivoModal visible={visible&&Boolean(transferResult)} animationType="fade" transparent onRequestClose={()=>{setTransferResult(null);onClose();}}>
   <View style={styles.resultOverlay}>
    <View style={styles.resultSheet}>
     <View style={styles.resultBrand}><Image source={require('../assets/kivo-logo.png')} style={styles.resultBrandLogo} resizeMode="contain"/><Pressable onPress={()=>{setTransferResult(null);onClose();}} accessibilityRole="button" accessibilityLabel="Close transfer result"><Text style={styles.close}>×</Text></Pressable></View>
@@ -288,7 +289,7 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
     </ScrollView>:null}
    </View>
   </View>
- </Modal></>;
+ </KivoModal></>;
 }
 const styles=StyleSheet.create({
  suggestions:{maxHeight:190,borderRadius:14,borderWidth:1,borderColor:'rgba(183,226,123,0.25)',backgroundColor:'#0B1E17',overflow:'hidden'},suggestion:{minHeight:58,paddingHorizontal:10,paddingVertical:8,flexDirection:'row',alignItems:'center',gap:10,borderBottomWidth:StyleSheet.hairlineWidth,borderBottomColor:'rgba(183,226,123,0.15)'},suggestionAvatar:{width:42,height:42,borderRadius:21,overflow:'hidden',alignItems:'center',justifyContent:'center',backgroundColor:'#12372D',borderWidth:1,borderColor:'rgba(183,226,123,0.3)'},suggestionAvatarImage:{width:42,height:42,borderRadius:21},suggestionInitial:{color:kivoTheme.colors.accent,fontWeight:'800'},recipientSummary:{padding:12,borderRadius:13,borderWidth:1,borderColor:kivoTheme.colors.border,backgroundColor:'rgba(183,226,123,0.05)',gap:5},quickAmounts:{flexDirection:'row',gap:8},quickAmount:{flex:1,minHeight:38,borderRadius:10,backgroundColor:'#12372D',alignItems:'center',justifyContent:'center'},quickAmountText:{color:kivoTheme.colors.text,fontWeight:'700'},reviewTitle:{color:kivoTheme.colors.text,fontSize:19,fontWeight:'800'},reviewCard:{padding:14,borderRadius:14,borderWidth:1,borderColor:kivoTheme.colors.border,backgroundColor:'#062F2C',gap:10},reviewRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'flex-start',gap:12,paddingBottom:10,borderBottomWidth:StyleSheet.hairlineWidth,borderBottomColor:kivoTheme.colors.border},reviewValue:{color:kivoTheme.colors.text,fontSize:13,fontWeight:'700',flexShrink:1,textAlign:'right'},reviewAddress:{gap:4,paddingBottom:10,borderBottomWidth:StyleSheet.hairlineWidth,borderBottomColor:kivoTheme.colors.border},reviewAddressText:{color:kivoTheme.colors.text,fontSize:13,fontWeight:'700',fontFamily:Platform.OS==='ios'?'Menlo':'monospace'},back:{minHeight:46,alignItems:'center',justifyContent:'center'},backText:{color:kivoTheme.colors.accent,fontWeight:'700'},
