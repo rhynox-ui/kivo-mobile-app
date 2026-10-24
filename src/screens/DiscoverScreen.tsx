@@ -10,6 +10,7 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { api } from '../state/session';
 import { getWalletSession } from '../state/walletStore';
 
+import { userHandle, userPlainName } from '@kivo/shared/profile/userLabel';
 type Mode = 'tokens' | 'channels' | 'groups' | 'people';
 const MODES: Array<[Mode, string]> = [['tokens', 'Tokens'], ['channels', 'Channels'], ['groups', 'Groups'], ['people', 'People']];
 
@@ -94,8 +95,8 @@ function People({ onOpenPerson }: { onOpenPerson: (userId: string) => void }) {
       {wallet && wallet !== me && !people.length && <Pressable onPress={() => onOpenPerson(kivoUserIdForWallet(wallet))} style={styles.card}><Avatar name={wallet.replace(/^0x/, '')} size={42} /><Text style={styles.name}>{shortWallet(wallet)}</Text></Pressable>}
       {people.filter(p => p.address !== me).map(p => (
         <Pressable key={p.userId} onPress={() => onOpenPerson(p.userId)} style={styles.card}>
-          <Avatar name={p.username ?? p.address} uri={p.avatarUrl} size={42} verified={verifiedPeople.has(p.userId)} />
-          <View style={styles.flex}><View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{p.username ? '@' + p.username : p.address}</Text>{verifiedPeople.has(p.userId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>{p.bio ? <Text style={styles.small} numberOfLines={1}>{p.bio}</Text> : null}</View>
+          <Avatar name={userPlainName(p.username, p.address || p.userId)} uri={p.avatarUrl} size={42} verified={verifiedPeople.has(p.userId)} />
+          <View style={styles.flex}><View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{userHandle(p.username, p.address || p.userId)}</Text>{verifiedPeople.has(p.userId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>{p.bio ? <Text style={styles.small} numberOfLines={1}>{p.bio}</Text> : null}</View>
         </Pressable>
       ))}
     </ScrollView>
