@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useKeyboardInset } from '../utils/useKeyboardInset';
 import { kivoTheme } from '../theme/kivoTheme';
 import { CHAIN_LABEL, tradeChainLabel, type ChainKey, type TradeChain } from '@kivo/trading/core/chainData';
 import { NetworkIcon } from '../wallet/NetworkIcon';
 import { TRADE_CHAIN_ORDER } from './SearchScreen';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, readTokenBalance, type CashBalanceRow, type TokenBalance } from '@kivo/trading/kivo/balances';
 import { PartialRouteError, combinedView, planUnifiedBuy, runLegsByNetwork, type UnifiedLeg, type UnifiedPlan } from '@kivo/trading/kivo/unified';
-import { HOME_CHAIN, awayFromHome, homeCashAsset, onlyHomeCash } from '@kivo/trading/kivo/home';
-import { assetLabel, clearSpendableBalanceCache, fetchSpendableBalance, nativeSpendable, spendOrder, spendableFor, totalSpendableUsd, type SpendableBalance } from '@kivo/trading/kivo/spendable';
+import { HOME_CHAIN, homeCashAsset } from '@kivo/trading/kivo/home';
+import { assetLabel, clearSpendableBalanceCache, fetchTradeCash, nativeSpendable, spendOrder, spendableFor, totalSpendableUsd, type SpendableBalance } from '@kivo/trading/kivo/spendable';
 import { executeDirectPlan, planDirectTrade } from '@kivo/trading/kivo/direct';
 import { transactionLink, KivoExecutionError, preflightKivoQuote, relayRequestUrl, type ExecutionUpdate } from '@kivo/trading/kivo/execute';
 import { loadGaslessTradingEnabled } from '../settings/gaslessTradingPrefs';
@@ -32,7 +33,6 @@ import { NearTradePanel } from './NearTradePanel';
 import { normalizeAmountInput } from '../utils/amountInput';
 import { KivoModal } from '../components/KivoModal';
 import { ResultCard, splitError } from '../components/ResultCard';
-import { runAutoSweep } from '../wallet/autoSweep';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { ShareTradeSheet, type SharedTrade } from '../components/ShareTradeSheet';
 
@@ -44,7 +44,8 @@ type QuoteState = 'idle' | 'loading' | 'ready' | 'error';
  * there go through a regular Relay-quoted route instead, which is sponsored.
  */
 const directUnavailable = new Set<string>();
-const DIRECT_UNAVAILABLE = /isn't switched on for/;
+// Relay refused to sponsor the direct swap (its bare 403; relayGaslessEvm words it either way).
+const DIRECT_UNAVAILABLE = /isn't switched on for|could not authorize gasless execution/;
 // Kivo only sponsors an Ethereum mainnet direct swap whose fee covers the gas
 // (server directSwap.ts MIN_FEE_MICROS_ETHEREUM): smaller ones go via Relay.
 const DIRECT_FEE_TOO_SMALL = /does not cover Ethereum gas/;
@@ -79,12 +80,9 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   const [amount, setAmount] = useState('');
   const [wallet, setWallet] = useState<WalletSession | null>(getWalletSession());
   const [cash, setCash] = useState<CashBalanceRow[] | null>(null);
-  // Everything a buy can spend: cash, dollar coins and native coins on every network.
+  // Everything a buy can spend: USDC (USDG on Robinhood) on every network,
+  // Solana home included. Never native coins or other tokens (holdings).
   const [spendable, setSpendable] = useState<SpendableBalance | null>(null);
-  // Funds on other networks / in other coins: not spent by trades (Kivo's
-  // home is USDC on Solana), only pointed to so the user can Convert them.
-  const [awayUsd, setAwayUsd] = useState(0);
-  const [movingHome, setMovingHome] = useState(false);
   // Bumped after a trade so the balances are read again.
   const [balanceNonce, setBalanceNonce] = useState(0);
   // When the balance can only partly cover a buy: the amount that CAN be bought.
@@ -138,6 +136,16 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   const unsponsoredMessage = unsponsoredLeg ? `Kivo can't pay the network fee for this route on ${chainLabel(unsponsoredLeg.quote.input.chainKey)} right now, so it was not sent. Try another amount, or refresh the quote in a moment.` : null;
   const quoteSeq = useRef(0);
   const amountRef = useRef<React.ComponentRef<typeof TextInput>>(null);
+  // The keypad must never hide the amount being typed: pad the scroll by the
+  // part of the screen the keyboard covers and bring the amount card into view.
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const amountCardY = useRef(0);
+  const amountFocused = useRef(false);
+  const keyboardInset = useKeyboardInset();
+  const revealAmount = useCallback(() => {
+    scrollRef.current?.scrollTo({ y: Math.max(0, amountCardY.current - 96), animated: true });
+  }, []);
+  useEffect(() => { if (keyboardInset > 0 && amountFocused.current) revealAmount(); }, [keyboardInset, revealAmount]);
   const settings = useSettings();
   useEffect(() => { if (settingsOpen) { setDraftSlippage(settings.slippageBps ?? null); setCustomSlippage(settings.slippageBps != null && ![50,100,300].includes(settings.slippageBps) ? String(settings.slippageBps / 100) : ''); } }, [settingsOpen, settings.slippageBps]);
 
@@ -173,13 +181,12 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       if (cancelled) return;
       setCash(rows);
     }).catch(() => {});
-    // Only a wallet on this device can sign the Solana part of a buy.
-    fetchSpendableBalance(address, wallet?.source === 'local' ? wallet.solanaAddress : undefined).then(balance => {
-      if (cancelled) return;
-      // One home balance (USDC on Solana): every buy is a single route from it.
-      if (homeActive) { setSpendable(onlyHomeCash(balance)); setAwayUsd(awayFromHome(balance).reduce((sum, asset) => sum + asset.valueUsd, 0)); }
-      else setSpendable(balance);
-    }).catch(() => { if (!cancelled) setSpendable({ assets: [], errors: [] }); });
+    // Only a wallet on this device can sign the Solana part of a buy. Same
+    // reader (and cache) as the wallet's "Total cash", so both agree; a
+    // network that can't be read is shown as unavailable, never as $0.
+    fetchTradeCash(address, wallet?.source === 'local' ? wallet.solanaAddress : undefined).then(balance => {
+      if (!cancelled) setSpendable(balance);
+    }).catch(error => { if (!cancelled) setSpendable({ assets: [], errors: [{ chainKey: HOME_CHAIN, symbol: 'USDC', error: error instanceof Error ? error.message : 'Balance unavailable.' }] }); });
     if (side === 'buy' && !isNativeToken(token)) {
       const owner = token.chainKey === 'solana' ? wallet?.solanaAddress : address;
       if (owner) readTokenBalance(token.chainKey, token.tokenAddress, owner, token.symbol)
@@ -197,15 +204,17 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token?.chainKey, token?.tokenAddress, side, address, balanceNonce]);
 
+  // Nothing could be read at all: say so instead of showing $0.00.
+  const cashUnreadable = Boolean(spendable && !spendable.assets.length && spendable.errors.length);
   const available = side === 'buy'
-    ? (spendable && token ? totalSpendableUsd(spendableFor(spendable, token)) : null)
+    ? (spendable && token && !cashUnreadable ? totalSpendableUsd(spendableFor(spendable, token)) : null)
     : tokenBalance?.amount ?? null;
   const parsed = parseAmountInput(amount);
   // Buys are entered in USD; a sell is valued at the token's live price (the
   // quote below re-checks it once the route's real output is known).
   const tradeUsd = parsed == null ? null : side === 'buy' ? parsed : token?.priceUsd != null && token.priceUsd > 0 ? parsed * token.priceUsd : null;
   const amountProblem = !amount.trim() ? null : parsed == null ? 'Enter a valid amount greater than zero.'
-    : available != null && parsed > available + 1e-12 ? (side === 'buy' ? (homeActive && awayUsd >= 0.5 ? `More than your USDC on Solana (${formatBalanceUsd(available)}). You have ${formatBalanceUsd(awayUsd)} elsewhere: Kivo moves it to Solana when you tap Buy.` : `More than your available balance (${formatBalanceUsd(available)}).`) : `More than your available ${formatAmount(available)} ${token?.symbol ?? ''}.`)
+    : available != null && parsed > available + 1e-12 ? (side === 'buy' ? `More than your USDC across all networks (${formatBalanceUsd(available)})${spendable?.errors.length ? `; ${spendable.errors.map(e => chainLabel(e.chainKey)).join(', ')} couldn't be read` : ''}.` : `More than your available ${formatAmount(available)} ${token?.symbol ?? ''}.`)
     : tradeUsd != null && tradeUsd < MIN_TRADE_USD ? `The minimum trade is ${formatUsd(MIN_TRADE_USD)}.` : null;
 
   const fetchQuote = useCallback(async () => {
@@ -218,13 +227,14 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     try {
       // Same network as the user's cash: straight to Uniswap, Relay pays the gas.
       // Native coins (ETH, SOL…) always route through Relay, which trades them directly.
-      const direct = gaslessTradingEnabled && !isNativeToken(token) && (!homeActive || token.chainKey === HOME_CHAIN) && !directUnavailable.has(token.chainKey) && !directUnavailable.has(`${token.chainKey}:${token.tokenAddress}`)
+      // A sell on another network routes its proceeds home through Relay; a buy may go direct on any network whose USDC covers it.
+      const direct = gaslessTradingEnabled && !isNativeToken(token) && (!homeActive || side === 'buy' || token.chainKey === HOME_CHAIN) && !directUnavailable.has(token.chainKey) && !directUnavailable.has(`${token.chainKey}:${token.tokenAddress}`)
         ? await planDirectTrade({ side, token, amount: parsed, userAddress: address, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined, cash, tokenBalance, tokenDecimals, slippageBps: settings.slippageBps ?? undefined }).catch(() => null)
         : null;
       if (seq !== quoteSeq.current) return;
       if (direct) { setQuote({ legs: [], view: direct.view, direct }); setQuoteState('ready'); return; }
       const next: UnifiedPlan = side === 'buy'
-        ? await planUnifiedBuy({ token, amountUsd: parsed, userAddress: address, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined, balance: spendable!, tokenDecimals, slippageBps: settings.slippageBps ?? undefined })
+        ? await planUnifiedBuy({ token, amountUsd: parsed, userAddress: address, solanaAddress: wallet?.source === 'local' ? wallet.solanaAddress : undefined, balance: spendable!, tokenDecimals, slippageBps: settings.slippageBps ?? undefined, requireSponsored: gaslessTradingEnabled })
         : await (async () => {
             const solanaOwner = token.chainKey === 'solana' ? wallet?.solanaAddress : undefined;
             if (token.chainKey === 'solana' && !solanaOwner) throw new Error('This wallet has no Solana address.');
@@ -494,27 +504,8 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       : belowMinimum ? `The minimum trade is ${formatUsd(MIN_TRADE_USD)}.`
       : quoteState === 'ready' ? `Review and ${side} ${token?.symbol ?? ''}` : '');
   const hintIsError = Boolean(amountProblem) || quoteState === 'error' || Boolean(view?.unsupportedReason) || belowMinimum;
-  // Funds that arrived on another network are moved home only when a buy needs them.
-  const needsMoveHome = side === 'buy' && homeActive && awayUsd >= 0.5 && available != null && parsed != null && parsed > available + 1e-9;
   const pressSide = (target: TradeSide) => {
     if (target !== side) { setSide(target); return; }
-    if (needsMoveHome) {
-      // CEX-like: the buy pulls the funds home by itself, then opens its review.
-      if (movingHome) return;
-      setMovingHome(true);
-      setNotice('Moving your funds to Solana for this buy…');
-      void runAutoSweep({ upToUsd: (parsed ?? 0) - (available ?? 0) }).then(result => {
-        setMovingHome(false);
-        if (!result || result.movedUsd <= 0) { setNotice(result?.failed[0]?.error ? `Couldn't move your funds: ${result.failed[0].error}` : 'Unlock your wallet and try again.'); return; }
-        setNotice('');
-        reopenReview.current = true;
-        // Bridged USDC can take a few seconds to land: read the balance again until it has.
-        setBalanceNonce(n => n + 1);
-        setTimeout(() => setBalanceNonce(n => n + 1), 8000);
-        setTimeout(() => setBalanceNonce(n => n + 1), 20000);
-      });
-      return;
-    }
     if (ready) setReviewOpen(true);
     else if (expired) fetchQuote();
   };
@@ -522,9 +513,9 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
 
   const errorParts = result?.tone === 'error' ? splitError(result.message.replace(/ Some transactions were already sent; check them before trying again\.$/, '')) : null;
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <ScrollView ref={scrollRef} style={styles.container} contentContainerStyle={[styles.content, keyboardInset > 0 ? { paddingBottom: keyboardInset + 24 } : null]} keyboardShouldPersistTaps="handled" keyboardDismissMode="none">
       <Pressable style={styles.cashRow} onPress={() => { if (spendable) setChainOpen(true); }} accessibilityRole="button" accessibilityLabel="Balance by network">
-        <Text style={styles.cashLabel}>{homeActive ? 'USDC · Solana' : 'Balance'}{spendable ? '  ›' : ''}</Text>
+        <Text style={styles.cashLabel}>{'USDC · all networks'}{spendable ? '  ›' : ''}</Text>
         <Text style={styles.cashValue}>{!wallet ? '—' : cashTotal == null ? '…' : settings.hideBalances ? '••••' : formatBalanceUsd(cashTotal)}</Text>
       </Pressable>
       <View style={styles.toolbar}>
@@ -565,7 +556,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
 
             <View style={styles.sides}>
               <Pressable onPress={() => pressSide('buy')} style={[styles.buy, side !== 'buy' && styles.inactive]}>
-                <Text style={styles.buyText}>{movingHome ? 'Moving funds…' : '↑  Buy'}</Text>
+                <Text style={styles.buyText}>↑  Buy</Text>
               </Pressable>
               <Pressable onPress={() => pressSide('sell')} style={[styles.sell, side === 'sell' && ready && styles.sellReady, side !== 'sell' && styles.inactive]}>
                 <Text style={[styles.sellText, side === 'sell' && ready && styles.sellTextReady]}>↓  {'Sell'}</Text>
@@ -573,6 +564,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
             </View>
             {notice && quoteState !== 'error' ? <Text style={styles.hint}>{notice}</Text> : null}
             {hint ? <Text style={[styles.hint, hintIsError && styles.hintError]}>{hint}</Text> : null}
+            {side === 'buy' && cashUnreadable ? <Pressable onPress={() => { clearCashBalanceCache(); setSpendable(null); setBalanceNonce(n => n + 1); }} style={styles.refresh} accessibilityRole="button"><Text style={styles.refreshText}>Couldn't read your USDC. Try again</Text></Pressable> : null}
             {quoteState === 'error' && partialUsd != null ? <Pressable onPress={() => setAmount(partialUsd.toFixed(2))} style={styles.refresh} accessibilityRole="button"><Text style={styles.refreshText}>Buy {formatUsd(partialUsd)} instead</Text></Pressable> : null}
             {quoteState === 'error' || expired ? <Pressable onPress={fetchQuote} style={styles.refresh}><Text style={styles.refreshText}>{expired ? 'Refresh quote' : 'Try again'}</Text></Pressable> : null}
 
@@ -609,14 +601,14 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
               </Pressable>
             </View>
 
-            <View style={styles.cardsRow}>
+            <View style={styles.cardsRow} onLayout={event => { amountCardY.current = event.nativeEvent.layout.y; }}>
             <View style={styles.card}>
               <Text style={styles.cardLabel}>YOU PAY</Text>
               <View style={styles.cardRow}>
                 <AssetChip symbol={side === 'buy' ? 'USDC' : token!.symbol} uri={side === 'buy' ? null : token!.imageUrl} />
-                <TextInput ref={amountRef} editable={!disabledInput} value={amount} onChangeText={value => setAmount(normalizeAmountInput(value))} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.amountInput} accessibilityLabel={side === 'buy' ? 'USDC to spend' : `${token!.symbol} to sell`} />
+                <TextInput ref={amountRef} editable={!disabledInput} value={amount} onChangeText={value => setAmount(normalizeAmountInput(value))} onFocus={() => { amountFocused.current = true; setTimeout(revealAmount, 120); }} onBlur={() => { amountFocused.current = false; }} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.amountInput} accessibilityLabel={side === 'buy' ? 'USDC to spend' : `${token!.symbol} to sell`} />
               </View>
-              <Text style={styles.avail}>{!wallet ? '' : available != null ? (side === 'buy' ? `${settings.hideBalances ? '••••' : formatBalanceUsd(available)} avail.` : `${formatAmount(available)} avail.`) : side === 'sell' && balanceError ? 'Balance unavailable' : 'Reading balance…'}</Text>
+              <Text style={styles.avail}>{!wallet ? '' : available != null ? (side === 'buy' ? `${settings.hideBalances ? '••••' : formatBalanceUsd(available)} avail.` : `${formatAmount(available)} avail.`) : (side === 'sell' && balanceError) || (side === 'buy' && cashUnreadable) ? 'Balance unavailable' : 'Reading balance…'}</Text>
             </View>
             <View style={styles.card}>
               <Text style={styles.cardLabel}>YOU RECEIVE</Text>

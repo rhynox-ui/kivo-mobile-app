@@ -15,6 +15,7 @@ import {fetchPortfolio} from '@kivo/trading/kivo/portfolio';
 import {getTradeHistory} from '@kivo/trading/kivo/history';
 import {clearSpendableBalanceCache, fetchSpendableBalance, type SpendableAsset, type SpendableBalance} from '@kivo/trading/kivo/spendable';
 import {convertQuoteParams, convertSources, convertTargets, sameAsset, type ConvertAsset} from '@kivo/trading/kivo/convert';
+import {homeProofFor} from '@kivo/trading/kivo/homeProof';
 import {recordTrade} from '@kivo/trading/kivo/history';
 import {reportReferralTrade} from '../state/referrals';
 import {markOwnAction} from '../wallet/depositWatcher';
@@ -123,6 +124,15 @@ export function ConvertCashSheet({visible,onClose,onConverted,moveHome=false}:{v
    const quoteParams=lastQuoteParamsRef.current;
    if(!quoteToExecute) throw new Error('The conversion quote is no longer available. Enter the amount again.');
    const result=await withDeviceAccounts('Confirm Convert',async session=>{
+     // A fee-free move home is only sponsored with the Solana wallet's proof:
+     // sign it now if the preview was quoted without one, and quote again with it.
+     if(quoteParams?.homeMove&&!quoteParams.homeProof){
+       const proof=homeProofFor(session.relay);
+       if(!proof) throw new Error('This wallet has no Solana account. Nothing was sent.');
+       const proven={...quoteParams,homeProof:proof};
+       lastQuoteParamsRef.current=proven;
+       return executeRelayQuote(await getRelayQuote(proven),session.relay,s=>setExecute(s),{useGaslessTrading:true,requote:async()=>getRelayQuote(proven)});
+     }
      return executeRelayQuote(quoteToExecute,session.relay,s=>setExecute(s),{useGaslessTrading:true,requote:quoteParams?async()=>getRelayQuote(quoteParams):undefined});
    });
    const settled=result.status??'success';setRelayStatus(settled);setOutcome({tone:settled==='success'?'success':settled==='refunded'?'error':'pending',from,to,message:settled==='refunded'?'The route could not be filled, so it was refunded.':undefined});setHashes(result.txHashes);setExecute(null);

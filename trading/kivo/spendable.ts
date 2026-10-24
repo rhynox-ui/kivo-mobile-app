@@ -1,24 +1,20 @@
-// Everything Kivo mobile can spend on a buy, across every network: USDC/USDG
-// cash, other verified dollar coins (USDT, USDT0) and each network's own coin
-// (ETH, BNB, SOL, …). Like FOMO, the user sees one balance in dollars and
-// never has to move funds first; planUnifiedBuy (unified.ts) splits a buy
-// into one leg per asset and every leg routes straight to the token bought.
+// Everything Kivo mobile holds that Convert can move, across every network:
+// USDC/USDG cash, other verified dollar coins (USDT, USDT0) and each
+// network's own coin (ETH, BNB, SOL, …). Trade buys only ever spend the cash
+// part (fetchTradeCash / onlyCash below): one balance in dollars, USDC on
+// every network, and planUnifiedBuy (unified.ts) splits a buy into one leg
+// per network, each routing straight to the token bought.
 //
-// Kivo holds the keys on this device, so it can sign on every network in one
-// confirmation. Rules:
-//   - cash first, then other dollar coins, then native coins, so a buy only
-//     sells ETH/BNB/SOL when the user's dollars don't cover it;
+// Rules for the wider balance (Convert sources):
 //   - native coins keep a small reserve so the wallet is never emptied to the
 //     last wei (Solana accounts must also stay rent-exempt);
-//   - a native coin with no live price is left out, never valued by a guess;
-//   - investment tokens the user bought (memecoins, WBTC) are never sold to
-//     pay for another buy.
+//   - a native coin with no live price is left out, never valued by a guess.
 // Every value here is only for planning: each leg is re-quoted by Relay,
 // which prices the real input, and the intent firewall checks every leg.
 
 import {CHAIN_LABEL, TOKEN_ADDRESSES, assetDecimalsForChain, currencyAddress, type ChainKey} from '../core/chainData';
 import {fetchWalletPrices} from '../core/walletPrices';
-import {CASH_CHAINS, fetchCashBalances, readNativeBalance, readSolanaNativeBalance, readTokenBalance, spendableCash} from './balances';
+import {CASH_CHAINS, fetchCashBalances, readNativeBalance, readSolanaNativeBalance, readTokenBalance, spendableCash, type CashBalanceRow} from './balances';
 import {EVM_TRADE_CHAINS, nativeSymbol} from './tokens';
 
 export type SpendableKind = 'cash' | 'stable' | 'native';
@@ -128,15 +124,50 @@ export async function fetchSpendableBalance(owner: string, solanaOwner?: string,
   finally { if (inFlight?.promise === promise) inFlight = null; }
 }
 
+/**
+ * Trade cash: USDC (USDG on Robinhood) on every supported network, Solana
+ * home included, and nothing else. This is the Trade ticket's "available"
+ * balance. Owner rule: a buy is only ever paid from cash; native coins
+ * (SOL, ETH, BNB…) and other tokens are the user's holdings and are never
+ * sold to pay for a buy. Read through fetchCashBalances (the same reader and
+ * cache as the wallet screen's "Total cash"), so both screens agree. A
+ * network that fails to answer is an error row, never a $0 balance.
+ */
+export function cashOnly(rows: CashBalanceRow[]): SpendableBalance {
+  const assets: SpendableAsset[] = [];
+  const errors: SpendableBalance['errors'] = [];
+  for (const row of rows) {
+    if (row.status === 'error') { errors.push({chainKey: row.chainKey, symbol: row.chainKey === 'robinhood' ? 'USDG' : 'USDC', error: row.error}); continue; }
+    const spendable = spendableCash(row.chainKey, row.balance.amount);
+    if (row.balance.amount > 0) assets.push({chainKey: row.chainKey, address: row.balance.tokenAddress, symbol: row.balance.symbol, decimals: row.balance.decimals, kind: 'cash', amount: row.balance.amount, spendableAmount: spendable, priceUsd: 1, valueUsd: spendable});
+  }
+  return {assets, errors};
+}
+
+/** The cash part of any balance (drops dollar coins and native coins). */
+export function onlyCash(balance: SpendableBalance): SpendableBalance {
+  return {assets: balance.assets.filter(asset => asset.kind === 'cash'), errors: balance.errors.filter(error => error.symbol === 'USDC' || error.symbol === 'USDG')};
+}
+
+/** USDC/USDG on every network a buy can pay from (see cashOnly). */
+export async function fetchTradeCash(owner: string, solanaOwner?: string, {forceFresh = false}: {forceFresh?: boolean} = {}): Promise<SpendableBalance> {
+  return cashOnly(await fetchCashBalances(owner, CASH_CHAINS, solanaOwner, {forceFresh}));
+}
+
 const KIND_ORDER: Record<SpendableKind, number> = {cash: 0, stable: 1, native: 2};
+/** Where gas costs dollars: drawn from last, so small legs don't land there. */
+const COSTLY_CHAINS = new Set<ChainKey>(['ethereum']);
+const HOME: ChainKey = 'solana';
 
 /**
  * The order a buy draws from: cash, then dollar coins, then native coins;
- * within each, the token's own network first, then the largest balance.
+ * within each, the token's own network first, then Solana (home), then the
+ * largest balance, with Ethereum mainnet last.
  */
 export function spendOrder(assets: SpendableAsset[], tokenChain: ChainKey): SpendableAsset[] {
+  const rank = (asset: SpendableAsset) => asset.chainKey === tokenChain ? 0 : asset.chainKey === HOME ? 1 : COSTLY_CHAINS.has(asset.chainKey) ? 3 : 2;
   return [...assets].sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]
-    || (a.chainKey === tokenChain ? 0 : 1) - (b.chainKey === tokenChain ? 0 : 1)
+    || rank(a) - rank(b)
     || b.valueUsd - a.valueUsd);
 }
 
