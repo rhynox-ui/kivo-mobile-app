@@ -80,9 +80,11 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   const [wallet, setWallet] = useState<WalletSession | null>(getWalletSession());
   const [cash, setCash] = useState<CashBalanceRow[] | null>(null);
   // Everything a buy can spend: cash, dollar coins and native coins on every network.
+  // Full wallet balance drives the total/available display across networks.
+  const [allSpendable, setAllSpendable] = useState<SpendableBalance | null>(null);
+  // Solana-home USDC alone is used to build the first trade quote. If the user
+  // has enough elsewhere, Buy automatically sweeps the shortfall home first.
   const [spendable, setSpendable] = useState<SpendableBalance | null>(null);
-  // Funds on other networks / in other coins: not spent by trades (Kivo's
-  // home is USDC on Solana), only pointed to so the user can Convert them.
   const [awayUsd, setAwayUsd] = useState(0);
   const [movingHome, setMovingHome] = useState(false);
   // Bumped after a trade so the balances are read again.
@@ -160,7 +162,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   // Reset the ticket whenever the token, side or wallet changes.
   useEffect(() => {
     setAmount(''); setQuote(null); setQuoteState('idle'); setQuoteError(''); setResult(null);
-    setCash(null); setSpendable(null); setPartialUsd(null); setTokenBalance(null); setBuyDecimals(null); setBalanceError('');
+    setCash(null); setAllSpendable(null); setSpendable(null); setPartialUsd(null); setTokenBalance(null); setBuyDecimals(null); setBalanceError('');
     quoteSeq.current++;
   }, [selectedToken?.chainKey, selectedToken?.tokenAddress, side, address]);
 
@@ -176,9 +178,11 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     // Only a wallet on this device can sign the Solana part of a buy.
     fetchSpendableBalance(address, wallet?.source === 'local' ? wallet.solanaAddress : undefined).then(balance => {
       if (cancelled) return;
-      // One home balance (USDC on Solana): every buy is a single route from it.
+      setAllSpendable(balance);
+      // Quotes start from Solana USDC, but do not hide assets held elsewhere:
+      // Buy can move the required shortfall home automatically before review.
       if (homeActive) { setSpendable(onlyHomeCash(balance)); setAwayUsd(awayFromHome(balance).reduce((sum, asset) => sum + asset.valueUsd, 0)); }
-      else setSpendable(balance);
+      else { setSpendable(balance); setAwayUsd(0); }
     }).catch(() => { if (!cancelled) setSpendable({ assets: [], errors: [] }); });
     if (side === 'buy' && !isNativeToken(token)) {
       const owner = token.chainKey === 'solana' ? wallet?.solanaAddress : address;
@@ -197,9 +201,15 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token?.chainKey, token?.tokenAddress, side, address, balanceNonce]);
 
-  const available = side === 'buy'
+  const homeAvailable = side === 'buy'
     ? (spendable && token ? totalSpendableUsd(spendableFor(spendable, token)) : null)
     : tokenBalance?.amount ?? null;
+  // For buys, show the total spendable USD value across networks, not just the
+  // currently-empty Solana USDC account. Execution still quotes against home
+  // USDC after the automatic move completes.
+  const available = side === 'buy'
+    ? (allSpendable && token ? totalSpendableUsd(spendableFor(allSpendable, token)) : null)
+    : homeAvailable;
   const parsed = parseAmountInput(amount);
   // Buys are entered in USD; a sell is valued at the token's live price (the
   // quote below re-checks it once the route's real output is known).
@@ -461,7 +471,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
 
   // Kivo's own fee in dollars and percent of the trade, e.g. "$0.95 (1.9%)".
   const kivoFeeText = view && view.fees.appUsd != null ? formatKivoFee(view.fees.appUsd, view.pay.usd) : null;
-  const cashTotal = spendable ? totalSpendableUsd(spendable) : cash ? totalCashUsd(cash).total : null;
+  const cashTotal = allSpendable ? totalSpendableUsd(allSpendable) : cash ? totalCashUsd(cash).total : null;
   // The route's own USD value decides the minimum when the token had no live price.
   const quotedUsd = view ? (side === 'buy' ? view.pay.usd : view.receive.usd) : null;
   const belowMinimum = quotedUsd != null && quotedUsd < MIN_TRADE_USD;
@@ -495,7 +505,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       : quoteState === 'ready' ? `Review and ${side} ${token?.symbol ?? ''}` : '');
   const hintIsError = Boolean(amountProblem) || quoteState === 'error' || Boolean(view?.unsupportedReason) || belowMinimum;
   // Funds that arrived on another network are moved home only when a buy needs them.
-  const needsMoveHome = side === 'buy' && homeActive && awayUsd >= 0.5 && available != null && parsed != null && parsed > available + 1e-9;
+  const needsMoveHome = side === 'buy' && homeActive && awayUsd >= 0.5 && homeAvailable != null && parsed != null && parsed > homeAvailable + 1e-9;
   const pressSide = (target: TradeSide) => {
     if (target !== side) { setSide(target); return; }
     if (needsMoveHome) {
@@ -524,7 +534,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Pressable style={styles.cashRow} onPress={() => { if (spendable) setChainOpen(true); }} accessibilityRole="button" accessibilityLabel="Balance by network">
-        <Text style={styles.cashLabel}>{homeActive ? 'USDC · Solana' : 'Balance'}{spendable ? '  ›' : ''}</Text>
+        <Text style={styles.cashLabel}>{homeActive && awayUsd >= 0.5 ? 'Total spendable' : homeActive ? 'USDC · Solana' : 'Balance'}{spendable ? '  ›' : ''}</Text>
         <Text style={styles.cashValue}>{!wallet ? '—' : cashTotal == null ? '…' : settings.hideBalances ? '••••' : formatBalanceUsd(cashTotal)}</Text>
       </Pressable>
       <View style={styles.toolbar}>
@@ -616,7 +626,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
                 <AssetChip symbol={side === 'buy' ? 'USDC' : token!.symbol} uri={side === 'buy' ? null : token!.imageUrl} />
                 <TextInput ref={amountRef} editable={!disabledInput} value={amount} onChangeText={value => setAmount(normalizeAmountInput(value))} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={kivoTheme.colors.textMuted} style={styles.amountInput} accessibilityLabel={side === 'buy' ? 'USDC to spend' : `${token!.symbol} to sell`} />
               </View>
-              <Text style={styles.avail}>{!wallet ? '' : available != null ? (side === 'buy' ? `${settings.hideBalances ? '••••' : formatBalanceUsd(available)} avail.` : `${formatAmount(available)} avail.`) : side === 'sell' && balanceError ? 'Balance unavailable' : 'Reading balance…'}</Text>
+              <Text style={styles.avail}>{!wallet ? '' : available != null ? (side === 'buy' ? `${settings.hideBalances ? '••••' : formatBalanceUsd(available)}${homeActive && awayUsd >= 0.5 ? ' across networks · moves to Solana on Buy' : ' avail.'}` : `${formatAmount(available)} avail.`) : side === 'sell' && balanceError ? 'Balance unavailable' : 'Reading balance…'}</Text>
             </View>
             <View style={styles.card}>
               <Text style={styles.cardLabel}>YOU RECEIVE</Text>
