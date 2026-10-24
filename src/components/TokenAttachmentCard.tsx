@@ -4,6 +4,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { kivoTheme } from '../theme/kivoTheme';
 import { TokenMarketMetrics, loadSnapshot } from './TokenMarketMetrics';
 import { kivoAlert } from './KivoAlert';
+import { dexScreenerChainForChain } from '@kivo/trading/core/dexScreener';
 
 // The one token attachment card for feed posts, groups, channels and DMs,
 // laid out like the web card: icon, $SYMBOL and name on the left, live MC and
@@ -17,22 +18,27 @@ function compactUsd(value: number): string {
 }
 
 export function TokenAttachmentCard({ token, onPress, compact = false }: { token: AttachedToken; onPress?: () => void; compact?: boolean }) {
-  // A logo that fails to load (dead IPFS link, hotlink block) falls back to the mark.
-  const [logoFailed, setLogoFailed] = useState(false);
+  // Logo sources tried in turn when one fails to load (dead IPFS link,
+  // hotlink block): the saved one, the live market one, then DexScreener's
+  // logo for this contract. Only then the letter mark.
+  const [logoIndex, setLogoIndex] = useState(0);
   // Live MC vs the MC when it was posted: the call's return so far.
   const [liveCap, setLiveCap] = useState<number | null>(null);
   // Cards saved without a logo use the one from the live market data.
   const [liveLogo, setLiveLogo] = useState<string | null>(null);
   useEffect(() => { let active = true; setLiveCap(null); setLiveLogo(null); void loadSnapshot(token.chain, token.address).then(value => { if (active) { setLiveCap(value.marketCapUsd); setLiveLogo(value.imageUrl ?? null); } }); return () => { active = false; }; }, [token.chain, token.address]);
-  const logo = token.imageUrl || liveLogo;
-  useEffect(() => { setLogoFailed(false); }, [logo]);
+  const ds = dexScreenerChainForChain(token.chain as never);
+  const dexScreenerLogo = ds ? `https://dd.dexscreener.com/ds-data/tokens/${ds}/${token.chain.toLowerCase() === 'solana' ? token.address : token.address.toLowerCase()}.png` : null;
+  const logos = [...new Set([token.imageUrl, liveLogo, dexScreenerLogo].filter((uri): uri is string => typeof uri === 'string' && uri.trim().length > 0))];
+  const logo = logos[logoIndex];
+  useEffect(() => { setLogoIndex(0); }, [token.chain, token.address, token.imageUrl]);
   const sinceCall = liveCap != null && token.entryMarketCapUsd != null && Number.isFinite(token.entryMarketCapUsd) && token.entryMarketCapUsd > 0 ? (liveCap / token.entryMarketCapUsd - 1) * 100 : null;
   const entry = token.entryMarketCapUsd != null && Number.isFinite(token.entryMarketCapUsd) && token.entryMarketCapUsd > 0 ? compactUsd(token.entryMarketCapUsd) : '—';
   const short = token.address.length > 12 ? token.address.slice(0, compact ? 5 : 7) + '…' + token.address.slice(-5) : token.address;
   return (
     <Pressable onPress={onPress} disabled={!onPress} accessibilityRole="button" accessibilityLabel={`Open ${token.symbol ? '$' + token.symbol : 'token'} in Trade`} style={({ pressed }) => [styles.card, compact && styles.compact, pressed && styles.pressed]}>
       <View style={styles.top}>
-        {logo && !logoFailed ? <Image source={{ uri: logo }} onError={() => setLogoFailed(true)} style={[styles.icon, compact && styles.iconCompact]} resizeMode="cover" /> : <View style={[styles.icon, compact && styles.iconCompact, styles.iconFallback]}><Text style={styles.iconGlyph}>{token.symbol ? token.symbol.slice(0, 1).toUpperCase() : '◈'}</Text></View>}
+        {logo ? <Image key={logo} source={{ uri: logo }} onError={() => setLogoIndex(index => index + 1)} style={[styles.icon, compact && styles.iconCompact]} resizeMode="cover" /> : <View style={[styles.icon, compact && styles.iconCompact, styles.iconFallback]}><Text style={styles.iconGlyph}>{token.symbol ? token.symbol.slice(0, 1).toUpperCase() : '◈'}</Text></View>}
         <View style={styles.title}>
           <Text style={styles.symbol} numberOfLines={1}>{token.symbol ? '$' + token.symbol : 'Token'}</Text>
           {token.name ? <Text style={styles.name} numberOfLines={1}>{token.name}</Text> : null}
