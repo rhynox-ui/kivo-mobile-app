@@ -26,8 +26,10 @@ export function runAutoSweep({upToUsd, background = false}: {upToUsd?: number; b
   if (background && Date.now() - lastBackgroundAt < BACKGROUND_EVERY_MS) return Promise.resolve(null);
   const wallet = getWalletSession();
   if (!wallet || wallet.source !== 'local' || !wallet.solanaAddress || !walletUnlockedOnDevice()) return Promise.resolve(null);
-  // Kivo's own fee wallets keep their SOL/ETH float for sponsoring users.
-  if (isFeeExemptWallet(wallet.address) || isFeeExemptWallet(wallet.solanaAddress)) return Promise.resolve(null);
+  // Kivo's own fee wallets: their collected fees are not moved in the
+  // background, only when the owner's own buy needs that USDC (USDC only;
+  // their SOL/ETH float is never touched by a move home).
+  if (background && (isFeeExemptWallet(wallet.address) || isFeeExemptWallet(wallet.solanaAddress))) return Promise.resolve(null);
   if (background) lastBackgroundAt = Date.now();
   running = (async () => {
     try {
