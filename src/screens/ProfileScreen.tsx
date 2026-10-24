@@ -8,7 +8,8 @@ import { NetworkIcon } from '../wallet/NetworkIcon';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useProfile } from '../state/profileStore';
 import { getWalletSession, subscribeToWallet, type WalletSession } from '../state/walletStore';
-import { api, storage, useSocialReady } from '../state/session';
+import { api, storage, useSocialReady, useUsernamePublishState } from '../state/session';
+import { PublishUsernamePrompt } from '../components/PublishUsernamePrompt';
 import { useChatState } from '../state/useChat';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { hasProfileLinks, type ProfileLinks, type ProfileSocial } from '@kivo/shared/api/types';
@@ -137,6 +138,8 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
   const profile = useProfile();
   const chat = useChatState();
   const socialReady = useSocialReady();
+  // An account whose @username is only on this phone gets a one-tap publish.
+  const publishState = useUsernamePublishState();
   const settings = useSettings();
   const hidden = settings.hideBalances;
   const [wallet, setWallet] = useState<WalletSession | null>(getWalletSession());
@@ -326,6 +329,7 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
           <Text style={styles.username}>@{profile.username}</Text>
           {verificationStatus?.isVerified === true ? <Text accessibilityLabel="Blue Star verified" style={styles.blueStarBadge}>★</Text> : null}
         </View>
+        {publishState === 'local-only' ? <PublishUsernamePrompt username={profile.username} userId={profile.userId} onChooseAnother={onEditProfile} /> : null}
         {links ? <View style={styles.links}><ProfileLinkChips links={links} /></View> : null}
         {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : <Pressable onPress={onEditProfile}><Text style={styles.addBio}>+ Add a bio</Text></Pressable>}
         <View style={styles.follows}>

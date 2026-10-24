@@ -10,20 +10,22 @@ export type WatchlistToken = {chainKey: string; tokenAddress: string; symbol: st
 import {kivoUserIdForWallet, normalizeWalletAddress} from './types';
 
 export type FeedPost = {
-  id: string; userId: string; username: string; avatarUrl: string | null; body: string; imageUrl: string | null; createdAt: number;
+  /** Published username, or the author's short wallet when `hasUsername` is false. */
+  id: string; userId: string; username: string; hasUsername?: boolean; avatarUrl: string | null; body: string; imageUrl: string | null; createdAt: number;
   token: null | {chain: string; address: string; symbol: string; name: string; imageUrl: string | null; entryMarketCapUsd: number | null};
   likeCount: number; dislikeCount: number; replyCount: number; likedByViewer: boolean; dislikedByViewer: boolean; pinned: boolean; pollId?: string | null; nextCursor?: string;
 };
-export type FeedReply = {id: string; postId: string; userId: string; username: string; avatarUrl: string | null; body: string; createdAt: number};
+export type FeedReply = {id: string; postId: string; userId: string; username: string; hasUsername?: boolean; avatarUrl: string | null; body: string; createdAt: number};
 export type FeedPostNotification = {id: string; kind: 'post' | 'like' | 'dislike' | 'reply'; postId: string; actorId: string; actorUsername: string; postPreview: string; createdAt: number; readAt: number | null};
 
-export type ReferralUser = {userId: string; username: string; avatarUrl: string | null; verified: boolean};
+/** `username` is null until the person publishes one; `address` (newer servers) is their wallet. */
+export type ReferralUser = {userId: string; username: string | null; address?: string; avatarUrl: string | null; verified: boolean};
 export type ReferralSource = 'install' | 'manual';
 export type ReferralsMe = {
   username: string; link: string; feeBps: number; referredBy: ReferralUser | null; canSetReferrer: boolean;
   referralCount: number; tradedCount: number; clickCount?: number; totalEarnedUsd: number; thisWeekUsd: number; pendingUsd: number; paidUsd: number;
   referrals: (ReferralUser & {joinedAt: number; feesUsd: number; earnedUsd: number})[];
-  recentRewards: {referredUsername: string; referredAvatarUrl: string | null; feeUsd: number; rewardUsd: number; chain: string; txHash: string; createdAt: number}[];
+  recentRewards: {referredUsername: string | null; referredId?: string; referredAddress?: string; referredAvatarUrl: string | null; feeUsd: number; rewardUsd: number; chain: string; txHash: string; createdAt: number}[];
   payouts: {amountUsd: number; chain: string; txHash: string; createdAt: number}[];
 };
 export type ReferralTradeResult = {recorded: boolean; rewardUsd?: number; needsSolanaLink?: boolean; retry?: boolean};

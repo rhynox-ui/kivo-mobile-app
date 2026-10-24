@@ -7,6 +7,7 @@ import { api, enableSocial, useSocialReady } from '../state/session';
 import { claimReferrer, getSuggestedReferrer, lookupReferrer, referralLink, refreshReferrals, shareReferralLink, shortReferralLink, subscribeReferralLinks, useReferrals } from '../state/referrals';
 import { useProfile } from '../state/profileStore';
 
+import { userHandle, userPlainName } from '@kivo/shared/profile/userLabel';
 const c = kivoTheme.colors;
 const REFRESH_MS = 30_000;
 
@@ -74,8 +75,8 @@ function WhoReferredYou({ prefill }: { prefill: string | null }) {
     const unchanged = Boolean(prefillRef.current) && input.trim().replace(/^@/, '').toLowerCase() === prefillRef.current!.toLowerCase();
     setBusy(true); setError(null);
     try {
-      const who = await claimReferrer(preview.username, unchanged ? 'install' : 'manual');
-      kivoAlert('Referral saved', `@${who.username} referred you. You now follow them, and you pay 10% less in trading fees.`);
+      const who = await claimReferrer(preview.username ?? input.trim().replace(/^@/, ''), unchanged ? 'install' : 'manual');
+      kivoAlert('Referral saved', `${userHandle(who.username, who.userId)} referred you. You now follow them, and you pay 10% less in trading fees.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save your referral. Try again.');
     } finally { setBusy(false); }
@@ -107,10 +108,10 @@ function WhoReferredYou({ prefill }: { prefill: string | null }) {
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {preview ? (
         <View style={styles.preview}>
-          <ReferralAvatar name={preview.username} uri={preview.avatarUrl} size={40} verified={preview.verified} />
+          <ReferralAvatar name={userPlainName(preview.username, preview.userId)} uri={preview.avatarUrl} size={40} verified={preview.verified} />
           <View style={{ flex: 1 }}>
-            <View style={styles.nameRow}><Text style={styles.name}>{preview.username}</Text>{preview.verified ? <Star /> : null}</View>
-            <Text style={styles.muted}>@{preview.username}</Text>
+            <View style={styles.nameRow}><Text style={styles.name}>{userPlainName(preview.username, preview.userId)}</Text>{preview.verified ? <Star /> : null}</View>
+            <Text style={styles.muted}>{userHandle(preview.username, preview.userId)}</Text>
           </View>
           <Pressable disabled={busy} onPress={() => { void confirm(); }} style={[styles.confirm, busy && styles.disabled]}>
             {busy ? <ActivityIndicator color={c.backgroundDeep} /> : <Text style={styles.confirmText}>Confirm</Text>}
@@ -203,8 +204,8 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
           {me?.canSetReferrer ? <WhoReferredYou prefill={prefill} /> : null}
           {me?.referredBy ? (
             <Pressable style={styles.referredBy} onPress={() => onOpenPerson(me.referredBy!.userId)}>
-              <ReferralAvatar name={me.referredBy.username} uri={me.referredBy.avatarUrl} size={32} verified={me.referredBy.verified} />
-              <Text style={[styles.muted, { flex: 1 }]}>Referred by <Text style={styles.name}>@{me.referredBy.username}</Text>{me.feeBps === 45 ? ' · you pay 0.45% fees' : ''}</Text>
+              <ReferralAvatar name={userPlainName(me.referredBy.username, me.referredBy.userId)} uri={me.referredBy.avatarUrl} size={32} verified={me.referredBy.verified} />
+              <Text style={[styles.muted, { flex: 1 }]}>Referred by <Text style={styles.name}>{userHandle(me.referredBy.username, me.referredBy.userId)}</Text>{me.feeBps === 45 ? ' · you pay 0.45% fees' : ''}</Text>
               {me.referredBy.verified ? <Star /> : null}
             </Pressable>
           ) : null}
@@ -218,9 +219,9 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
               <Text style={styles.sectionTitle}>People you referred</Text>
               {me.referrals.map(person => (
                 <Pressable key={person.userId} style={styles.row} onPress={() => onOpenPerson(person.userId)}>
-                  <ReferralAvatar name={person.username} uri={person.avatarUrl} size={40} verified={person.verified} />
+                  <ReferralAvatar name={userPlainName(person.username, person.address ?? person.userId)} uri={person.avatarUrl} size={40} verified={person.verified} />
                   <View style={{ flex: 1 }}>
-                    <View style={styles.nameRow}><Text style={styles.name} numberOfLines={1}>@{person.username}</Text>{person.verified ? <Star /> : null}</View>
+                    <View style={styles.nameRow}><Text style={styles.name} numberOfLines={1}>{userHandle(person.username, person.address ?? person.userId)}</Text>{person.verified ? <Star /> : null}</View>
                     <Text style={styles.muted}>Joined {ago(person.joinedAt)} · {usd(person.feesUsd)} fees</Text>
                   </View>
                   <Text style={styles.earned}>+{usd(person.earnedUsd)}</Text>
@@ -234,8 +235,8 @@ export function RewardsScreen({ onBack, onOpenPerson, prefillReferrer }: { onBac
               <Text style={styles.sectionTitle}>Recent rewards</Text>
               {me.recentRewards.map(reward => (
                 <View key={`${reward.chain}:${reward.txHash}`} style={styles.row}>
-                  <ReferralAvatar name={reward.referredUsername} uri={reward.referredAvatarUrl} size={32} />
-                  <Text style={[styles.rewardText, { flex: 1 }]} numberOfLines={1}><Text style={styles.earned}>+{usd(reward.rewardUsd)}</Text> from @{reward.referredUsername}</Text>
+                  <ReferralAvatar name={userPlainName(reward.referredUsername, reward.referredAddress ?? reward.referredId, 'K')} uri={reward.referredAvatarUrl} size={32} />
+                  <Text style={[styles.rewardText, { flex: 1 }]} numberOfLines={1}><Text style={styles.earned}>+{usd(reward.rewardUsd)}</Text> from {userHandle(reward.referredUsername, reward.referredAddress ?? reward.referredId, 'a friend')}</Text>
                   <Text style={styles.muted}>{ago(reward.createdAt)}</Text>
                 </View>
               ))}
