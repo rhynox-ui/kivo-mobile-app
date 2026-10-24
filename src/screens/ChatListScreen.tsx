@@ -11,6 +11,7 @@ import { useChatState } from '../state/useChat';
 import { getWalletSession } from '../state/walletStore';
 import { refreshConversations } from '@kivo/shared/chat/store';
 
+import { userHandle, userPlainName } from '@kivo/shared/profile/userLabel';
 type Filter = 'all' | 'dm' | 'group' | 'channel';
 const FILTERS: Array<[Filter, string]> = [['all', 'All'], ['dm', 'Chats'], ['group', 'Groups'], ['channel', 'Channels']];
 
@@ -170,9 +171,9 @@ function NewChatProfileResult({ profile, onPress }: { profile: ApiProfile; onPre
   }, [profile.userId]);
   return (
     <Pressable onPress={onPress} style={styles.result}>
-      <Avatar name={profile.username ?? profile.address} uri={profile.avatarUrl} size={34} verified={verified} />
+      <Avatar name={userPlainName(profile.username, profile.address || profile.userId)} uri={profile.avatarUrl} size={34} verified={verified} />
       <View style={{ flex: 1 }}>
-        <View style={styles.resultTitleLine}><Text style={styles.resultTitle}>{profile.username ? '@' + profile.username : profile.address}</Text>{verified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>
+        <View style={styles.resultTitleLine}><Text style={styles.resultTitle}>{userHandle(profile.username, profile.address || profile.userId)}</Text>{verified ? <Text accessibilityLabel="Blue Star verified profile" style={styles.verifiedBadge}>★</Text> : null}</View>
         {profile.bio ? <Text style={styles.muted} numberOfLines={1}>{profile.bio}</Text> : null}
       </View>
     </Pressable>

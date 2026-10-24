@@ -1,24 +1,47 @@
-import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { KivoMark } from '../components/KivoMark';
 import { kivoTheme } from '../theme/kivoTheme';
 import { validProfileUsername } from '../domain/socialValidation';
 import { updateProfile } from '../state/profileStore';
 import { kivoAlert } from '../components/KivoAlert';
+import { ApiError } from '@kivo/shared/api/client';
+import { publishUsername } from '../state/session';
 
 export function ProfileSetupScreen({ onDone }: { onDone: () => void }) {
   const [username, setUsername] = useState('');
-  const valid = validProfileUsername(username.trim());
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const valid = validProfileUsername(username.trim()) && !busy;
 
-  const submit = () => {
+  const submit = async () => {
+    if (busyRef.current) return;
     try {
       updateProfile({ username, bio: 'Building on-chain.' });
+    } catch (error) {
+      kivoAlert('Profile', error instanceof Error ? error.message : 'Unable to create your profile.');
+      return;
+    }
+    // Publish the username to Kivo as part of setup (one approval signed on
+    // this phone; the key never leaves it), so people see @username instead
+    // of a wallet and referral links work.
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await publishUsername();
       onDone();
     } catch (error) {
-      kivoAlert(
-        'Profile',
-        error instanceof Error ? error.message : 'Unable to create your profile.',
-      );
+      const status = error instanceof ApiError ? error.status : 0;
+      if (status >= 400 && status < 500 && status !== 401 && status !== 408 && status !== 429) {
+        // Refused (e.g. the username is taken): pick another one.
+        kivoAlert('Username', error instanceof Error ? error.message : 'Choose another username.');
+      } else {
+        kivoAlert('Profile', 'Saved on this phone. Your profile will offer to publish your @username when you are back online.');
+        onDone();
+      }
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
   };
 
@@ -47,13 +70,13 @@ export function ProfileSetupScreen({ onDone }: { onDone: () => void }) {
           style={styles.input}
         />
       </View>
-      <Text style={styles.hint}>3–32 characters: letters, numbers and underscores.</Text>
+      <Text style={styles.hint}>3–32 characters: letters, numbers and underscores. Kivo publishes it with one approval from your wallet (a signed message, never a transaction).</Text>
       <Pressable
-        onPress={submit}
+        onPress={() => { void submit(); }}
         disabled={!valid}
         style={[styles.button, !valid && styles.disabled]}
       >
-        <Text style={styles.buttonText}>Enter Kivo</Text>
+        {busy ? <ActivityIndicator color={kivoTheme.colors.backgroundDeep} /> : <Text style={styles.buttonText}>Enter Kivo</Text>}
       </Pressable>
     </ScrollView>
   );

@@ -4,6 +4,7 @@ import type { FeedPost } from '@kivo/shared/api/client';
 import { api } from '../state/session';
 import { kivoTheme } from '../theme/kivoTheme';
 
+import { userHandle, userPlainName } from '@kivo/shared/profile/userLabel';
 const c = kivoTheme.colors;
 const PAGE_SIZE = 30;
 
@@ -66,9 +67,9 @@ export function ProfilePostsTimeline({userId}: {userId: string}) {
       {posts.map(post => (
         <View key={post.id} style={styles.post}>
           <View style={styles.postHead}>
-            <View style={styles.avatar}>{post.avatarUrl ? <Image source={{uri: post.avatarUrl}} style={styles.avatarImage} /> : <Text style={styles.avatarLetter}>{(post.username || 'K').replace(/^@/, '').slice(0, 1).toUpperCase()}</Text>}</View>
+            <View style={styles.avatar}>{post.avatarUrl ? <Image source={{uri: post.avatarUrl}} style={styles.avatarImage} /> : <Text style={styles.avatarLetter}>{userPlainName(post.hasUsername === false ? null : post.username, post.userId, 'K').slice(0, 1).toUpperCase()}</Text>}</View>
             <View style={styles.authorBlock}>
-              <Text style={styles.author} numberOfLines={1}>{post.username ? (post.username.startsWith('@') ? post.username : '@' + post.username) : 'Kivo member'}</Text>
+              <Text style={styles.author} numberOfLines={1}>{userHandle(post.hasUsername === false ? null : post.username, post.userId)}</Text>
               <Text style={styles.date}>{formatPostDate(post.createdAt)}</Text>
             </View>
           </View>
