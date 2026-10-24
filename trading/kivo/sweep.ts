@@ -26,8 +26,14 @@ export function sweepCandidates(balance: SpendableBalance): SpendableAsset[] {
   return awayFromHome(balance).filter(asset => asset.valueUsd >= MIN_SWEEP_USD && asset.chainKey !== 'near' as never && !(asset.chainKey === HOME_CHAIN && asset.kind === 'native'));
 }
 
-function units(asset: SpendableAsset): string {
-  return parseUnits(asset.spendableAmount.toFixed(Math.min(asset.decimals, 9)), asset.decimals).toString();
+function units(asset: SpendableAsset, amount = asset.spendableAmount): string {
+  // Floor rather than round so a partial sweep can never request more than
+  // the user's spendable balance. Nine decimal places is enough for native
+  // coin precision while stablecoins retain their exact six decimals.
+  const precision = Math.min(asset.decimals, 9);
+  const scale = 10 ** precision;
+  const safeAmount = Math.floor(Math.min(asset.spendableAmount, amount) * scale) / scale;
+  return parseUnits(safeAmount.toFixed(precision), asset.decimals).toString();
 }
 
 /** Moves every candidate to USDC on Solana, one at a time. Each move fails on its own. */
@@ -37,25 +43,34 @@ export async function sweepToHome({balance, accounts, onlyUpToUsd}: {balance: Sp
   const result: SweepResult = {movedUsd: 0, moved: [], failed: []};
   if (!solana || !homeUsdc) return result;
   for (const asset of sweepCandidates(balance)) {
-    if (onlyUpToUsd != null && result.movedUsd >= onlyUpToUsd) break;
+    const remainingUsd = onlyUpToUsd == null ? asset.valueUsd : onlyUpToUsd - result.movedUsd;
+    if (remainingUsd <= 0.01) break;
+    // A buy-triggered sweep moves only the shortfall needed for that buy,
+    // not the entire USDC balance from the first network in the list.
+    const amount = onlyUpToUsd == null
+      ? asset.spendableAmount
+      : Math.min(asset.spendableAmount, remainingUsd / asset.priceUsd);
+    const amountUsd = amount * asset.priceUsd;
+    if (!(amount > 0) || amountUsd < 0.01) continue;
+    const amountBaseUnits = units(asset, amount);
     const evmGasless = asset.chainKey !== 'solana' && asset.kind !== 'native';
     const params = {
       fromChainKey: asset.chainKey,
       toChainKey: HOME_CHAIN,
       originCurrency: asset.address,
       destinationCurrency: homeUsdc,
-      amountBaseUnits: units(asset),
+      amountBaseUnits,
       userAddress: asset.chainKey === 'solana' ? solana : accounts.evm.address,
       recipientAddress: solana,
-      originAmountUsd: asset.valueUsd,
+      originAmountUsd: amountUsd,
       sweepHome: true,
       ...(evmGasless ? {originGasOverhead: '80000'} : {}),
     };
     try {
       const quote = await getRelayQuote(params);
       await executeRelayQuote(quote, accounts, undefined, {useGaslessTrading: evmGasless, requote: () => getRelayQuote(params)});
-      result.movedUsd += asset.valueUsd;
-      result.moved.push(asset);
+      result.movedUsd += amountUsd;
+      result.moved.push({...asset, amount, spendableAmount: amount, valueUsd: amountUsd});
     } catch (error) {
       result.failed.push({asset, error: error instanceof Error ? error.message : 'Move failed.'});
     }
