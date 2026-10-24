@@ -4,7 +4,7 @@ import {encodeFunctionData, formatUnits, parseUnits} from 'viem';
 import {Connection, PublicKey, SystemProgram} from '@solana/web3.js';
 import {TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, calculateEpochFee, createAssociatedTokenAccountInstruction, createTransferCheckedInstruction, getAccountLenForMint, getAssociatedTokenAddress, getMint, getTransferFeeConfig} from '@solana/spl-token';
 import {getViemChain} from '@kivo/trading/core/chainRegistry';
-import {sendEvmCallsViaRelayGasless} from '@kivo/trading/core/relayGaslessEvm';
+import {sendTransferCalls} from '@kivo/trading/kivo/cash';
 import {SOLANA_NATIVE_SPEND} from '@kivo/trading/core/solanaSpendGuard';
 import {signAndSendSponsoredSolanaStep, sponsorRepaymentUsdcUnits, type SolanaTransactionSigner} from '@kivo/trading/core/executeRelayQuote';
 import {CLASSIC_TOKEN_ACCOUNT_SPACE, rentExemptLamports} from '@kivo/trading/core/solanaAccountCreation';
@@ -177,7 +177,8 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
    }else{
     const call={to:snapshot.address as `0x${string}`,value:0n,data:encodeFunctionData({abi:ABI,functionName:'transfer',args:[snapshot.to as `0x${string}`,snapshot.raw]})};
     const result=await withDeviceAccounts('Confirm asset transfer',async({evm})=>
-     sendEvmCallsViaRelayGasless({chain:getViemChain(snapshot.chainKey as ChainKey),fromAddress:evm.address,account:evm,calls:[call]}));
+     // Ethereum mainnet: Kivo never sponsors transfers there, so the wallet's own ETH pays the gas (checked first).
+     sendTransferCalls({chain:getViemChain(snapshot.chainKey as ChainKey),chainKey:snapshot.chainKey as ChainKey,account:evm,calls:[call]}));
     // Relay reported success: the transfer is on-chain.
     setTransferResult({...base,tone:'success',message:'Your transfer is confirmed on '+network+'.',hash:result.hash,requestId:result.requestId,transferId:record('success',result.hash,result.requestId),canRetry:false});
    }

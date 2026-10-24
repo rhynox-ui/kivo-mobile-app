@@ -4,7 +4,7 @@
 // There is no fallback to a gas-paying transfer (that is exactly what used
 // to fail with "insufficient ETH for gas" in Mango).
 
-import {encodeFunctionData, isAddress, parseUnits, type Address} from 'viem';
+import {createWalletClient, encodeFunctionData, formatEther, isAddress, parseUnits, type Address, type Chain, type Hex} from 'viem';
 import bs58 from 'bs58';
 import {executeRelayQuote, signAndSendSponsoredSolanaStep, sponsorRepaymentUsdcUnits, type SolanaTransactionSigner} from '../core/executeRelayQuote';
 import {CLASSIC_TOKEN_ACCOUNT_SPACE, rentExemptLamports} from '../core/solanaAccountCreation';
@@ -12,7 +12,7 @@ import {getRelayQuote, summarizeQuote, type QuoteSummary} from '../core/relayQuo
 import type {DerivedAccounts} from '../wallet/keys';
 import type {LocalAccount} from 'viem/accounts';
 import {TOKEN_ADDRESSES, assetDecimalsForChain, type ChainKey} from '../core/chainData';
-import {getViemChain} from '../core/chainRegistry';
+import {getViemChain, publicClientForChainId, transportFor} from '../core/chainRegistry';
 import {sendEvmCallsViaRelayGasless} from '../core/relayGaslessEvm';
 import {markFailedOnChain, markMaybeBroadcast, solanaSubmitDefinitelyRejected} from '../core/broadcastState';
 import {cashAssetAddress,cashAssetSymbol} from './balances';
@@ -30,6 +30,48 @@ export function isValidRecipientAddress(chainKey: ChainKey, address: string): bo
   return isAddress(address.trim());
 }
 
+/**
+ * Networks where Kivo's server never sponsors a plain transfer (Ethereum
+ * mainnet: gas costs dollars). A transfer there is paid with the wallet's
+ * own gas coin, never a dead end: without any, the error says how to move
+ * the USDC instead (Convert, which shows its fee first).
+ */
+export const OWN_GAS_TRANSFER_CHAINS = new Set<ChainKey>(['ethereum']);
+
+/** Sends EVM calls as a normal transaction, the wallet paying gas in its own coin (checked first). */
+export async function sendEvmCallsPayingOwnGas(params: {chain: Chain; account: LocalAccount; calls: {to: Address; value: bigint; data: Hex}[]}): Promise<{hash: string; requestId: string}> {
+  const {chain, account} = params;
+  if (params.calls.length !== 1) throw new Error('Only a single transfer can be sent this way.');
+  const call = params.calls[0];
+  const client = publicClientForChainId(chain.id);
+  const [gas, fees, balance] = await Promise.all([
+    client.estimateGas({account: account.address, to: call.to, data: call.data, value: call.value}),
+    client.estimateFeesPerGas(),
+    client.getBalance({address: account.address}),
+  ]);
+  const perGas = fees.maxFeePerGas ?? fees.gasPrice ?? 0n;
+  const cost = (gas * 12n / 10n) * perGas;
+  if (balance < cost + call.value) {
+    throw new Error(`Kivo doesn't cover gas for transfers on ${chain.name}, and this wallet holds ${formatEther(balance)} ${chain.nativeCurrency.symbol}, about ${formatEther(cost)} short of the network fee. Nothing was sent. Use Convert to move this USDC to Solana (the fee is shown before you confirm), then send it from there.`);
+  }
+  const wallet = createWalletClient({account, chain, transport: transportFor(chain.id)});
+  const hash = await wallet.sendTransaction({account, chain, to: call.to, data: call.data, value: call.value, gas: gas * 12n / 10n});
+  try {
+    const receipt = await client.waitForTransactionReceipt({hash, timeout: 120_000});
+    if (receipt.status !== 'success') throw markFailedOnChain(new Error(`Transaction ${hash} failed on-chain.`), {signature: hash});
+  } catch (error) {
+    if (error instanceof Error && (error as {kivoFailedOnChain?: boolean}).kivoFailedOnChain) throw error;
+    throw markMaybeBroadcast(new Error(`Transaction ${hash} was sent but is not confirmed yet. Do not retry; check its status first.`), {signature: hash});
+  }
+  return {hash, requestId: ''};
+}
+
+/** Kivo pays gas (Relay /execute) except where it never sponsors transfers; there the wallet pays its own gas. */
+export function sendTransferCalls(params: {chain: Chain; chainKey: ChainKey; account: LocalAccount; calls: {to: Address; value: bigint; data: Hex}[]}): Promise<{hash: string; requestId: string}> {
+  if (OWN_GAS_TRANSFER_CHAINS.has(params.chainKey)) return sendEvmCallsPayingOwnGas(params);
+  return sendEvmCallsViaRelayGasless({chain: params.chain, fromAddress: params.account.address as Address, account: params.account, calls: params.calls});
+}
+
 export async function withdrawUsdcGasless(params: {account: LocalAccount; chainKey: ChainKey; to: string; amount: string}): Promise<{hash: string; requestId: string}> {
   const {account, chainKey, amount} = params;
   const to = params.to.trim();
@@ -41,12 +83,7 @@ export async function withdrawUsdcGasless(params: {account: LocalAccount; chainK
   if (!/^\d+(\.\d+)?$/.test(amount.trim()) || Number(amount) <= 0) throw new Error('Enter an amount greater than zero.');
   const decimals = assetDecimalsForChain(chainKey, cashSymbol) ?? 6;
   const data = encodeFunctionData({abi: ERC20_TRANSFER_ABI, functionName: 'transfer', args: [to as Address, parseUnits(amount.trim(), decimals)]});
-  return sendEvmCallsViaRelayGasless({
-    chain: getViemChain(chainKey),
-    fromAddress: account.address as Address,
-    account,
-    calls: [{to: cashAddress as Address, value: 0n, data}],
-  });
+  return sendTransferCalls({chain: getViemChain(chainKey), chainKey, account, calls: [{to: cashAddress as Address, value: 0n, data}]});
 }
 
 /** Gasless USDC transfer used by NEAR Intents 1Click funding. */
