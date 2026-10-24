@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import {nativeSpendable, spendOrder, spendableFor, totalSpendableUsd} from '../trading/kivo/spendable.ts';
 import {usdcOnly} from '../trading/kivo/home.ts';
+import {sweepCandidates} from '../trading/kivo/sweep.ts';
 import {legUnits, runLegsByNetwork} from '../trading/kivo/unified.ts';
 import {kivoFeeBps, kivoFeeUsd} from '../trading/core/fees.ts';
 import {isNativeToken, marketAddressFor} from '../trading/kivo/tokens.ts';
@@ -32,6 +33,15 @@ const tradeCash = usdcOnly({assets: [
 ], errors: []});
 assert.deepEqual(tradeCash.assets.map(a => a.symbol), ['USDC', 'USDC', 'USDG']);
 assert.equal(totalSpendableUsd(tradeCash), 30);
+assert.deepEqual(sweepCandidates({assets: [
+  asset('base', 'USDC', 'cash', 10),
+  asset('bnb', 'USDC', 'cash', 10),
+  asset('robinhood', 'USDG', 'cash', 10),
+  asset('ethereum', 'ETH', 'native', 10, 2000),
+  asset('solana', 'SOL', 'native', 10, 150),
+  asset('base', 'USDT', 'stable', 10),
+  asset('base', '$chartgpt', 'stable', 10),
+], errors: []}).map(a => a.symbol), ['USDC', 'USDC', 'USDG']);
 
 // Cash first (largest first), then native; the token's own network leads within a kind.
 assert.deepEqual(spendOrder(balance.assets, 'arbitrum').map(a => a.chainKey), ['robinhood', 'bnb', 'base', 'solana']);
