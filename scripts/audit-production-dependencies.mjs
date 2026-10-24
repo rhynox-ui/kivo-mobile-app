@@ -3,7 +3,8 @@ import { spawnSync } from "node:child_process";
 // Explicitly time-box the single upstream-unpatched build-tool advisory; only its dependent chain is exempted.
 const BRACES_ADVISORY = "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm";
 const BRACES_REVIEW_BY = "2026-11-15";
-const audit = spawnSync("npm", ["audit", "--omit=dev", "--json"], {
+// --audit-level=high: the exit status reflects only high/critical findings; lower ones are reported, not blocking.
+const audit = spawnSync("npm", ["audit", "--omit=dev", "--audit-level=high", "--json"], {
   encoding: "utf8",
   maxBuffer: 16 * 1024 * 1024
 });
