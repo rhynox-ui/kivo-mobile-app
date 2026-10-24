@@ -38,7 +38,9 @@
 //   CloseAccount is different: Relay/Jupiter routes can legitimately use
 //   it to clean up an emptied token account or WSOL account. It is allowed
 //   only when the user's own signer is both the close authority and the
-//   destination for the recovered lamports.
+//   destination for the recovered lamports, or when it returns the rent of
+//   a new WSOL account Kivo's sponsor funded in this same transaction to the
+//   sponsor (explicit sponsorClosableAccounts only).
 //
 // Parsing is deliberately structural — compiled instruction program IDs
 // and the first byte of each instruction's data — so it works on both a
@@ -48,6 +50,7 @@
 const ASSOCIATED_TOKEN_PROGRAM_ID = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
 const SPL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const SPL_TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 
 // spl-token instruction discriminators (the first byte of the data),
 // from the program's own instruction enum ordering.
@@ -203,12 +206,20 @@ export function describeSolanaTransaction(
  */
 export function assertSolanaTransactionMatchesIntent(
   transaction: SolanaLikeTransaction | null | undefined,
-  {expectedSigner, expectedFeePayer, addressLookupTableAccounts, allowedAtaOwners = []}: {
+  {expectedSigner, expectedFeePayer, addressLookupTableAccounts, allowedAtaOwners = [], sponsorClosableAccounts = []}: {
     expectedSigner?: string | null;
     expectedFeePayer?: string | null;
     addressLookupTableAccounts?: unknown[];
     /** Other wallets whose token account may be created (a withdrawal's recipient). */
     allowedAtaOwners?: string[];
+    /**
+     * New WSOL accounts the sponsor funds in this same transaction, which may
+     * be closed back to the sponsor (expectedFeePayer) to return its rent.
+     * Each must be created here by an ATA instruction with the sponsor as
+     * payer, this wallet as owner and WSOL as mint; anything else still
+     * has to close to this wallet.
+     */
+    sponsorClosableAccounts?: string[];
   },
 ): string[] {
   const described = describeSolanaTransaction(transaction, {addressLookupTableAccounts});
@@ -304,10 +315,22 @@ export function assertSolanaTransactionMatchesIntent(
       const closeSource = ix.accounts[0];
       const closeDestination = ix.accounts[1];
       const closeAuthority = ix.accounts[2];
+      const closesBackToSponsor = Boolean(
+        expectedFeePayer && expectedFeePayer !== expectedSigner && closeSource &&
+        closeDestination === expectedFeePayer &&
+        sponsorClosableAccounts.includes(closeSource) &&
+        described.instructions.some(create =>
+          create.programId === ASSOCIATED_TOKEN_PROGRAM_ID &&
+          (create.firstDataByte === null || create.firstDataByte === 1) &&
+          create.accounts[0] === expectedFeePayer &&
+          create.accounts[1] === closeSource &&
+          create.accounts[2] === expectedSigner &&
+          create.accounts[3] === WSOL_MINT),
+      );
       if (
         !expectedSigner ||
         !closeSource ||
-        closeDestination !== expectedSigner ||
+        (closeDestination !== expectedSigner && !closesBackToSponsor) ||
         closeAuthority !== expectedSigner
       ) {
         throw new SolanaIntentError(

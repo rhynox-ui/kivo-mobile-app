@@ -43,12 +43,15 @@ import {TOKEN_ADDRESSES, ASSET_ONCHAIN_DECIMALS, ARC_USDC, MAINNET_CHAIN_IDS} fr
 import {RelayGaslessPendingError, preflightRelayGaslessEvm, sendEvmCallsViaRelayGasless} from './relayGaslessEvm.ts';
 import {fetchWalletPrices} from './walletPrices.ts';
 import type {DerivedAccounts} from '../wallet/keys';
-import {rewriteAccountCreationFundingInstructions} from './solanaAccountCreation.ts';
+import {
+  associatedTokenAccountTargets, isTokenCloseAccount, MAX_SPONSOR_FUNDED_CREATIONS, rentExemptLamports, rewriteAccountCreationFundingInstructions,
+  sponsorFundedRent, sponsorFundedToken2022Accounts, sponsorFundedWsolAccounts, systemCreateLamports, tokenAccountAmount, withCloseDestination,
+  CLASSIC_TOKEN_ACCOUNT_SPACE, TOKEN_2022_ATA_MIN_SPACE,
+} from './solanaAccountCreation.ts';
 
 // Shared by the remaining Relay instruction validation paths.
 const ASSOCIATED_TOKEN_PROGRAM_ID = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
-const SYSTEM_ACCOUNT_CREATING_DISCRIMINANTS = new Set([0, 3]);
 
 const RELAY_STATUS_URL = 'https://api.relay.link/intents/status/v3';
 export const SOLANA_RPC_URL = 'https://rpc.solanatracker.io/public';
@@ -278,130 +281,75 @@ async function confirmSolanaSignature(connection: InstanceType<typeof import('@s
 export {rewriteAccountCreationFundingInstructions} from './solanaAccountCreation.ts';
 
 // ---------------------------------------------------------------------
-// Sponsorship cost recovery — closing the loop the fee-payer wallet's
-// own header (Kivo backend's solana-fee-payer.js) explicitly leaves open:
-// with the per-address/daily caps removed, this wallet keeps covering
-// sponsored trades until it runs dry, with no other backstop. This
-// section is what refills it, WITHOUT ever risking the trade it's
-// supposed to be protecting — see the design contract below.
+// Sponsorship rent repayment.
 //
-// Design, per real precedent (Kora/Circle Gas Station/Openfort docs —
-// all recover cost with an SPL transfer to the fee payer's own account,
-// executed INSIDE the same sponsored transaction, not a quote-time %):
+// Kivo's sponsor pays every sponsored transaction's network and priority fee
+// (Kivo's own cost, covered by its trading fee). It also funds the rent of
+// new token accounts the route creates, and must get that back in the SAME
+// transaction: a token account's rent goes to its owner when they close it,
+// so unrepaid rent is free SOL. Kivo's server (web/server/solanaSponsor.ts)
+// refuses to co-sign otherwise, counting each sponsor-funded account at its
+// worst-case rent (sponsorFundedRent in solanaAccountCreation.ts mirrors it).
 //
-//  1. RECOVER THE RENT ONLY. Kivo absorbs the Solana network fee and
-//     priority fee of every sponsored trade (its fee already covers them;
-//     fees.ts kivoFeeUsd's Solana minimum), with no margin. What is still
-//     recovered is the one-time rent for every new token account this fee
-//     payer funds (the user's own refundable deposit: closing the account
-//     returns it to them) plus any SOL top-up the route needs — read from
-//     the ORIGINAL, pre-rewrite instructions, not guessed — priced live via
-//     walletPrices.ts's SOL/USD feed, plus SPONSORSHIP_RECOVERY_BUFFER_PCT
-//     (the eventual USDC->SOL conversion when this wallet's USDC is swept
-//     back into SOL).
-//
-//  2. NEVER IN THE WAY OF THE TRADE. Recovery is denominated in USDC and
-//     paid from whatever USDC the user's wallet already holds (checked
-//     against a live balance, not assumed) — deliberately NOT tied to
-//     this specific swap's own origin/destination currency, so it works
-//     the same whether the swap is a Buy or a Sell, paid in USDC or in
-//     anything else. If the user doesn't hold enough USDC, or ANYTHING
-//     about the augmented transaction fails to simulate clean (a stale
-//     balance snapshot, a compute-budget conflict, whatever), the whole
-//     recovery attempt is dropped and the plain, already-working
-//     sponsored transaction is sent instead — recovery is strictly
-//     opportunistic, the trade succeeding is not.
-//
-//  3. MEASURE, DON'T GUESS, THE COMPUTE BUDGET. An added SPL transfer
-//     costs real compute units Relay's own route never budgeted for
-//     (https://57blocks.com/blog/deep-dive-into-resource-limitations-in-solana-development-cu-edition).
-//     The augmented instruction set is simulated BEFORE it's ever
-//     signed (sigVerify: false, replaceRecentBlockhash: true — the same
-//     pattern Kivo backend's own coSignAsFeePayer already uses server-side)
-//     and, only if that simulation comes back clean, its real
-//     unitsConsumed is used to correct (or add) a SetComputeUnitLimit
-//     instruction to ~110% of that measured value
-//     (https://docs.chainstack.com/docs/solana-compute-budget) — never a
-//     flat guessed number.
-//
-// The sponsor's own USDC associated token account is created lazily,
-// idempotently, the first time it's needed — funded by the fee payer's
-// OWN signature for its OWN account, so there's no user-funds risk in
-// that half of it either.
+//  1. Accounts that already exist keep the user as (no-op) payer, so only
+//     new accounts are counted. If the lookup fails, all are assumed new.
+//  2. A new WSOL account the route only uses in passing (USDC -> SOL ->
+//     token) is closed back to the sponsor when a simulation proves that
+//     returns exactly its rent and nothing of the user's: no repayment needed.
+//  3. Everything else (rent + any SOL top-up) is repaid at cost: in USDC
+//     (live SOL price, the higher of CoinGecko and Jupiter, plus
+//     SPONSORSHIP_RECOVERY_BUFFER_PCT) when the wallet can, else in SOL.
+//     If it can do neither, nothing is signed and the user is told why.
+//  4. The final instruction set is simulated and its real compute units
+//     (+10%) set as the limit, since the repayment transfer costs compute
+//     the route never budgeted for.
 
 const LAMPORTS_PER_SIGNATURE = 5000;
-// Real SPL Token account size, verified against the SPL Token program's
-// own account layout (same 165-byte constant already relied on
-// elsewhere in this codebase's fee-sponsorship work) — the Associated
-// Token Account program computes this rent internally via a CPI, so
-// unlike SystemProgram.createAccount's own explicit `lamports` field
-// (read directly from instruction data below), there's nothing to read
-// off an ATA-Create instruction itself; this is what
-// getMinimumBalanceForRentExemption is actually pricing.
-const SPL_TOKEN_ACCOUNT_SPACE = 165;
 const COMPUTE_BUDGET_PROGRAM_ID = 'ComputeBudget111111111111111111111111111111';
 // ComputeBudgetInstruction enum's SetComputeUnitLimit variant.
 const COMPUTE_BUDGET_SET_UNIT_LIMIT_DISCRIMINANT = 2;
-// Covers converting this wallet's accumulated USDC back into the SOL it
-// needs to keep sponsoring trades (see this section's header, point 1).
-const SPONSORSHIP_RECOVERY_BUFFER_PCT = 0.01;
-// No margin: Kivo recovers only rent (and SOL top-ups) at cost, plus the
-// conversion buffer. Network and priority fees are Kivo's.
+// Covers price differences between Kivo's server and this app's SOL price,
+// and converting the USDC back into SOL. No Kivo margin.
+const SPONSORSHIP_RECOVERY_BUFFER_PCT = 0.03;
 const RECOVERY_MULTIPLIER = 1 + SPONSORSHIP_RECOVERY_BUFFER_PCT;
-// Simulate-then-correct margin over the REAL measured compute units —
-// never a guessed absolute number. See this section's own header,
-// point 3.
+// Simulate-then-correct margin over the REAL measured compute units.
 const COMPUTE_BUDGET_SAFETY_MULTIPLE = 1.1;
 
+/** Rent of each new token account an ATA create in this list makes, by token program (classic 165 bytes, Token-2022 at least 170). */
+function ataCreateRentLamports(ix: InstanceType<typeof import('@solana/web3.js').TransactionInstruction>): number {
+  return rentExemptLamports(ix.keys[5]?.pubkey.toBase58() === 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' ? CLASSIC_TOKEN_ACCOUNT_SPACE : TOKEN_2022_ATA_MIN_SPACE);
+}
+
 /**
- * Real lamports cost of sponsoring this specific transaction: the base
- * network fee (one signature per required signer) plus any account-rent
- * this fee payer is now funding, per the account-creation rewrite above.
- * Reads directly off the ORIGINAL (pre-rewrite) instructions — a
- * SystemProgram.createAccount/-WithSeed instruction's own `lamports`
- * field (the u64 immediately after the 4-byte discriminant, per
- * system_instruction.rs) already carries the exact rent-exempt amount
- * whoever built this route funded it with; an Associated Token Account
- * Create/CreateIdempotent instruction carries no such field (the program
- * computes it internally), so that case is priced via
- * `tokenAccountRentExemptLamports` — resolved once, live, by the caller
- * (connection.getMinimumBalanceForRentExemption), never hardcoded.
- * Pure and independently testable — no network I/O of its own.
+ * Real lamports cost of this transaction for whoever pays it: the base
+ * network fee (one signature per required signer), the priority fee, and the
+ * rent of every account it creates. System CreateAccount/-WithSeed carry
+ * their lamports (WithSeed after the variable-length seed); an Associated
+ * Token Account create is priced by its token program. `existingAccounts`
+ * are token accounts that already exist (their idempotent create is free);
+ * when unknown, every create is assumed new (worst case).
+ * Pure and independently testable: no network I/O of its own.
  */
 export function estimateSponsorshipLamportsCost(
   instructions: InstanceType<typeof import('@solana/web3.js').TransactionInstruction>[],
   numRequiredSignatures: number,
-  tokenAccountRentExemptLamports: number,
-  /** New token accounts this transaction really creates (default: one when any ATA create is present). */
-  newTokenAccounts?: number,
+  existingAccounts: ReadonlySet<string> = new Set(),
 ): number {
   let rentCost = 0;
-  let needsTokenAccountRent = false;
+  const seen = new Set<string>();
   for (const ix of instructions) {
-    const programId = ix.programId.toBase58();
-    if (programId === SYSTEM_PROGRAM_ID && ix.data.length >= 12 && SYSTEM_ACCOUNT_CREATING_DISCRIMINANTS.has(ix.data.readUInt32LE(0))) {
-      rentCost += Number(ix.data.readBigUInt64LE(4));
-    } else if (programId === ASSOCIATED_TOKEN_PROGRAM_ID) {
-      needsTokenAccountRent = true;
+    const created = systemCreateLamports(ix);
+    if (created !== null) {
+      rentCost += created;
+      continue;
     }
+    if (ix.programId.toBase58() !== ASSOCIATED_TOKEN_PROGRAM_ID || ix.keys.length < 6) continue;
+    const target = associatedTokenAccountTargets([ix])[0];
+    if (!target || seen.has(target) || existingAccounts.has(target)) continue;
+    seen.add(target);
+    rentCost += ataCreateRentLamports(ix);
   }
-  if (needsTokenAccountRent) rentCost += tokenAccountRentExemptLamports * (newTokenAccounts ?? 1);
   return Math.max(0, numRequiredSignatures) * LAMPORTS_PER_SIGNATURE + rentCost + priorityFeeLamports(instructions);
-}
-
-/**
- * The part of a sponsored transaction's cost Kivo recovers from the user:
- * rent for the accounts the fee payer funds (token accounts — the user's
- * refundable deposit). The network fee and priority fee are not included:
- * Kivo absorbs them. Pure, no network I/O.
- */
-export function estimateRecoverableRentLamports(
-  instructions: InstanceType<typeof import('@solana/web3.js').TransactionInstruction>[],
-  tokenAccountRentExemptLamports: number,
-  /** New token accounts this transaction really creates (default: one when any ATA create is present). */
-  newTokenAccounts?: number,
-): number {
-  return estimateSponsorshipLamportsCost(instructions, 0, tokenAccountRentExemptLamports, newTokenAccounts) - priorityFeeLamports(instructions);
 }
 
 // ComputeBudget SetComputeUnitPrice variant (u64 micro-lamports per unit).
@@ -429,19 +377,41 @@ export function priorityFeeLamports(instructions: InstanceType<typeof import('@s
 }
 
 /**
- * Real cost -> USDC base units, live-priced (never a hardcoded $
- * estimate — SOL is too volatile for that, per the product decision
- * this implements) plus the non-profit conversion buffer. Pure — the
- * live price itself is fetched by the caller (walletPrices.ts) and
- * passed in, so this stays independently testable against fixed inputs.
- * Returns 0 (meaning: skip recovery, don't guess) whenever either input
- * isn't a real positive number.
+ * Lamports -> USDC base units at `solPriceUsd`, plus the conversion buffer,
+ * rounded up. Returns 0 (skip, never guess) when either input isn't a real
+ * positive number. Pure.
  */
 export function sponsorshipRecoveryUsdcUnits(lamportsCost: number, solPriceUsd: number): number {
   if (!(lamportsCost > 0) || !(solPriceUsd > 0)) return 0;
   const solCost = lamportsCost / 1_000_000_000;
   const recoveryUsd = solCost * solPriceUsd * RECOVERY_MULTIPLIER;
-  return Math.round(recoveryUsd * 10 ** ASSET_ONCHAIN_DECIMALS.USDC);
+  return Math.ceil(recoveryUsd * 10 ** ASSET_ONCHAIN_DECIMALS.USDC);
+}
+
+const REPAYMENT_PRICE_TTL_MS = 60_000;
+let cachedRepaymentSolPrice: {usd: number; at: number} | null = null;
+/**
+ * SOL/USD for USDC rent repayment: the HIGHER of CoinGecko and Jupiter,
+ * like Kivo's server, which values the USDC at its own highest price.
+ * 0 when neither answers.
+ */
+export async function sponsorRepaymentSolPriceUsd(): Promise<number> {
+  if (cachedRepaymentSolPrice && Date.now() - cachedRepaymentSolPrice.at < REPAYMENT_PRICE_TTL_MS) return cachedRepaymentSolPrice.usd;
+  const [coingecko, jupiter] = await Promise.all([
+    fetchWalletPrices().then(prices => prices.SOL ?? 0).catch(() => 0),
+    fetch(`https://lite-api.jup.ag/price/v3?ids=${WSOL_MINT}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(body => Number((body as Record<string, {usdPrice?: number}> | null)?.[WSOL_MINT]?.usdPrice) || 0)
+      .catch(() => 0),
+  ]);
+  const usd = Math.max(coingecko, jupiter);
+  if (usd > 0) cachedRepaymentSolPrice = {usd, at: Date.now()};
+  return usd;
+}
+
+/** USDC base units that repay `lamports` of sponsor-funded rent (0 when no price is available). */
+export async function sponsorRepaymentUsdcUnits(lamports: number): Promise<bigint> {
+  return BigInt(sponsorshipRecoveryUsdcUnits(lamports, await sponsorRepaymentSolPriceUsd()));
 }
 
 /**
@@ -550,140 +520,158 @@ export async function signAndSendSponsoredSolanaStep(
   if (sponsorBalance <= 0) {
     throw new Error('Kivo fee sponsorship is temporarily unavailable because its Solana fee-payer wallet has no SOL. The sponsor needs a SOL top-up; the trade itself was not signed or sent.');
   }
-  const rewrittenInstructions = rewriteAccountCreationFundingInstructions(instructions, feePayerPubkey, TransactionInstruction);
-
+  const user = signer.publicKey;
+  type Ix = InstanceType<typeof TransactionInstruction>;
   const {blockhash} = await connection.getLatestBlockhash('confirmed');
+  const simulate = (ixs: Ix[], addresses: string[] = []) => simulationConnection.simulateTransaction(
+    new VersionedTransaction(new TransactionMessage({payerKey: feePayerPubkey, instructions: ixs, recentBlockhash: blockhash}).compileToV0Message(lookupTables)),
+    {sigVerify: false, replaceRecentBlockhash: true, ...(addresses.length ? {accounts: {encoding: 'base64' as const, addresses}} : {})},
+  );
 
-  // Rent the sponsor pays for a brand-new WSOL account (a route's GOMO ->
-  // WSOL -> USDC hop) comes straight back: the emptied account is closed to
-  // the sponsor at the end of the same transaction. Only accounts this
-  // transaction itself creates are closed, so a user's existing WSOL is never
-  // touched. Dropped if the transaction does not simulate cleanly with it.
+  // 1. Token accounts that already exist keep the user as their (no-op)
+  // payer. A failed lookup assumes none exist: the sponsor then funds them
+  // and is repaid, never the other way around.
+  const existingAccounts = new Set<string>();
+  const ataTargets = associatedTokenAccountTargets(instructions);
+  if (ataTargets.length) {
+    try {
+      const infos = await connection.getMultipleAccountsInfo(ataTargets.map(address => new PublicKey(address)), 'confirmed');
+      infos.forEach((info, i) => { if (info) existingAccounts.add(ataTargets[i]); });
+    } catch (err) {
+      void recordDiagnosticEvent('sponsorship.ata-lookup-failed', err);
+    }
+  }
+  const rewrittenInstructions = rewriteAccountCreationFundingInstructions(instructions, feePayerPubkey, TransactionInstruction, {skipAccounts: existingAccounts});
+
+  // 2. A new WSOL account the sponsor funds and the route only uses in
+  // passing (USDC -> SOL -> token) is closed back to the sponsor: the route's
+  // own close (to the user) is redirected, or one is added. Only when a
+  // simulation without those closes shows the account holds exactly its rent
+  // and no WSOL, so the sponsor gets its rent back and nothing of the user's.
+  // Otherwise (e.g. a sell to SOL, where the close unwraps the proceeds) the
+  // route's close stays the user's and the rent is repaid in step 3.
   const closedBackAtas = new Set<string>();
   let baseInstructions = rewrittenInstructions;
-  try {
-    const closes: InstanceType<typeof TransactionInstruction>[] = [];
-    for (const ix of instructions) {
-      if (ix.programId.toBase58() !== ASSOCIATED_TOKEN_PROGRAM_ID || ix.keys.length < 4) continue;
-      const [, ata, owner, mint] = ix.keys.map(key => key.pubkey);
-      if (mint.toBase58() !== WSOL_MINT || !owner.equals(signer.publicKey) || closedBackAtas.has(ata.toBase58())) continue;
-      if (await connection.getAccountInfo(ata, 'confirmed')) continue; // already the user's: never close it
-      closes.push(splToken.createCloseAccountInstruction(ata, feePayerPubkey, signer.publicKey));
-      closedBackAtas.add(ata.toBase58());
+  const wsolAccounts = sponsorFundedWsolAccounts(rewrittenInstructions, feePayerPubkey, user);
+  if (wsolAccounts.length) {
+    try {
+      const closesWsol = (ix: Ix) => isTokenCloseAccount(ix) && wsolAccounts.includes(ix.keys[0].pubkey.toBase58());
+      const probe = await simulate(rewrittenInstructions.filter(ix => !closesWsol(ix)), wsolAccounts);
+      const rent = rentExemptLamports(CLASSIC_TOKEN_ACCOUNT_SPACE);
+      const closable = new Set(wsolAccounts.filter((_, i) => {
+        const account = probe.value.err ? null : probe.value.accounts?.[i];
+        if (!account || account.lamports !== rent) return false;
+        const data = Array.isArray(account.data) ? Buffer.from(account.data[0], 'base64') : null;
+        return data !== null && tokenAccountAmount(data) === 0n;
+      }));
+      if (closable.size) {
+        const redirected = rewrittenInstructions.map(ix => (
+          isTokenCloseAccount(ix) && closable.has(ix.keys[0].pubkey.toBase58()) && ix.keys[1].pubkey.equals(user) && ix.keys[2].pubkey.equals(user)
+            ? withCloseDestination(ix, feePayerPubkey, TransactionInstruction) : ix));
+        const routeClosed = new Set(redirected.filter(ix => isTokenCloseAccount(ix) && ix.keys[1].pubkey.equals(feePayerPubkey)).map(ix => ix.keys[0].pubkey.toBase58()));
+        // Accounts the route doesn't close itself get a close at the end. Never
+        // touch one the route closes somewhere else.
+        const routeClosesElsewhere = new Set(redirected.filter(ix => isTokenCloseAccount(ix) && !ix.keys[1].pubkey.equals(feePayerPubkey)).map(ix => ix.keys[0].pubkey.toBase58()));
+        const added = [...closable].filter(a => !routeClosed.has(a) && !routeClosesElsewhere.has(a))
+          .map(a => splToken.createCloseAccountInstruction(new PublicKey(a), feePayerPubkey, user));
+        const candidate = [...redirected, ...added];
+        const check = await simulate(candidate);
+        if (!check.value.err) {
+          baseInstructions = candidate;
+          for (const a of closable) if (!routeClosesElsewhere.has(a)) closedBackAtas.add(a);
+        }
+      }
+    } catch (err) {
+      closedBackAtas.clear();
+      void recordDiagnosticEvent('sponsorshipRecovery.wsol-close-skipped', err);
     }
-    if (closes.length) {
-      const withCloses = [...rewrittenInstructions, ...closes];
-      const probe = new VersionedTransaction(new TransactionMessage({payerKey: feePayerPubkey, instructions: withCloses, recentBlockhash: blockhash}).compileToV0Message(lookupTables));
-      const simulation = await simulationConnection.simulateTransaction(probe, {sigVerify: false, replaceRecentBlockhash: true});
-      if (!simulation.value.err) baseInstructions = withCloses;
-      else closedBackAtas.clear();
-    }
-  } catch (err) {
-    closedBackAtas.clear();
-    void recordDiagnosticEvent('sponsorshipRecovery.wsol-close-skipped', err);
   }
   // A pool program (e.g. PumpSwap's one-time per-user account) can charge the
   // wallet itself, which a sponsored wallet with no SOL can't pay. Kivo tops
   // the wallet up by exactly the shortfall the simulation reports; Kivo's
   // server co-signs only if the trade spends all of it (the user never keeps
-  // it), and the cost is recovered in USDC below like any sponsored cost.
+  // it) and it is repaid below like rent. While topped up, the server allows
+  // no token account the wallet pays for itself, so no-op creates of existing
+  // accounts are dropped.
   let topUpLamports = 0;
   try {
-    const probe = new VersionedTransaction(new TransactionMessage({payerKey: feePayerPubkey, instructions: baseInstructions, recentBlockhash: blockhash}).compileToV0Message(lookupTables));
-    const simulation = await simulationConnection.simulateTransaction(probe, {sigVerify: false, replaceRecentBlockhash: true});
+    const simulation = await simulate(baseInstructions);
     const short = simulation.value.err ? (simulation.value.logs ?? []).map(line => /insufficient lamports (\d+), need (\d+)/.exec(line)).find(match => match !== null) : null;
     const needed = short ? Number(short[2]) - Number(short[1]) : 0;
     if (needed > 0 && needed <= MAX_SPONSOR_TOPUP_LAMPORTS) {
-      const withTopUp = [SystemProgram.transfer({fromPubkey: feePayerPubkey, toPubkey: signer.publicKey, lamports: needed}), ...baseInstructions];
-      const check = await simulationConnection.simulateTransaction(new VersionedTransaction(new TransactionMessage({payerKey: feePayerPubkey, instructions: withTopUp, recentBlockhash: blockhash}).compileToV0Message(lookupTables)), {sigVerify: false, replaceRecentBlockhash: true});
+      const withoutUserPaidCreates = baseInstructions.filter(ix => !(ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID && !ix.keys[0]?.pubkey.equals(feePayerPubkey) && existingAccounts.has(ix.keys[1]?.pubkey.toBase58() ?? '')));
+      const withTopUp = [SystemProgram.transfer({fromPubkey: feePayerPubkey, toPubkey: user, lamports: needed}), ...withoutUserPaidCreates];
+      const check = await simulate(withTopUp);
       if (!check.value.err) { baseInstructions = withTopUp; topUpLamports = needed; }
     }
   } catch (err) {
     void recordDiagnosticEvent('sponsorship.topup-skipped', err);
   }
+
+  // 3. Repay the sponsor-funded rent (and top-up) in this same transaction.
+  // Token-2022 accounts' size depends on their mint: measure it.
+  const measured = new Map<string, number>();
+  const token2022Accounts = sponsorFundedToken2022Accounts(baseInstructions, feePayerPubkey);
+  if (token2022Accounts.length) {
+    try {
+      const simulation = await simulate(baseInstructions, token2022Accounts);
+      token2022Accounts.forEach((address, i) => {
+        const lamports = simulation.value.accounts?.[i]?.lamports;
+        if (typeof lamports === 'number') measured.set(address, lamports);
+      });
+    } catch (err) {
+      void recordDiagnosticEvent('sponsorship.token2022-measure-failed', err);
+    }
+  }
+  const funded = sponsorFundedRent(baseInstructions, feePayerPubkey, {closedBack: closedBackAtas, measured});
+  if (funded.creations > MAX_SPONSOR_FUNDED_CREATIONS) {
+    throw new Error(`This route needs ${funded.creations} new token accounts; Kivo sponsors at most ${MAX_SPONSOR_FUNDED_CREATIONS} per transaction. Add a little SOL to this wallet (about 0.01) or try a smaller route. Nothing was sent.`);
+  }
+  const repaymentLamports = funded.lamports + topUpLamports;
   let finalInstructions = baseInstructions;
-  // USDC this transaction's own cost recovery adds on top of the trade —
+  // USDC / SOL this transaction repays the sponsor with, on top of the trade:
   // allowed by the spend guard below as Kivo's, not the route's.
   let recoveryUnitsIncluded = 0n;
-  // SOL this transaction repays to the sponsor when there is no USDC to repay with.
   let recoveryLamportsIncluded = 0n;
-  let sponsoredLamportsCost = 0;
-
-  // Cost recovery — strictly opportunistic, per this file's own header
-  // above. Any failure anywhere in this block (no live price, no/not
-  // enough USDC, a bad simulation) is caught and logged; it never
-  // prevents the plain sponsored transaction below from going out.
-  try {
-    const usdcMintAddress = TOKEN_ADDRESSES.USDC?.solana;
-    if (usdcMintAddress) {
-      const usdcMint = new PublicKey(usdcMintAddress);
-      // Rent that comes back through a WSOL close is not a cost to recover.
-      const costedInstructions = instructions.filter(ix => !(ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID && ix.keys.length >= 2 && closedBackAtas.has(ix.keys[1].pubkey.toBase58())));
-      const needsTokenAccountRent = costedInstructions.some(ix => ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID);
-      const tokenAccountRentExemptLamports = needsTokenAccountRent ? await connection.getMinimumBalanceForRentExemption(SPL_TOKEN_ACCOUNT_SPACE) : 0;
-      // Every token account this transaction really creates (each one's rent is Kivo's).
-      const ataTargets = [...new Set(costedInstructions.filter(ix => ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID && ix.keys.length >= 2).map(ix => ix.keys[1].pubkey.toBase58()))];
-      const ataInfos = ataTargets.length ? await connection.getMultipleAccountsInfo(ataTargets.map(a => new PublicKey(a)), 'confirmed').catch(() => null) : [];
-      const newTokenAccounts = ataInfos ? ataInfos.filter(info => !info).length : undefined;
-      // Rent (the user's refundable deposit) and any SOL top-up; never the network or priority fee.
-      const lamportsCost = estimateRecoverableRentLamports(costedInstructions, tokenAccountRentExemptLamports, newTokenAccounts) + topUpLamports;
-      sponsoredLamportsCost = lamportsCost;
-
-      const prices = await fetchWalletPrices().catch(() => ({}) as Record<string, number>);
-      const recoveryUnits = sponsorshipRecoveryUsdcUnits(lamportsCost, prices.SOL ?? 0);
-
-      if (recoveryUnits > 0) {
-        const userUsdcAta = await splToken.getAssociatedTokenAddress(usdcMint, signer.publicKey);
-        // No pre-trade USDC check: on a sell to USDC the swap earlier in this
-        // same transaction pays the user, and the simulation below is the
-        // authority on whether the recovery transfer can be afforded.
-        {
-          const sponsorUsdcAta = await splToken.getAssociatedTokenAddress(usdcMint, feePayerPubkey);
-          const sponsorAtaInfo = await connection.getAccountInfo(sponsorUsdcAta);
-
-          // Do not create the sponsor's own USDC ATA inside a user trade.
-          // That ATA instruction names the sponsor as both payer (account 0)
-          // and owner (account 2), which the server correctly rejects: the
-          // sponsor may fund a user's new ATA, but must not appear in any
-          // other ATA account position. Recovery is optional, so skip it
-          // until the sponsor's receiving ATA already exists.
-          if (sponsorAtaInfo) {
-            const candidateInstructions = [
-              ...baseInstructions,
-              splToken.createTransferInstruction(userUsdcAta, sponsorUsdcAta, signer.publicKey, recoveryUnits),
-            ];
-
-            const candidateMessage = new TransactionMessage({payerKey: feePayerPubkey, instructions: candidateInstructions, recentBlockhash: blockhash}).compileToV0Message(lookupTables);
-            const candidateTransaction = new VersionedTransaction(candidateMessage);
-            const simulation = await simulationConnection.simulateTransaction(candidateTransaction, {sigVerify: false, replaceRecentBlockhash: true});
-
-            if (!simulation.value.err && typeof simulation.value.unitsConsumed === 'number') {
-              const safeUnits = Math.ceil(simulation.value.unitsConsumed * COMPUTE_BUDGET_SAFETY_MULTIPLE);
-              const computeUnitLimitInstruction = ComputeBudgetProgram.setComputeUnitLimit({units: safeUnits});
-              finalInstructions = withComputeUnitLimit(candidateInstructions, safeUnits, computeUnitLimitInstruction);
-              recoveryUnitsIncluded = BigInt(recoveryUnits);
-            } else if (simulation.value.err) {
-              void recordDiagnosticEvent('sponsorshipRecovery.simulation-fallback', new Error('Augmented transaction did not simulate cleanly; using the plain sponsored transaction.'));
-            }
-          }
+  const withMeasuredComputeLimit = async (candidate: Ix[]): Promise<Ix[] | null> => {
+    const simulation = await simulate(candidate);
+    if (simulation.value.err) return null;
+    if (typeof simulation.value.unitsConsumed !== 'number') return candidate;
+    const safeUnits = Math.ceil(simulation.value.unitsConsumed * COMPUTE_BUDGET_SAFETY_MULTIPLE);
+    return withComputeUnitLimit(candidate, safeUnits, ComputeBudgetProgram.setComputeUnitLimit({units: safeUnits}));
+  };
+  if (repaymentLamports > 0) {
+    // Preferred: USDC, the wallet's normal balance. On a sell to USDC the swap
+    // earlier in this transaction pays the user, so the simulation decides.
+    try {
+      const usdcMintAddress = TOKEN_ADDRESSES.USDC?.solana;
+      const units = usdcMintAddress ? await sponsorRepaymentUsdcUnits(repaymentLamports) : 0n;
+      if (usdcMintAddress && units > 0n) {
+        const usdcMint = new PublicKey(usdcMintAddress);
+        const userUsdcAta = await splToken.getAssociatedTokenAddress(usdcMint, user);
+        const sponsorUsdcAta = await splToken.getAssociatedTokenAddress(usdcMint, feePayerPubkey);
+        // Never create the sponsor's own USDC account inside a user's
+        // transaction (the server refuses the sponsor as an ATA owner).
+        if (await connection.getAccountInfo(sponsorUsdcAta, 'confirmed')) {
+          const candidate = await withMeasuredComputeLimit([...baseInstructions, splToken.createTransferInstruction(userUsdcAta, sponsorUsdcAta, user, units)]);
+          if (candidate) { finalInstructions = candidate; recoveryUnitsIncluded = units; }
         }
       }
-    }
-  } catch (err) {
-    void recordDiagnosticEvent('sponsorshipRecovery.skipped', err);
-  }
-
-  // No USDC to repay with (e.g. a buy paid in SOL): repay the same cost in
-  // SOL instead, so sponsorship is never a loss for Kivo. Only if the wallet
-  // can afford it in this transaction (the simulation decides).
-  if (recoveryUnitsIncluded === 0n && sponsoredLamportsCost > 0) {
-    try {
-      const lamports = Math.ceil(sponsoredLamportsCost * RECOVERY_MULTIPLIER);
-      const candidate = [...finalInstructions, SystemProgram.transfer({fromPubkey: signer.publicKey, toPubkey: feePayerPubkey, lamports})];
-      const simulation = await simulationConnection.simulateTransaction(new VersionedTransaction(new TransactionMessage({payerKey: feePayerPubkey, instructions: candidate, recentBlockhash: blockhash}).compileToV0Message(lookupTables)), {sigVerify: false, replaceRecentBlockhash: true});
-      if (!simulation.value.err) { finalInstructions = candidate; recoveryLamportsIncluded = BigInt(lamports); }
     } catch (err) {
-      void recordDiagnosticEvent('sponsorshipRecovery.sol-skipped', err);
+      void recordDiagnosticEvent('sponsorshipRecovery.usdc-skipped', err);
+    }
+    // Otherwise SOL, e.g. the proceeds of a sell to SOL in this same transaction.
+    if (recoveryUnitsIncluded === 0n) {
+      try {
+        const candidate = await withMeasuredComputeLimit([...baseInstructions, SystemProgram.transfer({fromPubkey: user, toPubkey: feePayerPubkey, lamports: repaymentLamports})]);
+        if (candidate) { finalInstructions = candidate; recoveryLamportsIncluded = BigInt(repaymentLamports); }
+      } catch (err) {
+        void recordDiagnosticEvent('sponsorshipRecovery.sol-skipped', err);
+      }
+    }
+    if (recoveryUnitsIncluded === 0n && recoveryLamportsIncluded === 0n) {
+      const what = [funded.accounts.length ? `${funded.accounts.length} new token account${funded.accounts.length === 1 ? '' : 's'}` : '', topUpLamports ? 'a SOL top-up' : ''].filter(Boolean).join(' and ');
+      throw new Error(`This needs a one-time ${(repaymentLamports / 1e9).toFixed(6)} SOL deposit for ${what}, which Kivo fronts and your wallet repays in the same transaction (in USDC or SOL). This wallet can't cover it right now; add a little USDC or SOL and try again. Nothing was sent.`);
     }
   }
 
@@ -699,6 +687,7 @@ export async function signAndSendSponsoredSolanaStep(
     expectedFeePayer: feePayerPubkey.toBase58(),
     addressLookupTableAccounts: lookupTables,
     allowedAtaOwners: options.allowedAtaOwners,
+    sponsorClosableAccounts: [...closedBackAtas],
   });
   // The semantic check (solanaSpendGuard.ts): the wallet's balances may
   // only change as the trade allows. Sponsorship moves who pays the fee,
@@ -941,9 +930,14 @@ async function signAndSendRelaySolanaStepViaParticle(item: RelayTransactionStepI
   // this replaces the local-signing path's catch-the-RPC-error approach
   // for this specific signer.
   try {
-    const needsTokenAccountRent = instructions.some(ix => ix.programId.toBase58() === ASSOCIATED_TOKEN_PROGRAM_ID);
-    const tokenAccountRentExemptLamports = needsTokenAccountRent ? await connection.getMinimumBalanceForRentExemption(SPL_TOKEN_ACCOUNT_SPACE) : 0;
-    const requiredLamports = estimateSponsorshipLamportsCost(instructions, message.header.numRequiredSignatures, tokenAccountRentExemptLamports);
+    // Accounts that already exist cost nothing; if the lookup fails, all are new (worst case).
+    const targets = associatedTokenAccountTargets(instructions);
+    const existing = new Set<string>();
+    if (targets.length) {
+      const infos = await connection.getMultipleAccountsInfo(targets.map(address => new PublicKey(address)), 'confirmed').catch(() => null);
+      infos?.forEach((info, i) => { if (info) existing.add(targets[i]); });
+    }
+    const requiredLamports = estimateSponsorshipLamportsCost(instructions, message.header.numRequiredSignatures, existing);
     const actualBalance = await connection.getBalance(payerKey, 'confirmed');
 
     if (actualBalance < requiredLamports) {
