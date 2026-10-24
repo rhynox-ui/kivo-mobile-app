@@ -34,7 +34,7 @@ const EMPTY_EXTRAS: Extras = { pinned: null, pins: [], reactions: {}, unreadMent
 type AttachmentSymbolKind = 'photo' | 'poll' | 'token';
 function AttachmentSymbol({ kind, color }: { kind: AttachmentSymbolKind; color: string }) {
   return (
-    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+    <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
       {kind === 'photo' ? <>
         <Rect x={3} y={3} width={18} height={18} rx={2.5} />
         <Circle cx={15.5} cy={8.5} r={1.5} />
@@ -1011,12 +1011,12 @@ const styles = StyleSheet.create({
   mentionName: { flex: 1, color: c.text, fontWeight: '700', fontSize: 14 },
   composerArea: { position: 'relative' },
   modalShade: {flex:1,backgroundColor:'rgba(0,0,0,0.6)',justifyContent:'flex-end'}, pollSheet:{maxHeight:'92%',backgroundColor:kivoTheme.colors.background,borderTopLeftRadius:22,borderTopRightRadius:22,padding:18,paddingBottom:30,gap:12,borderWidth:1,borderColor:kivoTheme.colors.border}, pollInput:{color:kivoTheme.colors.text,backgroundColor:kivoTheme.colors.surface,borderWidth:1,borderColor:kivoTheme.colors.border,borderRadius:10,padding:10,marginVertical:5},pollSettingRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',paddingVertical:9},pollLabel:{color:kivoTheme.colors.text,fontSize:14},pollDuration:{padding:8,borderWidth:1,borderColor:kivoTheme.colors.border,borderRadius:9},pollDurationOn:{borderColor:kivoTheme.colors.accent},pollActions:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingTop:10},pollSend:{backgroundColor:kivoTheme.colors.accent,paddingHorizontal:16,paddingVertical:10,borderRadius:12},pollSendText:{color:kivoTheme.colors.backgroundDeep,fontWeight:'900'},
-  attachmentMenu: { position: 'absolute', zIndex: 20, left: 10, bottom: 62, width: 250, maxWidth: '90%', flexDirection: 'row', gap: 5, padding: 6, borderRadius: 14, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, elevation: 8 },
-  attachmentTile: { flex: 1, minWidth: 0, minHeight: 48, paddingVertical: 5, paddingHorizontal: 2, borderRadius: 10, alignItems: 'center', justifyContent: 'center', gap: 3, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+  attachmentMenu: { position: 'absolute', zIndex: 20, left: 10, bottom: 62, width: 180, maxWidth: '90%', flexDirection: 'row', gap: 4, padding: 5, borderRadius: 14, backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: c.border, elevation: 8 },
+  attachmentTile: { flex: 1, minWidth: 0, minHeight: 38, paddingVertical: 4, paddingHorizontal: 2, borderRadius: 10, alignItems: 'center', justifyContent: 'center', gap: 3, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
   attachmentTilePressed: { backgroundColor: c.background },
   attachmentTileDisabled: { opacity: 0.58 },
-  attachmentLabel: { color: c.text, fontSize: 10.5, lineHeight: 12, fontWeight: '700', textAlign: 'center' },
-  attachmentHint: { color: c.textMuted, fontSize: 9, lineHeight: 10 },
+  attachmentLabel: { color: c.text, fontSize: 9, lineHeight: 10, fontWeight: '700', textAlign: 'center' },
+  attachmentHint: { color: c.textMuted, fontSize: 8, lineHeight: 9 },
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 5, paddingHorizontal: 8, paddingVertical: 8, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.background },
   attach: { width: 28, height: 40, alignItems: 'center', justifyContent: 'center' },
   attachText: { color: c.cream, fontSize: 23 },
