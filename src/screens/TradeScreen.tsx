@@ -6,7 +6,7 @@ import { NetworkIcon } from '../wallet/NetworkIcon';
 import { TRADE_CHAIN_ORDER } from './SearchScreen';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, readTokenBalance, type CashBalanceRow, type TokenBalance } from '@kivo/trading/kivo/balances';
 import { PartialRouteError, combinedView, planUnifiedBuy, runLegsByNetwork, type UnifiedLeg, type UnifiedPlan } from '@kivo/trading/kivo/unified';
-import { HOME_CHAIN, awayFromHome, homeCashAsset, onlyHomeCash } from '@kivo/trading/kivo/home';
+import { HOME_CHAIN, awayFromHome, homeCashAsset, onlyHomeCash, usdcOnly } from '@kivo/trading/kivo/home';
 import { assetLabel, clearSpendableBalanceCache, fetchSpendableBalance, nativeSpendable, spendOrder, spendableFor, totalSpendableUsd, type SpendableBalance } from '@kivo/trading/kivo/spendable';
 import { executeDirectPlan, planDirectTrade } from '@kivo/trading/kivo/direct';
 import { transactionLink, KivoExecutionError, preflightKivoQuote, relayRequestUrl, type ExecutionUpdate } from '@kivo/trading/kivo/execute';
@@ -178,11 +178,12 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     // Only a wallet on this device can sign the Solana part of a buy.
     fetchSpendableBalance(address, wallet?.source === 'local' ? wallet.solanaAddress : undefined).then(balance => {
       if (cancelled) return;
-      setAllSpendable(balance);
-      // Quotes start from Solana USDC, but do not hide assets held elsewhere:
-      // Buy can move the required shortfall home automatically before review.
-      if (homeActive) { setSpendable(onlyHomeCash(balance)); setAwayUsd(awayFromHome(balance).reduce((sum, asset) => sum + asset.valueUsd, 0)); }
-      else { setSpendable(balance); setAwayUsd(0); }
+      // The Trade ticket is USDC-only. Never count SOL, ETH, USDT, or other
+      // holdings as spendable cash or auto-convert them to fund a meme-coin buy.
+      const usdcBalance = usdcOnly(balance);
+      setAllSpendable(usdcBalance);
+      if (homeActive) { setSpendable(onlyHomeCash(usdcBalance)); setAwayUsd(awayFromHome(usdcBalance).reduce((sum, asset) => sum + asset.valueUsd, 0)); }
+      else { setSpendable(usdcBalance); setAwayUsd(0); }
     }).catch(() => { if (!cancelled) setSpendable({ assets: [], errors: [] }); });
     if (side === 'buy' && !isNativeToken(token)) {
       const owner = token.chainKey === 'solana' ? wallet?.solanaAddress : address;
