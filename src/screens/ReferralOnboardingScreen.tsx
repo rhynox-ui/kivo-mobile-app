@@ -7,12 +7,14 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { getProfile } from '../state/profileStore';
 import { validProfileUsername } from '../domain/socialValidation';
 import {
+  claimReferrer,
   consumePendingReferralLink,
   getSuggestedReferrer,
   lookupReferrer,
   queueReferralClaim,
   subscribeReferralLinks,
 } from '../state/referrals';
+import { api } from '../state/session';
 
 export function ReferralOnboardingScreen({
   onBack,
@@ -72,7 +74,15 @@ export function ReferralOnboardingScreen({
       const source = suggestedCode.current?.toLowerCase() === username.toLowerCase()
         ? 'install'
         : 'manual';
-      await queueReferralClaim(username, source);
+      if (api.signedInUserId()) {
+        // Signed in: claim now, so a refusal (already set, joined over 7 days
+        // ago, already traded, shares a wallet) is shown here instead of a
+        // silent "success".
+        await claimReferrer(username, source);
+      } else {
+        // Not signed in to Kivo yet: claimed once the account signs in.
+        await queueReferralClaim(username, source);
+      }
       onDone();
     } catch (cause) {
       setError(cause instanceof Error

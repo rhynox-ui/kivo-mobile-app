@@ -157,6 +157,24 @@ export type GetRelayQuoteParams = {
    * (see web/server/relay.ts): Kivo pays, then gets it back.
    */
   sweepHome?: boolean;
+  /**
+   * Moving the user's own USDC (USDG) on an EVM network to their own USDC on
+   * Solana (home): no app fee at all, sponsored by Kivo's server once it has
+   * checked the shape and that the Solana recipient is this user's wallet
+   * (homeProof: trading/kivo/homeProof.ts, or a linked wallet), then recorded
+   * for /execute. See web/server/relay.ts homeMoveCap.
+   */
+  homeMove?: boolean;
+  /** Signature by the Solana home wallet over homeMoveMessage (base58). */
+  homeProof?: string;
+  /**
+   * The user saw that Kivo can't cover this route's network fee for free
+   * and confirmed paying it from the amount: the quote carries a fee Kivo's
+   * server raises to the gas it fronts plus margin (kivoUserPaysGas,
+   * web/server/relay.ts), so the move is still sponsored and never stuck.
+   * Overrides the free cash-move flags (homeMove, fundingTransfer, waiveAppFee).
+   */
+  userPaysGas?: boolean;
 };
 
 /** One transaction Relay needs signed — EVM-shaped (to/data/value/chainId) or Solana-shaped (instructions), per executeRelayQuote.ts's own dispatch. */
@@ -290,7 +308,12 @@ function isBetterExactInputQuote(candidate: RelayQuote, current: RelayQuote): bo
 
 export async function getRelayQuote(params: GetRelayQuoteParams): Promise<RelayQuote> {
   await assertQuoteOriginGaslessCapability(params);
-  const {fromChainKey, toChainKey, fromAsset, toAsset, originCurrency, destinationCurrency, amountBaseUnits, userAddress, recipientAddress, originAmountUsd, feeToken, slippageTolerance, originGasOverhead, waiveAppFee, fundingTransfer, sweepHome} = params;
+  const {fromChainKey, toChainKey, fromAsset, toAsset, originCurrency, destinationCurrency, amountBaseUnits, userAddress, recipientAddress, originAmountUsd, feeToken, slippageTolerance, originGasOverhead, sweepHome, homeProof, userPaysGas} = params;
+  // A confirmed user-paid network fee replaces every free cash-move path.
+  const cashFree = Boolean(params.waiveAppFee || params.fundingTransfer || params.homeMove || sweepHome);
+  const waiveAppFee = userPaysGas ? false : params.waiveAppFee;
+  const fundingTransfer = userPaysGas ? false : params.fundingTransfer;
+  const homeMove = userPaysGas ? false : params.homeMove;
 
   const resolvedOriginCurrency = originCurrency ?? (fromAsset ? currencyAddress(fromChainKey, fromAsset) : undefined);
   const resolvedDestinationCurrency = destinationCurrency ?? (toAsset ? currencyAddress(toChainKey, toAsset) : undefined);
@@ -337,9 +360,15 @@ export async function getRelayQuote(params: GetRelayQuoteParams): Promise<RelayQ
     // toChainKey, not fromChainKey — Relay's sponsorship (and the fee
     // floor protecting it) is priced against the chain whose fees
     // actually get sponsored: the destination, per Relay's own docs.
-    appFees: [{recipient: feeRecipientForQuote(), fee: waiveAppFee || feeExempt || fundingTransfer ? '0' : sweepHome ? '1' : kivoFeeBps({amountUsd: originAmountUsd, ...tradeFeeToken})}],
+    appFees: [{recipient: feeRecipientForQuote(), fee: userPaysGas
+      // A cash move pays only the gas (the server sizes it); a swap its normal fee too.
+      ? String(Math.max(10, cashFree || feeExempt ? 0 : Number(kivoFeeBps({amountUsd: originAmountUsd, ...tradeFeeToken}))))
+      : waiveAppFee || feeExempt || fundingTransfer || homeMove ? '0' : sweepHome ? '1' : kivoFeeBps({amountUsd: originAmountUsd, ...tradeFeeToken})}],
+    ...(userPaysGas ? {kivoUserPaysGas: true} : {}),
     ...(fundingTransfer && RELAY_SPONSORSHIP_ENABLED ? {subsidizeFees: true, kivoFunding: true} : {}),
-    ...(sponsorshipActive && !fundingTransfer
+    // The server picks what a move home sponsors; the client only asks.
+    ...(homeMove && RELAY_SPONSORSHIP_ENABLED ? {subsidizeFees: true, kivoHome: true, ...(homeProof ? {kivoHomeProof: homeProof} : {})} : {}),
+    ...(sponsorshipActive && !fundingTransfer && !homeMove
       ? {
           subsidizeFees: true,
           sponsoredFeeComponents: ['execution'],

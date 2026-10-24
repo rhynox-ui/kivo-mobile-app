@@ -44,6 +44,16 @@ function feeUnits(total: bigint, amountUsd: number, token: Pick<KivoToken, 'chai
   return base + extra < cap ? base + extra : cap > base ? cap : base;
 }
 
+/**
+ * Kivo only sponsors an Ethereum mainnet direct swap whose fee covers the gas
+ * ($1.50, the server's MIN_FEE_MICROS_ETHEREUM in directSwap.ts). Below it the
+ * trade goes through Relay instead of failing at the gas-free step.
+ */
+const ETHEREUM_DIRECT_MIN_FEE_USD = 1.5;
+function belowEthereumGasFloor(chainKey: string, fee: bigint, decimals: number): boolean {
+  return chainKey === 'ethereum' && fee < parseUnits(ETHEREUM_DIRECT_MIN_FEE_USD.toFixed(2), decimals);
+}
+
 export type DirectPlan = ({
   kind: 'uniswap';
   side: TradeSide;
@@ -90,6 +100,7 @@ async function planSameNetwork(params: Parameters<typeof planDirectTrade>[0]): P
     if (!row || row.status !== 'ok' || row.balance.amount + 1e-9 < amount) return null; // USDC isn't on this network
     const total = parseUnits(amount.toFixed(Math.min(usdcDec, 6)), usdcDec);
     const fee = feeUnits(total, amount, token, params.extraFeeUsd, usdcDec, exempt);
+    if (belowEthereumGasFloor(chainKey, fee, usdcDec)) return null;
     const quote = await quoteDirectUniswap({chainKey, tokenIn: usdc, tokenOut: token.tokenAddress, amountIn: total - fee});
     if (!quote) return null;
     const minAmountOut = (quote.amountOut * (10_000n - slippageBps)) / 10_000n;
@@ -108,6 +119,7 @@ async function planSameNetwork(params: Parameters<typeof planDirectTrade>[0]): P
   const minAmountOut = (quote.amountOut * (10_000n - slippageBps)) / 10_000n;
   const outUsd = Number(formatUnits(quote.amountOut, usdcDec));
   const fee = exempt ? 0n : kivoFeeOn(minAmountOut, outUsd, token);
+  if (belowEthereumGasFloor(chainKey, fee, usdcDec)) return null;
   return {kind: 'uniswap', side, quote, minAmountOut, fee: {usdc, amount: fee, when: 'after'},
     view: viewFor({side, token, payAmount: amount, payUsd: token.priceUsd != null ? amount * token.priceUsd : outUsd, receiveAmount: outUsd - Number(formatUnits(fee, usdcDec)), receiveUsd: outUsd - Number(formatUnits(fee, usdcDec)),
       minimum: formatUnits(minAmountOut - fee, usdcDec), feeUsd: Number(formatUnits(fee, usdcDec)), slippageBps, payDecimals: balance.decimals, receiveDecimals: usdcDec, usdc})};

@@ -8,7 +8,8 @@ import { NetworkIcon } from '../wallet/NetworkIcon';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useProfile } from '../state/profileStore';
 import { getWalletSession, subscribeToWallet, type WalletSession } from '../state/walletStore';
-import { api, storage, useSocialReady } from '../state/session';
+import { api, storage, useSocialReady, useUsernamePublishState } from '../state/session';
+import { PublishUsernamePrompt } from '../components/PublishUsernamePrompt';
 import { useChatState } from '../state/useChat';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { hasProfileLinks, type ProfileLinks, type ProfileSocial } from '@kivo/shared/api/types';
@@ -20,6 +21,7 @@ import { subscribeToTradeHistory, type TradeRecord } from '@kivo/trading/kivo/hi
 import { chartTotal, closedPositions, computePortfolioChange, fetchPortfolio, filterHistoryByRange, getPortfolioHistory, missingSourceNames, openHoldings, recordPortfolioSnapshot, type ChartTotal, type Portfolio, type PortfolioRange, type PortfolioSnapshot } from '@kivo/trading/kivo/portfolio';
 import { formatAmount, formatBalanceUsd, formatUsd, type KivoToken } from '@kivo/trading/kivo/tokens';
 import { ConvertCashSheet } from '../components/ConvertCashSheet';
+import { SendAssetsSheet } from '../components/SendAssetsSheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getReferrals, refreshReferrals, referralLink, shareReferralLink } from '../state/referrals';
 
@@ -136,6 +138,8 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
   const profile = useProfile();
   const chat = useChatState();
   const socialReady = useSocialReady();
+  // An account whose @username is only on this phone gets a one-tap publish.
+  const publishState = useUsernamePublishState();
   const settings = useSettings();
   const hidden = settings.hideBalances;
   const [wallet, setWallet] = useState<WalletSession | null>(getWalletSession());
@@ -151,6 +155,7 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
   const [range, setRange] = useState<PortfolioRange>('24h');
   const [positionTab, setPositionTab] = useState<PositionTab>('open');
   const [convertOpen, setConvertOpen] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
   const [moveHome, setMoveHome] = useState(false);
   // Tokens and native coins (ETH, BNB, SOL…) open their page to buy or sell; cash opens Convert.
   const positionPress = (h: Holding): (() => void) | undefined =>
@@ -313,7 +318,8 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
           </Pressable>
           <View style={styles.identityActions}>
             <Pressable onPress={onOpenNotifications} style={styles.iconButton} accessibilityLabel="Notifications"><Text style={styles.iconButtonText}>🔔</Text></Pressable>
-            <Pressable onPress={async () => {
+            <Pressable onPress={() => setSendOpen(true)} style={styles.iconButton} accessibilityRole="button" accessibilityLabel="Send assets"><Text style={styles.iconButtonText}>↗</Text></Pressable>
+          <Pressable onPress={async () => {
               const me = getReferrals() ?? await refreshReferrals();
               shareReferralLink(referralLink(profile.username, me));
             }} style={styles.iconButton} accessibilityLabel="Share profile"><Text style={styles.iconButtonText}>⇪</Text></Pressable>
@@ -323,6 +329,7 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
           <Text style={styles.username}>@{profile.username}</Text>
           {verificationStatus?.isVerified === true ? <Text accessibilityLabel="Blue Star verified" style={styles.blueStarBadge}>★</Text> : null}
         </View>
+        {publishState === 'local-only' ? <PublishUsernamePrompt username={profile.username} userId={profile.userId} onChooseAnother={onEditProfile} /> : null}
         {links ? <View style={styles.links}><ProfileLinkChips links={links} /></View> : null}
         {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : <Pressable onPress={onEditProfile}><Text style={styles.addBio}>+ Add a bio</Text></Pressable>}
         <View style={styles.follows}>
@@ -461,6 +468,7 @@ export function ProfileScreen({ onOpenSettings, onOpenRewards, onOpenWallet, onO
       <ProfilePostsTimeline userId={profile.userId} />
 
       <ConvertCashSheet visible={convertOpen} moveHome={moveHome} onClose={() => setConvertOpen(false)} onConverted={() => { void load(true); }} />
+      <SendAssetsSheet visible={sendOpen} onClose={() => { setSendOpen(false); void load(true); }} />
     </ScrollView>
   );
 }

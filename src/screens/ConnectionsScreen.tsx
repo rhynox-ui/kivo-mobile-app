@@ -6,6 +6,7 @@ import { api, socialReady } from '../state/session';
 import { Avatar } from './ChatListScreen';
 import { kivoTheme } from '../theme/kivoTheme';
 
+import { userHandle, userPlainName } from '@kivo/shared/profile/userLabel';
 type Kind = 'verified' | 'known' | 'followers' | 'following';
 const TABS: {key: Kind; label: string}[] = [
   {key: 'verified', label: 'Verified followers'},
@@ -84,13 +85,13 @@ export function ConnectionsScreen({userId, initialKind, onBack, onOpenPerson}: {
 
   const renderPerson = ({item}: {item: ApiProfile}) => {
     const isVerified = verified.has(item.userId);
-    const name = item.username ? '@' + item.username : item.address.slice(0, 7) + '…' + item.address.slice(-5);
+    const name = userHandle(item.username, item.address || item.userId);
     const isFollowing = following[item.userId] === true;
     return <View style={styles.row}>
       <Pressable style={styles.identity} onPress={() => onOpenPerson(item.userId)} accessibilityRole="button" accessibilityLabel={'Open ' + name + ' profile'}>
         <Avatar name={name} uri={item.avatarUrl} size={48} verified={isVerified} />
         <View style={styles.copy}>
-          <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{item.username || name}</Text>{isVerified ? <Text accessibilityLabel="Blue Star verified" style={styles.badge}>★</Text> : null}</View>
+          <View style={styles.nameLine}><Text style={styles.name} numberOfLines={1}>{userPlainName(item.username, item.address || item.userId)}</Text>{isVerified ? <Text accessibilityLabel="Blue Star verified" style={styles.badge}>★</Text> : null}</View>
           {item.username ? <Text style={styles.handle} numberOfLines={1}>@{item.username}</Text> : null}
           {!!item.bio && <Text style={styles.bio} numberOfLines={3}>{item.bio}</Text>}
         </View>

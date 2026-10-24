@@ -247,18 +247,35 @@ export function kivoFeeUsd(input: KivoFeeInput): number {
   return Math.min(fee, DEV_FEE_MAX_USD);
 }
 
+/** True when `amountUsd` is a usable trade size. */
+function isTradeSize(amount: number | null | undefined): amount is number {
+  return typeof amount === 'number' && Number.isFinite(amount) && amount > 0;
+}
+
+/**
+ * True when this trade's fee depends on a size the caller does not have:
+ * the Solana minimum (min(2%, $0.95)) can only be applied to a known USD
+ * size. Callers must then get the size another way (the route's own USD
+ * value, a re-quote) or refuse — never fall back to the bare percentage.
+ * Kivo's server does this for Relay quotes (relay.ts minimum fee check).
+ */
+export function kivoFeeNeedsTradeSize(input: KivoFeeInput): boolean {
+  return !isTradeSize(input.amountUsd) && input.chainKey === 'solana' && !isBlueChip(input.chainKey, input.tokenAddress);
+}
+
 /**
  * kivoFeeUsd() as whole bps of amountUsd, for bps-shaped fee APIs. Rounded
- * down (never charges more than kivoFeeUsd), at least 1 while a fee is due,
- * never above MAX_KIVO_FEE_BPS. Without a real trade size this is the
- * percentage rate alone (the Solana minimum needs a size to apply).
+ * down (never charges more than kivoFeeUsd, so the $50 cap holds at every
+ * size: above $500k the capped fee is under 1 bps and
+ * this is 0), never above MAX_KIVO_FEE_BPS. Without a real trade size this
+ * is the percentage rate alone; see kivoFeeNeedsTradeSize() for the trades
+ * where that is not enough (the Solana minimum needs a size to apply).
  */
 export function kivoFeeBps(input: KivoFeeInput): string {
   const amount = input.amountUsd;
-  const sized = typeof amount === 'number' && Number.isFinite(amount) && amount > 0;
-  const ratio = sized ? kivoFeeUsd(input) / amount : kivoFeePct(input);
+  const ratio = isTradeSize(amount) ? kivoFeeUsd(input) / amount : kivoFeePct(input);
   const bps = Math.floor(ratio * 10_000 + 1e-6);
-  return String(Math.min(MAX_KIVO_FEE_BPS, Math.max(1, bps)));
+  return String(Math.min(MAX_KIVO_FEE_BPS, Math.max(0, bps)));
 }
 
 function trimNumber(value: number, decimals: number): string {
@@ -359,6 +376,62 @@ const MAX_SUBSIDIZATION_MULTIPLE = 5;
 export function maxSubsidizationAmountUsdcUnits(chainKey: ChainKey): string {
   const generousUsd = sponsoredFeeFloorUsd(chainKey) * MAX_SUBSIDIZATION_MULTIPLE;
   return String(Math.round(generousUsd * 1_000_000));
+}
+
+// ---------------------------------------------------------------------
+// WITHDRAWAL FEES — a flat fee per withdrawal, per network, like an
+// exchange's withdrawal fee. It is deducted from the cash being withdrawn
+// in the same transaction (a USDC transfer to Kivo's fee wallet inside the
+// sponsored batch on EVM networks; USDC to the sponsor's USDC account on
+// Solana) and pays for the gas Kivo sponsors on that network, so gas-free
+// withdrawals need no daily quotas. Each fee covers the network's
+// SPONSORSHIP_COST_ESTIMATE_USD plus at least MIN_SPONSORSHIP_MARGIN_USD
+// (checked by tests), never less than MIN_WITHDRAWAL_FEE_USD. On EVM the
+// server also caps what Relay may spend sponsoring a withdrawal at the
+// fee it actually collects (web/server/relay.ts), so a gas spike can make
+// Relay refuse a withdrawal (nothing is sent) but never cost Kivo more than
+// the fee. Ethereum mainnet's fee is sized for L1 gas (a delegated USDC
+// transfer, roughly 100-150k gas).
+export const MIN_WITHDRAWAL_FEE_USD = 0.1;
+export const WITHDRAWAL_FEE_USD: Record<ChainKey, number> = {
+  ethereum: 3,
+  base: 0.1,
+  bnb: 0.25,
+  robinhood: 0.15,
+  stable: 0.1,
+  solana: 0.1,
+  arbitrum: 0.15,
+  avalanche: 0.15,
+  abstract: 0.15,
+  hyperevm: 0.15,
+  ink: 0.1,
+  plasma: 0.1,
+  unichain: 0.1,
+  xlayer: 0.15,
+  arc: 0.1,
+};
+
+/** Kivo's withdrawal fee on this network, in USD. */
+export function withdrawalFeeUsd(chainKey: ChainKey): number {
+  return Math.max(MIN_WITHDRAWAL_FEE_USD, WITHDRAWAL_FEE_USD[chainKey] ?? MIN_WITHDRAWAL_FEE_USD);
+}
+
+/** The withdrawal fee in the cash token's base units (USDC: 6 decimals; 18 on BNB Chain). */
+export function withdrawalFeeUnits(chainKey: ChainKey, decimals = 6): bigint {
+  const micros = BigInt(Math.round(withdrawalFeeUsd(chainKey) * 1_000_000));
+  if (decimals >= 6) return micros * 10n ** BigInt(decimals - 6);
+  const scale = 10n ** BigInt(6 - decimals);
+  return (micros + scale - 1n) / scale;
+}
+
+/**
+ * Splits a withdrawal of `grossUnits` (what leaves the wallet) into Kivo's
+ * fee and what the recipient receives. Null when the amount does not cover
+ * the fee: a withdrawal must always deliver something.
+ */
+export function splitWithdrawal(chainKey: ChainKey, grossUnits: bigint, decimals = 6): {feeUnits: bigint; receiveUnits: bigint} | null {
+  const feeUnits = withdrawalFeeUnits(chainKey, decimals);
+  return grossUnits > feeUnits ? {feeUnits, receiveUnits: grossUnits - feeUnits} : null;
 }
 
 /**

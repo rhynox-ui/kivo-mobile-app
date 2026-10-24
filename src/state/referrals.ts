@@ -128,16 +128,10 @@ function handleReferralUrl(url: string) {
   pendingLinkForUi = linkListeners.size ? null : username;
   void Promise.resolve(storage.setItem(LINK_CODE_KEY, username)).catch(() => {});
   linkListeners.forEach(listener => listener(username));
-  // Opening a personalized link while signed in is attribution intent.
-  // The backend still enforces the one-referrer, seven-day and pre-trade rules.
-  if (api.signedInUserId()) {
-    void queueReferralClaim(username, 'install').then(async () => {
-      const me = await refreshReferrals();
-      if (me?.referredBy?.username?.toLowerCase() === username.toLowerCase()) {
-        await Promise.resolve(storage.removeItem?.(LINK_CODE_KEY)).catch(() => {});
-      }
-    }).catch(() => {});
-  }
+  // A link opened while signed in never attaches a referrer by itself: the
+  // app opens Rewards with "Who referred you?" pre-filled and the user
+  // confirms. The server enforces the one-referrer rule, the 7-day window,
+  // "before your first trade" and no shared wallets.
 }
 
 /** A referral link opened on this phone (newest first), else the Play install referrer. */
@@ -226,9 +220,12 @@ export async function claimReferrer(username: string, source: ReferralSource = '
 }
 
 /**
- * Sign-up keeps the referrer typed (or pre-filled from Play) until the
- * account is signed in to Kivo, then claims it once. A refused claim
- * (unknown user, already set, …) is dropped; a network error retries later.
+ * Sign-up keeps the referrer the user typed or confirmed (pre-filled from a
+ * link or Play) until the account is signed in to Kivo, then claims it once.
+ * Only for signed-out users: a signed-in screen calls claimReferrer directly
+ * so the server's refusal reason is shown. A refused claim (unknown user,
+ * already set, joined over 7 days ago, already traded, shared wallet) is
+ * dropped; a network error retries later.
  */
 export async function queueReferralClaim(username: string, source: ReferralSource): Promise<void> {
   const clean = username.trim().replace(/^@/, '');

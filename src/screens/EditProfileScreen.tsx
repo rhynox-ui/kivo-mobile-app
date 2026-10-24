@@ -5,7 +5,7 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import { API_LIMITS, normalizeProfileLinks, shortWallet, type ProfileLinks } from '@kivo/shared/api/types';
 import { validBio, validProfileUsername } from '../domain/socialValidation';
 import { getProfile, updateProfile } from '../state/profileStore';
-import { api, socialReady } from '../state/session';
+import { api, enableSocial, notePublishedUsername, socialReady } from '../state/session';
 import { signKivoMessage } from '../state/signGuard';
 import { getWalletSession } from '../state/walletStore';
 import { KivoMark } from '../components/KivoMark';
@@ -75,6 +75,9 @@ export function EditProfileScreen({ onBack, onOpenVerification }: { onBack: () =
     setBusy(true);
     try {
       let finalAvatar = avatarUri;
+      // A username only helps once others can see it: sign in to Kivo first
+      // (a signed message on this phone), then publish with the approval below.
+      if (!socialReady()) await enableSocial().catch(() => { /* offline: saved on this phone; Profile offers to publish later */ });
       if (socialReady()) {
         const avatarAction: 'keep' | 'remove' | 'upload' = avatarFile ? 'upload' : avatarUri ? 'keep' : 'remove';
         // Links are part of the signed approval text, exactly as on web and the server.
@@ -95,6 +98,7 @@ export function EditProfileScreen({ onBack, onOpenVerification }: { onBack: () =
           ...(links ? { links } : {}),
         });
         finalAvatar = saved.avatarUrl ?? undefined;
+        notePublishedUsername(saved.username ?? null);
       }
       updateProfile({ username, bio, avatarUri: finalAvatar });
       if (!socialReady()) kivoAlert('Profile', 'Saved on this phone. Turn on chats to publish your @username to Kivo.');

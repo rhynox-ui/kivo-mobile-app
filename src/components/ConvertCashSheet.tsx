@@ -8,13 +8,14 @@ import {ResultCard, splitError} from './ResultCard';
 import {normalizeAmountInput} from '../utils/amountInput';
 import {parseUnits} from 'viem';
 import {CHAIN_LABEL, MAINNET_CHAIN_IDS, NEAR_ENABLED, NEAR_LABEL, NEAR_USDC, NEAR_USDC_DECIMALS, type ChainKey} from '@kivo/trading/core/chainData';
-import {getRelayQuote, summarizeQuote, type QuoteSummary} from '@kivo/trading/core/relayQuote';
+import {getRelayQuote, quoteSponsorshipStatus, summarizeQuote, type QuoteSummary} from '@kivo/trading/core/relayQuote';
 import {executeRelayQuote, getPartialTxHashes, type ExecuteStep} from '@kivo/trading/core/executeRelayQuote';
 import {clearCashBalanceCache, readTokenBalance} from '@kivo/trading/kivo/balances';
 import {fetchPortfolio} from '@kivo/trading/kivo/portfolio';
 import {getTradeHistory} from '@kivo/trading/kivo/history';
 import {clearSpendableBalanceCache, fetchSpendableBalance, type SpendableAsset, type SpendableBalance} from '@kivo/trading/kivo/spendable';
-import {convertQuoteParams, convertSources, convertTargets, sameAsset, type ConvertAsset} from '@kivo/trading/kivo/convert';
+import {convertGasPath, convertQuoteParams, convertSources, convertTargets, quoteAppFeeUsd, quoteGasUsd, sameAsset, type ConvertAsset, type ConvertGasPath} from '@kivo/trading/kivo/convert';
+import {homeProofFor} from '@kivo/trading/kivo/homeProof';
 import {recordTrade} from '@kivo/trading/kivo/history';
 import {reportReferralTrade} from '../state/referrals';
 import {markOwnAction} from '../wallet/depositWatcher';
@@ -52,6 +53,8 @@ export function ConvertCashSheet({visible,onClose,onConverted,moveHome=false}:{v
  const [fromId,setFromId]=useState<string|null>(null); const [toId,setToId]=useState<string|null>(null);
  const [picker,setPicker]=useState<'from'|'to'|null>(null); const [amount,setAmount]=useState('');
  const [quote,setQuote]=useState<QuoteSummary|null>(null); const [loading,setLoading]=useState(false); const rawQuoteRef=React.useRef<Awaited<ReturnType<typeof getRelayQuote>>|null>(null); const lastQuoteParamsRef=React.useRef<Parameters<typeof getRelayQuote>[0]|null>(null); const quoteRequestIdRef=React.useRef(0);
+ // How this conversion pays its network fee (sponsored, user-paid from the amount, or the wallet's own gas coin), shown before confirming.
+ const [gasPath,setGasPath]=useState<ConvertGasPath|null>(null); const [quoteNonce,setQuoteNonce]=useState(0);
  const [error,setError]=useState<string|null>(null); const [execute,setExecute]=useState<ExecuteStep|null>(null); const [hashes,setHashes]=useState<string[]|null>(null);
  const [nearRecord,setNearRecord]=useState<OneClickSwapRecord|null>(null);const[relayStatus,setRelayStatus]=useState<'success'|'pending'|'refunded'|null>(null);const busyRef=useRef(false); const [nearSending,setNearSending]=useState(false);
  const [sent,setSent]=useState<{paid:string;received:string|null}|null>(null);
@@ -81,8 +84,8 @@ export function ConvertCashSheet({visible,onClose,onConverted,moveHome=false}:{v
  const cashMove=Boolean(from&&to&&(from.chain==='near'||from.asset?.kind==='cash')&&(to.chain==='near'||to.asset?.kind==='cash'));
  // Kivo's fee for this conversion (fees.ts kivoFeeUsd): classified by the non-cash side, shown in dollars and percent.
  const feeTok=from&&to?feeTokenForTrade({chainKey:from.chain,tokenAddress:from.asset?.address},{chainKey:to.chain,tokenAddress:to.asset?.address}):null; const tradeUsd=from&&n>0&&from.priceUsd>0?n*from.priceUsd:null;
- const kivoFeeLabel=cashMove?'Kivo fee: Free':feeTok&&tradeUsd?`Kivo fee ${formatKivoFee(kivoFeeUsd({amountUsd:tradeUsd,...feeTok}),tradeUsd)}`:`Kivo fee: ${Number((kivoFeePct(feeTok??{})*100).toFixed(3))}%`;
- useEffect(()=>{if(!visible||!wallet||!from||!to||same||pairProblem||n<=0||insufficient){setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setLoading(false);return;} const requestId=++quoteRequestIdRef.current; const t=setTimeout(async()=>{setLoading(true);setError(null);try{
+ const kivoFeeLabel=cashMove&&gasPath?.mode==='user-fee'?'Network fee from amount':cashMove&&gasPath?.note?'Gas repaid in fee':cashMove?'Kivo fee: Free':feeTok&&tradeUsd?`Kivo fee ${formatKivoFee(kivoFeeUsd({amountUsd:tradeUsd,...feeTok}),tradeUsd)}`:`Kivo fee: ${Number((kivoFeePct(feeTok??{})*100).toFixed(3))}%`;
+ useEffect(()=>{setGasPath(null);if(!visible||!wallet||!from||!to||same||pairProblem||n<=0||insufficient){setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setLoading(false);return;} const requestId=++quoteRequestIdRef.current; const t=setTimeout(async()=>{setLoading(true);setError(null);try{
    const amountBaseUnits=parseUnits(amount,decimals).toString();
    if(from.chain==='near'||to.chain==='near'){
      if(!wallet.nearAddress) throw new Error('NEAR account is unavailable.');
@@ -93,10 +96,23 @@ export function ConvertCashSheet({visible,onClose,onConverted,moveHome=false}:{v
      if(requestId!==quoteRequestIdRef.current)return; rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setQuote({totalFeeUsd:null,etaSeconds:response.quote.timeEstimate??null,receivedAmountFormatted:response.quote.amountOutFormatted??null,payAmountUsd:Number(response.quote.amountInUsd)||null,receiveAmountUsd:Number(response.quote.amountOutUsd)||null,priceImpactPct:null});
    } else {
      const quoteParams=convertQuoteParams({from:from.asset!,to:to.asset!,amountBaseUnits,amountUsd:from.priceUsd>0?n*from.priceUsd:null,evmAddress:wallet.address,solanaAddress:wallet.solanaAddress});
-     const q=await getRelayQuote(quoteParams); if(requestId!==quoteRequestIdRef.current)return; rawQuoteRef.current=q; lastQuoteParamsRef.current=quoteParams;
+     let q=await getRelayQuote(quoteParams); if(requestId!==quoteRequestIdRef.current)return;
+     let params=quoteParams;
+     const sponsorship=quoteSponsorshipStatus(q);
+     const base={fromChain:from.chain as ChainKey,fromKind:from.asset!.kind,awaitingProof:Boolean(quoteParams.homeMove&&!quoteParams.homeProof),hasNativeGas:(balance?.assets??[]).some(a=>a.chainKey===from.chain&&a.kind==='native'&&a.amount>0)};
+     let path=convertGasPath({...base,sponsorship,appFeeUsd:quoteAppFeeUsd(q),gasUsd:quoteGasUsd(sponsorship,q)});
+     if(path.mode!=='sponsored'){
+       // Kivo can't cover the gas for free: quote again with the user paying it from the amount (shown, then confirmed).
+       const userFee={...quoteParams,userPaysGas:true};
+       const q2=await getRelayQuote(userFee).catch(()=>null); if(requestId!==quoteRequestIdRef.current)return;
+       const status2=q2?quoteSponsorshipStatus(q2):null;
+       path=convertGasPath({...base,sponsorship,userFeeSponsorship:status2,userFeeUsd:q2?quoteAppFeeUsd(q2):null,gasUsd:quoteGasUsd(status2,q2)??quoteGasUsd(sponsorship,q)});
+       if(path.mode==='user-fee'&&q2){q=q2;params=userFee;}
+     }
+     rawQuoteRef.current=q; lastQuoteParamsRef.current=params; setGasPath(path);
      setQuote(summarizeQuote(q,to.decimals));
    }
- }catch(e){if(requestId!==quoteRequestIdRef.current)return;setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setError(describeQuoteError(e));}finally{if(requestId===quoteRequestIdRef.current)setLoading(false);}},450);return()=>clearTimeout(t);},[visible,wallet?.address,wallet?.solanaAddress,wallet?.nearAddress,fromId,toId,amount,n,same,insufficient,decimals,pairProblem]);
+ }catch(e){if(requestId!==quoteRequestIdRef.current)return;setQuote(null);rawQuoteRef.current=null;lastQuoteParamsRef.current=null;setError(describeQuoteError(e));}finally{if(requestId===quoteRequestIdRef.current)setLoading(false);}},450);return()=>clearTimeout(t);},[visible,wallet?.address,wallet?.solanaAddress,wallet?.nearAddress,fromId,toId,amount,n,same,insufficient,decimals,pairProblem,quoteNonce]);
  const convert=async()=>{if(!quote||!wallet||!from||!to||same||pairProblem||n<=0||insufficient||execute||nearSending||busyRef.current)return;busyRef.current=true;setError(null);setHashes(null);setSent(null);setRelayStatus(null);setNearRecord(null);
  // Converting a held token away is a sell of that token in the trade history (keeps its PnL right).
  const soldToken=from.asset?.kind==='token';
@@ -113,7 +129,7 @@ export function ConvertCashSheet({visible,onClose,onConverted,moveHome=false}:{v
        const fromAddress=from.chain==='near'?session.near!.address:(from.chain==='solana'?wallet.solanaAddress!:wallet.address);
        const record=await fundOneClickQuote({response,expected:move.expected,originChainKey:from.chain==='near'?'near':from.chain as ChainKey,originSymbol:from.symbol,originDecimals:from.decimals,fromAddress,store:oneClickSwapStore,submitDepositTx:(txHash,depositAddress)=>submitOneClickDepositTx(txHash,depositAddress),send:async(toAddress,sendAmount)=>{
          if(from.chain==='near'){const call=await nearUsdcDepositCall(toAddress,parseUnits(sendAmount,NEAR_USDC_DECIMALS),nearView);const [outcome]=await import('@kivo/trading/core/nearSigning').then(m=>m.sendSponsoredNearCalls(session,[call]));return outcome.hash;}
-         const {withdrawUsdc}=await import('@kivo/trading/kivo/cash'); return (await withdrawUsdc(from.chain as ChainKey,accounts.evm,accounts.solana,toAddress,sendAmount)).hash;
+         const {withdrawUsdc}=await import('@kivo/trading/kivo/cash'); return (await withdrawUsdc(from.chain as ChainKey,accounts.evm,accounts.solana,toAddress,sendAmount,from.chain==='solana'?'none':'on-top')).hash;
        }});
        setNearRecord(record);setOutcome({tone:'pending',from,to});setHashes(record.depositTxHash?[record.depositTxHash]:[]);setSent({paid:`${amount} ${from.symbol}`,received:quote.receivedAmountFormatted?`${quote.receivedAmountFormatted} ${to.symbol}`:null});setNearSending(false);
      });
@@ -123,7 +139,20 @@ export function ConvertCashSheet({visible,onClose,onConverted,moveHome=false}:{v
    const quoteParams=lastQuoteParamsRef.current;
    if(!quoteToExecute) throw new Error('The conversion quote is no longer available. Enter the amount again.');
    const result=await withDeviceAccounts('Confirm Convert',async session=>{
-     return executeRelayQuote(quoteToExecute,session.relay,s=>setExecute(s),{useGaslessTrading:true,requote:quoteParams?async()=>getRelayQuote(quoteParams):undefined});
+     // A fee-free move home is only sponsored with the Solana wallet's proof:
+     // sign it now if the preview was quoted without one, and quote again with it.
+     if(quoteParams?.homeMove&&!quoteParams.homeProof){
+       const proof=homeProofFor(session.relay);
+       if(!proof) throw new Error('This wallet has no Solana account. Nothing was sent.');
+       const proven={...quoteParams,homeProof:proof};
+       lastQuoteParamsRef.current=proven;
+       const provenQuote=await getRelayQuote(proven);
+       // Not sponsored after all: nothing is sent; the proof is kept, so the next review shows the real cost.
+       if(!(quoteSponsorshipStatus(provenQuote)??'').startsWith('on')){setQuoteNonce(x=>x+1);throw new Error("Kivo couldn't cover this move's network fee. Nothing was sent. Review the cost shown and confirm again.");}
+       return executeRelayQuote(provenQuote,session.relay,s=>setExecute(s),{useGaslessTrading:true,requote:async()=>getRelayQuote(proven)});
+     }
+     // own-gas: the wallet pays the network fee in its own coin (the user confirmed it).
+     return executeRelayQuote(quoteToExecute,session.relay,s=>setExecute(s),{useGaslessTrading:gasPath?.mode!=='own-gas',requote:quoteParams?async()=>getRelayQuote(quoteParams):undefined});
    });
    const settled=result.status??'success';setRelayStatus(settled);setOutcome({tone:settled==='success'?'success':settled==='refunded'?'error':'pending',from,to,message:settled==='refunded'?'The route could not be filled, so it was refunded.':undefined});setHashes(result.txHashes);setExecute(null);
    setSent({paid:`${amount} ${from.symbol}`,received:quote.receivedAmountFormatted?`${formatAmount(Number(quote.receivedAmountFormatted))} ${to.symbol}`:null});
@@ -146,7 +175,8 @@ export function ConvertCashSheet({visible,onClose,onConverted,moveHome=false}:{v
    if(picker==='from'){setFromId(x.id);if(other===x.id)setToId(mine);}else{setToId(x.id);if(other===x.id)setFromId(mine);}
    setAmount('');setQuote(null);setError(null);setPicker(null);};
  const usd=(v:number)=>v>0?formatBalanceUsd(v):'';
- const buttonLabel=nearSending?'Sending…':(nearRecord&&shouldPollOneClickSwap(nearRecord))?'Waiting for NEAR Intents…':execute?'Converting…':!from?(balance?'Nothing to convert yet':'Reading balances…'):!to?'Pick what to receive':same?'Pick two different assets':pairProblem?pairProblem:!amount?'Enter an amount':insufficient?`Insufficient ${from.symbol} balance`:loading?'Finding rate…':quote?'Convert':'Finding rate…';
+ const buttonLabel=nearSending?'Sending…':(nearRecord&&shouldPollOneClickSwap(nearRecord))?'Waiting for NEAR Intents…':execute?'Converting…':!from?(balance?'Nothing to convert yet':'Reading balances…'):!to?'Pick what to receive':same?'Pick two different assets':pairProblem?pairProblem:!amount?'Enter an amount':insufficient?`Insufficient ${from.symbol} balance`:loading?'Finding rate…':quote?(gasPath?.mode==='needs-gas'?'Needs gas to send':gasPath?.mode==='user-fee'||gasPath?.mode==='own-gas'?'Confirm & pay network fee':'Convert'):'Finding rate…';
+ const convertReady=buttonLabel==='Convert'||buttonLabel==='Confirm & pay network fee';
  const explorer=(h:string)=>transactionLink(h,fromChainId);
  if(outcome){const ok=outcome.tone!=='error';const done=nearRecord&&!shouldPollOneClickSwap(nearRecord)&&nearRecord.status==='SUCCESS';const tone=done?'success':outcome.tone;
   return <BottomSheet visible={visible} onClose={onClose}><ResultCard
@@ -175,13 +205,13 @@ export function ConvertCashSheet({visible,onClose,onConverted,moveHome=false}:{v
  {error&&<Text style={s.error}>{error}</Text>}
  {hashes&&hashes.length>0&&error&&<View style={s.success}><Text style={s.successText}>Some transactions were already sent. Check them before trying again:</Text>{txLinks(hashes)}</View>}
  {hashes&&!error&&<View style={s.success}><Text style={s.successText}>{convertOutcomeLabel(nearRecord,relayStatus)}</Text>{sent&&<Text style={s.sentText}>Sent {sent.paid}{sent.received?`  →  received ${sent.received}`:''}</Text>}{txLinks(hashes)}</View>}
- <Pressable disabled={!quote||buttonLabel!=='Convert'} onPress={convert} style={[s.button,(!quote||buttonLabel!=='Convert')&&s.disabled]}><Text style={s.buttonText}>{buttonLabel}</Text></Pressable><Pressable onPress={onClose} style={s.cancel}><Text style={s.cancelText}>{hashes&&!error?'Done':'Cancel'}</Text></Pressable></>}</View></BottomSheet>;
+ {quote&&gasPath?.note?<Text style={gasPath.mode==='needs-gas'?s.error:s.gasNote}>{gasPath.note}</Text>:null}<Pressable disabled={!quote||!convertReady} onPress={convert} style={[s.button,(!quote||!convertReady)&&s.disabled]}><Text style={s.buttonText}>{buttonLabel}</Text></Pressable><Pressable onPress={onClose} style={s.cancel}><Text style={s.cancelText}>{hashes&&!error?'Done':'Cancel'}</Text></Pressable></>}</View></BottomSheet>;
 }
 const c={background:kivoTheme.colors.background,backgroundDeep:kivoTheme.colors.backgroundDeep,surface:kivoTheme.colors.surface,surfaceRaised:kivoTheme.colors.surfaceRaised,border:kivoTheme.colors.border,text:kivoTheme.colors.text,textMuted:kivoTheme.colors.textMuted,accent:kivoTheme.colors.accent,success:kivoTheme.colors.success,danger:kivoTheme.colors.danger,cream:kivoTheme.colors.cream}; const s=StyleSheet.create({
 overlay:{...StyleSheet.absoluteFill,zIndex:100,justifyContent:'flex-end'},dismiss:{...StyleSheet.absoluteFill,backgroundColor:'rgba(0,0,0,.72)'},sheet:{backgroundColor:c.surface,borderTopLeftRadius:26,borderTopRightRadius:26,padding:20,paddingBottom:34,maxHeight:'90%',borderWidth:1,borderColor:c.border},handle:{width:48,height:5,borderRadius:3,backgroundColor:c.border,alignSelf:'center',marginBottom:14},
 header:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:16},title:{color:c.text,fontSize:20,fontWeight:'900'},back:{color:c.textMuted,fontWeight:'700'},free:{backgroundColor:c.surfaceRaised,borderRadius:999,paddingHorizontal:10,paddingVertical:6},freeText:{color:c.success,fontSize:11,fontWeight:'800'},
 asset:{backgroundColor:c.surfaceRaised,borderRadius:16,padding:14,gap:8},top:{flexDirection:'row',justifyContent:'space-between'},muted:{color:c.textMuted,fontSize:11,fontWeight:'700'},main:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},selector:{flexDirection:'row',alignItems:'center',gap:6},symbol:{color:c.text,fontSize:16,fontWeight:'900'},chev:{color:c.textMuted},amount:{flex:1,textAlign:'right',color:c.text,fontSize:25,fontWeight:'800',padding:0,marginLeft:12},receive:{color:c.text,fontSize:24,fontWeight:'800',maxWidth:'55%',textAlign:'right'},bottom:{flexDirection:'row',justifyContent:'space-between'},max:{color:c.cream,fontWeight:'900'},
-swapWrap:{alignItems:'center',marginVertical:-12,zIndex:2},swap:{width:34,height:34,borderRadius:17,backgroundColor:c.surface,borderWidth:1,borderColor:c.border,alignItems:'center',justifyContent:'center'},swapText:{color:c.text,fontSize:17},error:{color:c.danger,fontSize:12,lineHeight:18,marginTop:10},success:{marginTop:10,gap:3},successText:{color:c.success,fontWeight:'800'},hash:{color:c.textMuted,fontSize:10},hashLink:{color:c.accent,textDecorationLine:'underline'},button:{height:52,borderRadius:26,backgroundColor:c.accent,alignItems:'center',justifyContent:'center',marginTop:16},buttonText:{color:c.backgroundDeep,fontWeight:'900',fontSize:15},disabled:{opacity:.45},list:{maxHeight:500},network:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:c.surfaceRaised,borderRadius:15,padding:13,marginBottom:8,borderWidth:1,borderColor:'transparent'},networkSelected:{borderColor:c.accent},left:{flexDirection:'row',alignItems:'center',gap:10,flex:1},networkText:{color:c.text,fontWeight:'800'},networkBalance:{color:c.textMuted,fontWeight:'700',fontSize:12},networkSub:{color:c.textMuted,fontSize:10,marginTop:2},right:{alignItems:'flex-end'},sentText:{color:c.text,fontSize:12,fontWeight:'700'},cancel:{height:44,alignItems:'center',justifyContent:'center'},cancelText:{color:c.cream,fontWeight:'800'}
+swapWrap:{alignItems:'center',marginVertical:-12,zIndex:2},swap:{width:34,height:34,borderRadius:17,backgroundColor:c.surface,borderWidth:1,borderColor:c.border,alignItems:'center',justifyContent:'center'},swapText:{color:c.text,fontSize:17},error:{color:c.danger,fontSize:12,lineHeight:18,marginTop:10},gasNote:{color:c.textMuted,fontSize:12,lineHeight:18,marginTop:10},success:{marginTop:10,gap:3},successText:{color:c.success,fontWeight:'800'},hash:{color:c.textMuted,fontSize:10},hashLink:{color:c.accent,textDecorationLine:'underline'},button:{height:52,borderRadius:26,backgroundColor:c.accent,alignItems:'center',justifyContent:'center',marginTop:16},buttonText:{color:c.backgroundDeep,fontWeight:'900',fontSize:15},disabled:{opacity:.45},list:{maxHeight:500},network:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:c.surfaceRaised,borderRadius:15,padding:13,marginBottom:8,borderWidth:1,borderColor:'transparent'},networkSelected:{borderColor:c.accent},left:{flexDirection:'row',alignItems:'center',gap:10,flex:1},networkText:{color:c.text,fontWeight:'800'},networkBalance:{color:c.textMuted,fontWeight:'700',fontSize:12},networkSub:{color:c.textMuted,fontSize:10,marginTop:2},right:{alignItems:'flex-end'},sentText:{color:c.text,fontSize:12,fontWeight:'700'},cancel:{height:44,alignItems:'center',justifyContent:'center'},cancelText:{color:c.cream,fontWeight:'800'}
 });
 
 /** What the finished/pending conversion really is — "successfully" only once delivery is confirmed. */
