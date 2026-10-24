@@ -22,7 +22,8 @@
     "verify:dependency-overrides": "node scripts/verify-dependency-overrides.mjs",
     "verify:unified-balance": "node --experimental-strip-types --import ./scripts/ts-extensionless.mjs scripts/verify-unified-balance.mjs",
     "verify:convert": "node --experimental-strip-types --import ./scripts/ts-extensionless.mjs scripts/verify-convert.mjs",
-    "verify:sponsor-recovery": "node --experimental-strip-types --import ./scripts/ts-extensionless.mjs scripts/verify-sponsor-recovery.mjs"
+    "verify:sponsor-recovery": "node --experimental-strip-types --import ./scripts/ts-extensionless.mjs scripts/verify-sponsor-recovery.mjs",
+    "verify:send-guards": "node --experimental-strip-types --import ./scripts/ts-extensionless.mjs scripts/verify-send-guards.mjs"
   },
   "dependencies": {
     "@near-js/crypto": "2.5.1",

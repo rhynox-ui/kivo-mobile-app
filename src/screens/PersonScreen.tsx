@@ -10,7 +10,6 @@ import { Avatar } from './ChatListScreen';
 import { ProfileLinkChips } from '../components/ProfileLinks';
 import { CallStatsCard } from '../components/CallStatsCard';
 import { ProfilePostsTimeline } from '../components/ProfilePostsTimeline';
-import { SendAssetsSheet } from '../components/SendAssetsSheet';
 
 /** Another member's public profile: follow, message, public groups. Display data only — never proof of wallet ownership. */
 export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOpenConnections }: { userId: string; onBack: () => void; onOpenChat: (id: string) => void; onOpenCommunity: (id: string) => void; onOpenConnections?: (kind: 'followers' | 'following' | 'known') => void }) {
@@ -21,7 +20,6 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
   const [verifiedChannels, setVerifiedChannels] = useState<Set<string>>(() => new Set());
   const [blocked, setBlocked] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [sendOpen, setSendOpen] = useState(false);
   const [postNotifications, setPostNotifications] = useState(false);
   const [postNotificationsLoaded, setPostNotificationsLoaded] = useState(false);
   const [notificationToast, setNotificationToast] = useState<string | null>(null);
@@ -185,7 +183,6 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
             <Pressable onPress={() => guard(async () => setStats(stats?.isFollowing ? await api.unfollow(userId) : await api.follow(userId)))} style={[styles.button, stats?.isFollowing ? styles.secondary : styles.primary]}>
               <Text style={stats?.isFollowing ? styles.secondaryText : styles.primaryText}>{stats?.isFollowing ? 'Following' : 'Follow'}</Text>
             </Pressable>
-            <Pressable onPress={() => setSendOpen(true)} style={[styles.button, styles.secondary]}><Text style={styles.secondaryText}>Send</Text></Pressable>
             <Pressable onPress={() => guard(async () => onOpenChat(await openDirectMessage(person?.address ?? address)))} style={[styles.button, styles.secondary]}><Text style={styles.secondaryText}>Message</Text></Pressable>
             {api.signedInUserId() && api.signedInUserId() !== userId ? (
               <Pressable disabled={!postNotificationsLoaded} onPress={togglePostNotifications} accessibilityRole="button" accessibilityLabel={postNotifications ? 'Turn off post notifications' : 'Turn on post notifications'} accessibilityState={{ checked: postNotifications, disabled: !postNotificationsLoaded }} style={[styles.notifyButton, postNotifications && styles.notifyButtonActive, { opacity: postNotificationsLoaded ? 1 : 0.55 }]}>
@@ -204,7 +201,6 @@ export function PersonScreen({ userId, onBack, onOpenChat, onOpenCommunity, onOp
         )}
         <ProfilePostsTimeline userId={userId} />
       </ScrollView>
-      <SendAssetsSheet visible={sendOpen} initialRecipient={address} initialRecipientName={person?.username ? '@' + person.username : name} skipRecipientStep onClose={() => setSendOpen(false)} />
       {notificationToast ? (
         <View pointerEvents="none" accessibilityRole="alert" style={styles.notificationToast}>
           <Text style={styles.notificationToastText}>{notificationToast}</Text>

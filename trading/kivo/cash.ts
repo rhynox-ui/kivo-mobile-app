@@ -14,6 +14,7 @@ import type {LocalAccount} from 'viem/accounts';
 import {TOKEN_ADDRESSES, assetDecimalsForChain, type ChainKey} from '../core/chainData';
 import {getViemChain} from '../core/chainRegistry';
 import {sendEvmCallsViaRelayGasless} from '../core/relayGaslessEvm';
+import {markFailedOnChain, markMaybeBroadcast, solanaSubmitDefinitelyRejected} from '../core/broadcastState';
 import {cashAssetAddress,cashAssetSymbol} from './balances';
 
 const ERC20_TRANSFER_ABI = [{type: 'function', name: 'transfer', inputs: [{name: 'to', type: 'address'}, {name: 'amount', type: 'uint256'}], outputs: [{type: 'bool'}], stateMutability: 'nonpayable'}] as const;
@@ -111,16 +112,24 @@ async function sendSolanaUsdc(
   const transaction = new Transaction({recentBlockhash: blockhash, feePayer: from});
   transaction.add(...instructions);
   transaction.sign(solanaKeypair);
+  // Known before broadcasting, so a later failure can still point at this transaction.
+  const signature = transaction.signature ? bs58.encode(transaction.signature) : '';
   try {
-    const signature = await connection.sendRawTransaction(transaction.serialize());
-    await connection.confirmTransaction({signature, blockhash, lastValidBlockHeight}, 'confirmed');
-    return {hash: signature};
+    await connection.sendRawTransaction(transaction.serialize());
   } catch (error) {
     // Rejected in preflight, so nothing was broadcast: safe to sponsor instead.
     const message = error instanceof Error ? error.message : String(error);
-    if (!/insufficient lamports|no record of a prior credit|AccountNotFound|InsufficientFundsFor(Fee|Rent)/i.test(message)) throw error;
-    return sponsoredSend();
+    if (/insufficient lamports|no record of a prior credit|AccountNotFound|InsufficientFundsFor(Fee|Rent)/i.test(message)) return sponsoredSend();
+    throw solanaSubmitDefinitelyRejected(error) ? error : markMaybeBroadcast(error, {signature});
   }
+  try {
+    const result = await connection.confirmTransaction({signature, blockhash, lastValidBlockHeight}, 'confirmed');
+    if (result.value.err) throw markFailedOnChain(new Error(`Transaction ${signature} failed on-chain: ${JSON.stringify(result.value.err)}`), {signature});
+  } catch (error) {
+    if (error instanceof Error && (error as {kivoFailedOnChain?: boolean}).kivoFailedOnChain) throw error;
+    throw markMaybeBroadcast(new Error(`Transaction ${signature} was sent but is not confirmed yet. Do not retry; check its status first.`), {signature});
+  }
+  return {hash: signature};
 }
 
 export async function withdrawUsdc(
@@ -174,10 +183,35 @@ export async function quoteHomeWithdrawal(chainKey: ChainKey, solanaAddress: str
   return summarizeQuote(await getRelayQuote(homeWithdrawalParams(chainKey, solanaAddress, to, amount)), assetDecimalsForChain(chainKey, cashAssetSymbol(chainKey)) ?? 6);
 }
 
-export async function withdrawFromHome(chainKey: ChainKey, accounts: DerivedAccounts, to: string, amount: string): Promise<{hash: string; requestId?: string}> {
+/** How far below the reviewed "they receive" amount the executed quote may land before Kivo refuses to sign it. */
+export const HOME_WITHDRAWAL_RECEIVE_TOLERANCE = 0.01;
+
+/**
+ * Whether a fresh quote still delivers what the person reviewed: at least the
+ * reviewed amount minus HOME_WITHDRAWAL_RECEIVE_TOLERANCE (1%), and never
+ * less than the reviewed amount minus 0.05 for tiny withdrawals.
+ */
+export function receiveWithinTolerance(reviewed: number, executed: number | null): boolean {
+  if (executed === null || !Number.isFinite(executed) || !Number.isFinite(reviewed) || reviewed <= 0) return false;
+  const floor = reviewed - Math.max(reviewed * HOME_WITHDRAWAL_RECEIVE_TOLERANCE, 0.000001);
+  return executed >= floor;
+}
+
+export async function withdrawFromHome(chainKey: ChainKey, accounts: DerivedAccounts, to: string, amount: string, reviewedReceive?: number): Promise<{hash: string; requestId?: string; pending?: boolean}> {
   if (!accounts.solana?.address) throw new Error('This wallet has no Solana account. Nothing was sent.');
   const params = homeWithdrawalParams(chainKey, accounts.solana.address, to, amount);
-  const result = await executeRelayQuote(await getRelayQuote(params), accounts, undefined, {requote: () => getRelayQuote(params)});
-  if (result.status === 'refunded') throw new Error('The transfer could not be completed and was refunded to your Solana USDC.');
-  return {hash: result.txHashes[result.txHashes.length - 1] ?? '', requestId: result.requestId ?? undefined};
+  const decimals = assetDecimalsForChain(chainKey, cashAssetSymbol(chainKey)) ?? 6;
+  const guardedQuote = async () => {
+    const quote = await getRelayQuote(params);
+    if (reviewedReceive !== undefined) {
+      const executed = Number(summarizeQuote(quote, decimals).receivedAmountFormatted);
+      if (!receiveWithinTolerance(reviewedReceive, Number.isFinite(executed) ? executed : null)) {
+        throw new Error(`The price moved: the recipient would now get ${Number.isFinite(executed) ? executed.toFixed(4) : 'an unknown amount'} instead of the ${reviewedReceive.toFixed(4)} you reviewed. Nothing was sent. Review the withdrawal again.`);
+      }
+    }
+    return quote;
+  };
+  const result = await executeRelayQuote(await guardedQuote(), accounts, undefined, {requote: guardedQuote});
+  if (result.status === 'refunded') throw markFailedOnChain(new Error('The transfer could not be completed and was refunded to your Solana USDC.'), {signature: result.txHashes[0], requestId: result.requestId ?? undefined});
+  return {hash: result.txHashes[result.txHashes.length - 1] ?? '', requestId: result.requestId ?? undefined, pending: result.status === 'pending'};
 }
