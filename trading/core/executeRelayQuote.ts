@@ -761,7 +761,22 @@ export async function signAndSendSponsoredSolanaStep(
   return {signature: await confirmSolanaSignature(connection, signature), warnings};
 }
 
-export async function signAndSendRelaySolanaStep(item: RelayTransactionStepItem, secretKeyBase58: string, spendIntent: SolanaSpendIntent): Promise<{signature: string; warnings: string[]}> {
+/**
+ * Kivo's withdrawal fee as a USDC transfer from `user` to the Solana sponsor's
+ * USDC account, appended to a withdrawal's own transaction. Kivo's sponsor
+ * treats a transaction carrying it as paying its own way (never quota-limited).
+ */
+export async function kivoWithdrawalFeeInstruction(user: InstanceType<typeof import('@solana/web3.js').PublicKey>, units: bigint): Promise<InstanceType<typeof import('@solana/web3.js').TransactionInstruction>> {
+  const [{Connection, PublicKey}, splToken] = await Promise.all([import('@solana/web3.js'), import('@solana/spl-token')]);
+  const usdcMintAddress = TOKEN_ADDRESSES.USDC?.solana;
+  if (!usdcMintAddress) throw new Error('No verified USDC mint for Solana.');
+  const mint = new PublicKey(usdcMintAddress);
+  const sponsorUsdcAta = await splToken.getAssociatedTokenAddress(mint, new PublicKey(await getSolanaFeePayerPublicKey()));
+  if (!await new Connection(SOLANA_RPC_URL, 'confirmed').getAccountInfo(sponsorUsdcAta, 'confirmed')) throw new Error("Kivo's withdrawal fee account isn't ready. Nothing was sent; try again later.");
+  return splToken.createTransferInstruction(await splToken.getAssociatedTokenAddress(mint, user), sponsorUsdcAta, user, units);
+}
+
+export async function signAndSendRelaySolanaStep(item: RelayTransactionStepItem, secretKeyBase58: string, spendIntent: SolanaSpendIntent, stepOptions: {withdrawalFeeUnits?: bigint} = {}): Promise<{signature: string; warnings: string[]}> {
   const [{Connection, Keypair, PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction}, bs58Module] = await Promise.all([import('@solana/web3.js'), import('bs58')]);
   const bs58 = bs58Module.default;
   const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
@@ -776,6 +791,7 @@ export async function signAndSendRelaySolanaStep(item: RelayTransactionStepItem,
         data: Buffer.from(ix.data, 'hex'),
       }),
   );
+  if (stepOptions.withdrawalFeeUnits) instructions.push(await kivoWithdrawalFeeInstruction(keypair.publicKey, stepOptions.withdrawalFeeUnits));
   const lookupTables = (
     await Promise.all((item.data?.addressLookupTableAddresses ?? []).map(addr => connection.getAddressLookupTable(new PublicKey(addr)).then(res => res.value)))
   ).filter((t): t is NonNullable<typeof t> => Boolean(t));
@@ -893,7 +909,7 @@ export async function signAndSendRelaySolanaStep(item: RelayTransactionStepItem,
  * real getBalance() read. Same outcome (sponsor when short, don't when
  * not), a more robust trigger for this specific signer.
  */
-async function signAndSendRelaySolanaStepViaParticle(item: RelayTransactionStepItem, solanaAddress: string, spendIntent: SolanaSpendIntent): Promise<{signature: string; warnings: string[]}> {
+async function signAndSendRelaySolanaStepViaParticle(item: RelayTransactionStepItem, solanaAddress: string, spendIntent: SolanaSpendIntent, stepOptions: {withdrawalFeeUnits?: bigint} = {}): Promise<{signature: string; warnings: string[]}> {
   const {Connection, PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction} = await import('@solana/web3.js');
   const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
   const tokenAccountReadConnection = new Connection(SOLANA_TOKEN_ACCOUNT_READ_RPC_URL, 'confirmed');
@@ -907,6 +923,7 @@ async function signAndSendRelaySolanaStepViaParticle(item: RelayTransactionStepI
         data: Buffer.from(ix.data, 'hex'),
       }),
   );
+  if (stepOptions.withdrawalFeeUnits) instructions.push(await kivoWithdrawalFeeInstruction(payerKey, stepOptions.withdrawalFeeUnits));
   const lookupTables = (
     await Promise.all((item.data?.addressLookupTableAddresses ?? []).map(addr => connection.getAddressLookupTable(new PublicKey(addr)).then(res => res.value)))
   ).filter((t): t is NonNullable<typeof t> => Boolean(t));
@@ -1107,6 +1124,12 @@ export async function executeRelayQuote(
      * a persistently-reverting route can't loop forever re-quoting.
      */
     requote?: () => Promise<RelayQuote>;
+    /**
+     * A withdrawal from the Solana home balance: Kivo's withdrawal fee (USDC
+     * base units), paid to the Solana sponsor in the route's first Solana
+     * transaction, on top of the quoted amount.
+     */
+    solanaWithdrawalFeeUnits?: bigint;
   },
 ): Promise<ExecuteRelayQuoteResult> {
   const tagged = intentForQuote(quote);
@@ -1209,16 +1232,22 @@ export async function executeRelayQuote(
     // Only the route's last Solana step delivers the bought token; earlier
     // steps (account setup, wrapping) are checked for spend limits only.
     const lastSolanaUnit = [...units].reverse().find(u => u.kind === 'solana');
+    const firstSolanaUnit = units.find(u => u.kind === 'solana');
     for (const unit of units) {
       if (unit.kind === 'solana') {
         const item = unit.item;
+        const baseIntent = solanaSpendIntentFor(tagged.intent);
+        const withdrawalFeeUnits = unit === firstSolanaUnit && options?.solanaWithdrawalFeeUnits ? options.solanaWithdrawalFeeUnits : undefined;
+        const usdcMint = TOKEN_ADDRESSES.USDC?.solana;
         const spendIntent = {
-          ...solanaSpendIntentFor(tagged.intent),
+          ...baseIntent,
+          // Kivo's withdrawal fee is allowed on top of the route's own spend.
+          ...(withdrawalFeeUnits && usdcMint ? {extra: [...(baseIntent.extra ?? []), {mint: usdcMint, units: withdrawalFeeUnits}]} : {}),
           ...(unit === lastSolanaUnit ? await solanaOutputVerificationFor(quote, tagged.intent, session.solana.address) : {}),
         };
         const {signature, warnings: solanaStepWarnings} = isGoogleSession
-          ? await signAndSendRelaySolanaStepViaParticle(item, session.solana.address, spendIntent)
-          : await signAndSendRelaySolanaStep(item, session.solana.privateKey, spendIntent);
+          ? await signAndSendRelaySolanaStepViaParticle(item, session.solana.address, spendIntent, {withdrawalFeeUnits})
+          : await signAndSendRelaySolanaStep(item, session.solana.privateKey, spendIntent, {withdrawalFeeUnits});
         txHashes.push(signature);
         for (const warning of solanaStepWarnings) {
           void recordDiagnosticEvent('solanaTxIntent.warning', warning);
@@ -1279,7 +1308,7 @@ export async function executeRelayQuote(
       /did not deliver the expected output token/i.test(err.message)
     ) {
       const refreshedQuote = await options.requote();
-      return executeRelayQuote(refreshedQuote, session, onStep);
+      return executeRelayQuote(refreshedQuote, session, onStep, {solanaWithdrawalFeeUnits: options.solanaWithdrawalFeeUnits});
     }
     attachPartialTxHashes(err, txHashes);
     throw err;

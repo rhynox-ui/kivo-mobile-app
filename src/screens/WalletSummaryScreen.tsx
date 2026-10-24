@@ -35,7 +35,7 @@ import { classifyTransferError } from '@kivo/trading/core/broadcastState';
 import { checkTransferStatus } from '@kivo/trading/kivo/transferStatus';
 import { recordTransfer, updateTransferStatus } from '@kivo/trading/kivo/history';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, CASH_CHAINS, cashAssetSymbol, type CashBalanceRow } from '@kivo/trading/kivo/balances';
-import { isValidRecipientAddress, minHomeBridgeWithdrawalUsd, quoteHomeWithdrawal, withdrawalBreakdown, withdrawalTooSmallMessage, withdrawFromHome, withdrawUsdc } from '@kivo/trading/kivo/cash';
+import { BUSY_WITHDRAWAL_FEE_MULTIPLIER, busyWithdrawalFeeUsd, estimateSelfPaidWithdrawal, isValidRecipientAddress, quoteHomeWithdrawal, withdrawalBreakdown, withdrawalTooSmallMessage, withdrawFromHome, withdrawUsdc, withdrawUsdcGasless, withdrawUsdcSelfPaid, type SelfPaidEstimate } from '@kivo/trading/kivo/cash';
 import { fetchGaslessStatus, type GaslessStatus } from '@kivo/trading/kivo/gasless';
 import { formatAmount, formatBalanceUsd, formatUsd, shortAddress } from '@kivo/trading/kivo/tokens';
 import { NetworkIcon } from '../wallet/NetworkIcon';
@@ -361,11 +361,6 @@ function DepositSheet({
   );
 }
 
-/** Same rule as WithdrawSheet's crossNetwork: the home balance sending to a network other than Solana. */
-function crossNetworkFor(homeMode: boolean, chain: WithdrawNetwork | null): boolean {
-  return homeMode && chain !== null && chain !== 'solana';
-}
-
 function WithdrawSheet({
   visible,
   rows,
@@ -411,15 +406,17 @@ function WithdrawSheet({
   // comes out of the amount; NEAR withdrawals carry none.
   const feeNetwork: ChainKey | null = chain === null || chain === 'near' ? null : homeMode ? 'solana' : chain;
   const breakdown = feeNetwork && Number.isFinite(parsed) && parsed > 0 ? withdrawalBreakdown(feeNetwork, parsed) : null;
-  const minBridge = minHomeBridgeWithdrawalUsd();
-  const coversFee = feeNetwork === null || (breakdown !== null && (!crossNetworkFor(homeMode, chain) || parsed >= minBridge - 1e-9));
+  const coversFee = feeNetwork === null || breakdown !== null;
   const addressValid = chain ? (chain === 'near' ? isValidRecipientAddress(destination, to.trim()) : isValidRecipientAddress(chain, to.trim())) : false;
   const maxWithdrawable = Math.max(0, available);
   const amountValid = Number.isFinite(parsed) && parsed > 0 && parsed <= maxWithdrawable + 1e-9 && coversFee;
   const sponsorshipNeeded = !homeMode && chain !== 'solana' && chain !== 'near';
   const nearDestinationReady = chain !== 'near' || nearCashMoveChains().includes(destination);
-  const sponsorshipReady = !sponsorshipNeeded || gasless?.available === true;
-  const canReview = Boolean(chain && addressValid && amountValid && sponsorshipReady && nearDestinationReady && !busy);
+  // Never a dead end: when Kivo can't sponsor gas, the review offers a
+  // fallback (a higher fee, or paying gas from the wallet's own ETH/BNB).
+  const canReview = Boolean(chain && addressValid && amountValid && nearDestinationReady && !busy);
+  const [evmFallback, setEvmFallback] = useState<{ reason: string; busyFeeUsd: number | null; selfPaid: SelfPaidEstimate | null; loading: boolean; error?: string } | null>(null);
+  const sponsoredUnavailable = sponsorshipNeeded && gasless?.available === false;
   // A cross-network withdrawal can only be confirmed against a ready quote: the amount shown is the amount enforced.
   const reviewedReceive = homeQuote.state === 'ready' && homeQuote.received != null && Number.isFinite(Number(homeQuote.received)) ? Number(homeQuote.received) : null;
   const canConfirm = canReview && (!crossNetwork || reviewedReceive !== null);
@@ -462,13 +459,26 @@ function WithdrawSheet({
               ? `More than the ${formatAmount(available, 2)} ${homeMode ? 'USDC' : cashCoin(chain)} available${homeMode ? ' in your balance' : ` on ${chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}`}.`
               : feeNetwork && !breakdown
                 ? withdrawalTooSmallMessage(feeNetwork)
-              : crossNetwork && parsed < minBridge - 1e-9
-                ? `Withdrawals to another network must be at least $${minBridge.toFixed(2)}.`
-              : sponsorshipNeeded && gasless?.available === false
-                ? gasless.reason ?? 'Gasless EVM withdrawals are not configured yet.'
                 : null;
 
-  const executeSend = async () => {
+  /** Works out the fallback options for an EVM withdrawal Kivo can't sponsor right now (shown before confirming). */
+  const prepareEvmFallback = (reason: string, allowBusyFee: boolean) => {
+    if (!chain || chain === 'near' || chain === 'solana') return;
+    const evmChain = chain as ChainKey;
+    const busyFeeUsd = allowBusyFee && parsed > busyWithdrawalFeeUsd(evmChain) ? busyWithdrawalFeeUsd(evmChain) : null;
+    setEvmFallback({ reason, busyFeeUsd, selfPaid: null, loading: true });
+    estimateSelfPaidWithdrawal(evmChain, wallet.address, to.trim(), amount)
+      .then(selfPaid => setEvmFallback(current => current && { ...current, selfPaid, loading: false }))
+      .catch(error => setEvmFallback(current => current && { ...current, loading: false, error: error instanceof Error ? error.message : 'Could not estimate the network fee.' }));
+  };
+
+  useEffect(() => {
+    if (!review) { setEvmFallback(null); return; }
+    if (sponsoredUnavailable) prepareEvmFallback(gasless?.reason ?? 'Kivo gas sponsorship is unavailable right now.', false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [review, sponsoredUnavailable]);
+
+  const executeSend = async (mode: 'sponsored' | 'busy-fee' | 'self-paid' = 'sponsored') => {
     if (!chain || !canConfirm || sendLock.current) return;
     sendLock.current = true;
     setBusy(true);
@@ -479,8 +489,10 @@ function WithdrawSheet({
     const network = chain === 'near' ? CHAIN_LABEL[destination] : CHAIN_LABEL[chain as ChainKey];
     const chainId = chain === 'near' || crossNetwork ? undefined : MAINNET_CHAIN_IDS[chain as ChainKey];
     try {
-      const outcome: { hash?: string; requestId?: string; pending?: boolean } = await withDeviceAccounts(`Send ${sentAmount} ${symbol}`, async accounts => {
+      const outcome: { hash?: string; requestId?: string; pending?: boolean; selfPaid?: boolean } = await withDeviceAccounts(`Send ${sentAmount} ${symbol}`, async accounts => {
         if (crossNetwork) return withdrawFromHome(chain as ChainKey, accounts.relay, sentTo, sentAmount, reviewedReceive ?? undefined);
+        if (mode === 'self-paid' && chain !== 'near' && chain !== 'solana') return { ...(await withdrawUsdcSelfPaid({ account: accounts.evm, chainKey: chain, to: sentTo, amount: sentAmount })), selfPaid: true };
+        if (mode === 'busy-fee' && chain !== 'near' && chain !== 'solana') return withdrawUsdcGasless({ account: accounts.evm, chainKey: chain, to: sentTo, amount: sentAmount, feeMultiplier: BUSY_WITHDRAWAL_FEE_MULTIPLIER });
         if (chain !== 'near') return withdrawUsdc(chain, accounts.evm, accounts.solana, sentTo, sentAmount, 'deduct');
         const tokens = await fetchOneClickTokens();
         const move = nearCashMoveRequest({direction: 'from-near', chainKey: destination, amountBaseUnits: parseUnits(sentAmount, NEAR_USDC_DECIMALS).toString(), session: accounts.relay, tokens, dry: false, recipient: sentTo});
@@ -503,7 +515,7 @@ function WithdrawSheet({
       setResult({
         ok: true,
         // A NEAR withdrawal is delivered by NEAR Intents after the deposit lands; it is not "sent" yet.
-        message: chain === 'near' ? `Submitted: ${sentAmount} USDC from NEAR to ${shortAddress(sentTo)} on ${CHAIN_LABEL[destination]}. NEAR Intents delivers it in a few minutes.` : outcome.pending ? `Submitted: ${sentAmount} ${symbol} to ${shortAddress(sentTo)} on ${network}. It is still settling; do not send it again.` : `Sent ${sentAmount} ${symbol} on ${network}.`,
+        message: chain === 'near' ? `Submitted: ${sentAmount} USDC from NEAR to ${shortAddress(sentTo)} on ${CHAIN_LABEL[destination]}. NEAR Intents delivers it in a few minutes.` : outcome.pending ? `Submitted: ${sentAmount} ${symbol} to ${shortAddress(sentTo)} on ${network}. It is still settling; do not send it again.` : `Sent ${sentAmount} ${symbol} on ${network}.${outcome.selfPaid ? ' Your wallet paid the network fee, so no Kivo fee was charged.' : ''}`,
         hash: outcome.hash, requestId: outcome.requestId, chainId,
         amount: sentAmount, symbol, to: sentTo, network, submitted, transferId: entry?.id,
       });
@@ -525,6 +537,11 @@ function WithdrawSheet({
         onDone();
       } else if (classified.state === 'failed-on-chain') {
         setResult({ ok: false, failedOnChain: true, message: classified.message, hash: classified.signature, requestId: classified.requestId, chainId, amount: sentAmount, symbol, to: sentTo, network });
+      } else if (sponsorshipNeeded && mode !== 'self-paid') {
+        // Nothing was sent and Kivo couldn't sponsor it: stay on the review
+        // with the fallbacks (higher fee, or the wallet's own gas) instead of a dead end.
+        prepareEvmFallback(classified.message || 'Kivo could not sponsor this withdrawal right now.', mode === 'sponsored' && !sponsoredUnavailable);
+        return;
       } else {
         setResult({ ok: false, message: classified.message || 'Withdrawal failed. Nothing was sent.' });
       }
@@ -714,7 +731,7 @@ function WithdrawSheet({
                     : homeQuote.state === 'error' ? <Text style={styles.warn}>{homeQuote.error} Go back and review again to get a new price.</Text>
                     : homeQuote.state === 'ready' ? <>
                       <ReviewRow label="Withdrawal fee" value={formatUsd(homeQuote.kivoFeeUsd ?? breakdown?.feeUsd ?? 0)} />
-                      <ReviewRow label="Bridge & network cost" value={homeQuote.feeUsd != null ? formatUsd(Math.max(0, homeQuote.feeUsd - (homeQuote.kivoFeeUsd ?? 0))) : '—'} />
+                      <ReviewRow label="Bridge & network cost" value={homeQuote.feeUsd != null ? formatUsd(homeQuote.feeUsd) : '—'} />
                       <ReviewRow label="They receive" value={`≈ ${homeQuote.received ? formatAmount(Number(homeQuote.received), 4) : '—'} ${cashCoin(chain)}`} />
                       <Text style={styles.note}>If the price moves by more than 1% before sending, Kivo stops and nothing is sent.</Text>
                     </> : null
@@ -726,7 +743,32 @@ function WithdrawSheet({
 
                 <Text style={styles.warn}>Sends are final. Double-check the network and address above. A wrong network or address can permanently lose funds.</Text>
 
-                {confirming && !busy ? (
+                {evmFallback && chain && chain !== 'near' && chain !== 'solana' ? (
+                  <View style={styles.confirmCard}>
+                    <Text style={styles.confirmTitle}>Kivo can't cover the gas right now</Text>
+                    <Text style={styles.confirmBody}>{evmFallback.reason} Nothing was sent. You can still withdraw:</Text>
+                    {evmFallback.busyFeeUsd !== null ? (
+                      <Pressable disabled={busy} onPress={() => { void executeSend('busy-fee'); }} style={[styles.primary, busy && styles.disabled]}>
+                        <Text style={styles.primaryText}>Retry with a {formatUsd(evmFallback.busyFeeUsd)} fee · they receive {formatAmount(parsed - evmFallback.busyFeeUsd, 6)} {cashCoin(chain)}</Text>
+                      </Pressable>
+                    ) : null}
+                    {evmFallback.loading ? <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginVertical: 8 }} />
+                      : evmFallback.selfPaid?.enough ? (
+                        <Pressable disabled={busy} onPress={() => { void executeSend('self-paid'); }} style={[styles.primary, busy && styles.disabled]}>
+                          <Text style={styles.primaryText}>Pay gas yourself: ~{evmFallback.selfPaid.costNative.toPrecision(2)} {evmFallback.selfPaid.symbol}{evmFallback.selfPaid.costUsd != null ? ` (${formatUsd(evmFallback.selfPaid.costUsd)})` : ''} · no Kivo fee · they receive {breakdown ? formatAmount(breakdown.receive, 6) : amount} {cashCoin(chain)}</Text>
+                        </Pressable>
+                      ) : (
+                        <Text style={styles.note}>
+                          {evmFallback.selfPaid
+                            ? `Paying gas yourself needs about ${evmFallback.selfPaid.costNative.toPrecision(2)} ${evmFallback.selfPaid.symbol}${evmFallback.selfPaid.costUsd != null ? ` (${formatUsd(evmFallback.selfPaid.costUsd)})` : ''}; this wallet has ${evmFallback.selfPaid.haveNative.toPrecision(2)}. Add a little ${evmFallback.selfPaid.symbol}, try again in a few minutes, or withdraw on another network.`
+                            : `${evmFallback.error ?? ''} Try again in a few minutes, or withdraw on another network.`}
+                        </Text>
+                      )}
+                    <Pressable disabled={busy} onPress={() => { setEvmFallback(null); if (!sponsoredUnavailable) void executeSend('sponsored'); }} style={styles.ghost}><Text style={styles.ghostText}>{sponsoredUnavailable ? 'Dismiss' : 'Try gas-free again'}</Text></Pressable>
+                  </View>
+                ) : null}
+
+                {evmFallback ? null : confirming && !busy ? (
                   <View style={styles.confirmCard}>
                     <Text style={styles.confirmTitle}>Withdraw {amount} {homeMode ? 'USDC' : cashCoin(chain)}?</Text>
                     <Text style={styles.confirmBody}>

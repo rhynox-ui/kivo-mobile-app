@@ -4,19 +4,20 @@
 // There is no fallback to a gas-paying transfer (that is exactly what used
 // to fail with "insufficient ETH for gas" in Mango).
 
-import {encodeFunctionData, isAddress, parseUnits, type Address} from 'viem';
+import {createWalletClient, encodeFunctionData, isAddress, parseUnits, type Address} from 'viem';
 import bs58 from 'bs58';
 import {executeRelayQuote, getSolanaFeePayerPublicKey, signAndSendSponsoredSolanaStep, sponsorRepaymentUsdcUnits, type SolanaTransactionSigner} from '../core/executeRelayQuote';
 import {CLASSIC_TOKEN_ACCOUNT_SPACE, rentExemptLamports} from '../core/solanaAccountCreation';
 import {getRelayQuote, summarizeQuote, type QuoteSummary} from '../core/relayQuote';
 import type {DerivedAccounts} from '../wallet/keys';
 import type {LocalAccount} from 'viem/accounts';
-import {TOKEN_ADDRESSES, assetDecimalsForChain, type ChainKey} from '../core/chainData';
-import {getViemChain} from '../core/chainRegistry';
+import {MAINNET_CHAIN_IDS, NATIVE_SYMBOL, TOKEN_ADDRESSES, assetDecimalsForChain, type ChainKey} from '../core/chainData';
+import {getViemChain, publicClientForChainId, transportFor} from '../core/chainRegistry';
+import {fetchWalletPrices} from '../core/walletPrices';
 import {sendEvmCallsViaRelayGasless} from '../core/relayGaslessEvm';
-import {markFailedOnChain, markMaybeBroadcast, solanaSubmitDefinitelyRejected} from '../core/broadcastState';
+import {classifyTransferError, markFailedOnChain, markMaybeBroadcast, solanaSubmitDefinitelyRejected} from '../core/broadcastState';
 import {cashAssetAddress,cashAssetSymbol} from './balances';
-import {DEV_FEE_WALLET, withdrawalFeeUnits, withdrawalFeeUsd} from '../core/fees';
+import {DEV_FEE_WALLET, splitWithdrawal, withdrawalFeeUnits, withdrawalFeeUsd} from '../core/fees';
 
 const ERC20_TRANSFER_ABI = [{type: 'function', name: 'transfer', inputs: [{name: 'to', type: 'address'}, {name: 'amount', type: 'uint256'}], outputs: [{type: 'bool'}], stateMutability: 'nonpayable'}] as const;
 
@@ -59,12 +60,12 @@ export function withdrawalTooSmallMessage(chainKey: ChainKey): string {
  * withdrawal fee to Kivo's fee wallet, in one batch that Kivo's server
  * sponsors only when the fee is there (web/server/relay.ts withdrawalProblem).
  */
-export function evmWithdrawalCalls(chainKey: ChainKey, to: string, amountUnits: bigint, feeMode: WithdrawalFeeMode = 'deduct'): {to: Address; value: bigint; data: `0x${string}`}[] {
+export function evmWithdrawalCalls(chainKey: ChainKey, to: string, amountUnits: bigint, feeMode: WithdrawalFeeMode = 'deduct', feeMultiplier = 1n): {to: Address; value: bigint; data: `0x${string}`}[] {
   const cashSymbol = cashAssetSymbol(chainKey);
   const cashAddress = cashAssetAddress(chainKey);
   if (!cashAddress || !cashAddress.startsWith('0x')) throw new Error(`Kivo has no verified ${cashSymbol} contract on ${chainKey}.`);
   const decimals = assetDecimalsForChain(chainKey, cashSymbol) ?? 6;
-  const fee = withdrawalFeeUnits(chainKey, decimals);
+  const fee = withdrawalFeeUnits(chainKey, decimals) * (feeMultiplier > 1n ? feeMultiplier : 1n);
   const send = feeMode === 'deduct' ? amountUnits - fee : amountUnits;
   if (send <= 0n) throw new Error(`${withdrawalTooSmallMessage(chainKey)} Nothing was sent.`);
   const transfer = (recipient: string, units: bigint) => encodeFunctionData({abi: ERC20_TRANSFER_ABI, functionName: 'transfer', args: [recipient as Address, units]});
@@ -74,7 +75,7 @@ export function evmWithdrawalCalls(chainKey: ChainKey, to: string, amountUnits: 
   ];
 }
 
-export async function withdrawUsdcGasless(params: {account: LocalAccount; chainKey: ChainKey; to: string; amount: string; feeMode?: WithdrawalFeeMode}): Promise<{hash: string; requestId: string}> {
+export async function withdrawUsdcGasless(params: {account: LocalAccount; chainKey: ChainKey; to: string; amount: string; feeMode?: WithdrawalFeeMode; feeMultiplier?: bigint}): Promise<{hash: string; requestId: string}> {
   const {account, chainKey, amount} = params;
   const to = params.to.trim();
   const cashSymbol = cashAssetSymbol(chainKey);
@@ -89,8 +90,78 @@ export async function withdrawUsdcGasless(params: {account: LocalAccount; chainK
     chain: getViemChain(chainKey),
     fromAddress: account.address as Address,
     account,
-    calls: evmWithdrawalCalls(chainKey, to, parseUnits(amount.trim(), decimals), feeMode),
+    calls: evmWithdrawalCalls(chainKey, to, parseUnits(amount.trim(), decimals), feeMode, params.feeMultiplier),
   });
+}
+
+/** Multiplier for the "network is busy" retry: the fee Kivo's sponsorship may spend rises with it. */
+export const BUSY_WITHDRAWAL_FEE_MULTIPLIER = 3n;
+
+/**
+ * A gas-free withdrawal that pays a higher withdrawal fee (BUSY_WITHDRAWAL_FEE_MULTIPLIER
+ * x the table), for when gas is above the normal fee and Relay refused to
+ * sponsor it: Kivo's server lets Relay spend up to the fee actually paid.
+ */
+export function busyWithdrawalFeeUsd(chainKey: ChainKey): number {
+  return withdrawalFeeUsd(chainKey) * Number(BUSY_WITHDRAWAL_FEE_MULTIPLIER);
+}
+
+/** What paying gas from the wallet's own ETH/BNB/... costs for this withdrawal (estimated, shown before confirming). */
+export type SelfPaidEstimate = {costNative: number; costUsd: number | null; symbol: string; enough: boolean; haveNative: number};
+
+export function selfPaidWithdrawalCall(chainKey: ChainKey, to: string, amount: string, feeMode: WithdrawalFeeMode) {
+  const cashSymbol = cashAssetSymbol(chainKey);
+  const cashAddress = cashAssetAddress(chainKey);
+  if (!cashAddress || !cashAddress.startsWith('0x')) throw new Error(`Kivo has no verified ${cashSymbol} contract on ${chainKey}.`);
+  const decimals = assetDecimalsForChain(chainKey, cashSymbol) ?? 6;
+  const gross = parseUnits(amount.trim(), decimals);
+  // Same amount reaches the recipient as reviewed; paying its own gas, the
+  // wallet pays Kivo no withdrawal fee (it keeps it).
+  const send = feeMode === 'deduct' ? gross - withdrawalFeeUnits(chainKey, decimals) : gross;
+  if (send <= 0n) throw new Error(`${withdrawalTooSmallMessage(chainKey)} Nothing was sent.`);
+  return {to: cashAddress as Address, data: encodeFunctionData({abi: ERC20_TRANSFER_ABI, functionName: 'transfer', args: [to as Address, send]})};
+}
+
+export async function estimateSelfPaidWithdrawal(chainKey: ChainKey, from: string, to: string, amount: string, feeMode: WithdrawalFeeMode = 'deduct'): Promise<SelfPaidEstimate> {
+  const client = publicClientForChainId(MAINNET_CHAIN_IDS[chainKey]);
+  const call = selfPaidWithdrawalCall(chainKey, to.trim(), amount, feeMode);
+  const [gas, fees, balance, prices] = await Promise.all([
+    client.estimateGas({account: from as Address, to: call.to, data: call.data}).catch(() => 80_000n),
+    client.estimateFeesPerGas().catch(async () => ({maxFeePerGas: await client.getGasPrice()})),
+    client.getBalance({address: from as Address}),
+    fetchWalletPrices().catch(() => ({} as Record<string, number>)),
+  ]);
+  const perGas = (fees as {maxFeePerGas?: bigint; gasPrice?: bigint}).maxFeePerGas ?? (fees as {gasPrice?: bigint}).gasPrice ?? 0n;
+  // 20% headroom on both, like a wallet's own estimate.
+  const costWei = (gas * 12n / 10n) * (perGas * 12n / 10n);
+  const symbol = NATIVE_SYMBOL[chainKey];
+  const costNative = Number(costWei) / 1e18;
+  const price = prices[symbol];
+  return {costNative, costUsd: price ? costNative * price : null, symbol, enough: balance >= costWei, haveNative: Number(balance) / 1e18};
+}
+
+/**
+ * The fallback when Kivo can't sponsor gas: a plain transfer this wallet signs
+ * and pays gas for in its own ETH/BNB/..., no Kivo fee. Only after the person
+ * saw estimateSelfPaidWithdrawal's cost.
+ */
+export async function withdrawUsdcSelfPaid(params: {account: LocalAccount; chainKey: ChainKey; to: string; amount: string; feeMode?: WithdrawalFeeMode}): Promise<{hash: string}> {
+  const {account, chainKey} = params;
+  const to = params.to.trim();
+  if (!isAddress(to)) throw new Error('Enter a valid 0x… address.');
+  const call = selfPaidWithdrawalCall(chainKey, to, params.amount, params.feeMode ?? 'deduct');
+  const chain = getViemChain(chainKey);
+  const walletClient = createWalletClient({account, chain, transport: transportFor(chain.id)});
+  const client = publicClientForChainId(chain.id);
+  const hash = await walletClient.sendTransaction({account, chain, to: call.to, data: call.data, value: 0n});
+  try {
+    const receipt = await client.waitForTransactionReceipt({hash, timeout: 120_000});
+    if (receipt.status !== 'success') throw markFailedOnChain(new Error(`Transaction ${hash} failed on-chain.`), {signature: hash});
+  } catch (error) {
+    if (error instanceof Error && (error as {kivoFailedOnChain?: boolean}).kivoFailedOnChain) throw error;
+    throw markMaybeBroadcast(new Error(`Transaction ${hash} was sent but is not confirmed yet. Do not retry; check its status first.`), {signature: hash});
+  }
+  return {hash};
 }
 
 /** Gasless USDC transfer used by NEAR Intents 1Click funding. */
@@ -100,7 +171,7 @@ async function sendSolanaUsdc(
   toAddress: string,
   amountUsdc: string,
   feeMode: WithdrawalFeeMode = 'none',
-): Promise<{hash: string}> {
+): Promise<{hash: string; selfPaid?: boolean}> {
   const mintAddress = TOKEN_ADDRESSES.USDC?.solana;
   if (!mintAddress) throw new Error('No verified USDC mint for Solana.');
   const [{Connection, PublicKey, Transaction}, splToken] = await Promise.all([
@@ -162,14 +233,33 @@ async function sendSolanaUsdc(
   // A USDC-only wallet (the normal Kivo case) holds no SOL at all. Solana
   // then rejects with "no record of a prior credit" instead of "insufficient
   // lamports", so check the balance first: fee plus new-account rent.
-  if (feeRaw > 0n) return sponsoredSend();
   const needLamports = 10_000 + (toAtaInfo ? 0 : await connection.getMinimumBalanceForRentExemption(165));
-  const haveLamports = await connection.getBalance(from, 'confirmed');
-  if (haveLamports < needLamports) return sponsoredSend();
+  let selfPaid = false;
+  if (feeRaw > 0n) {
+    // A withdrawal: Kivo's sponsor pays the network fee and the withdrawal fee
+    // covers it. If the sponsor can't take it (unavailable, low on SOL...), the
+    // withdrawal still goes: this wallet pays the Solana fee from its own SOL
+    // and no Kivo fee is charged. The recipient gets what was reviewed.
+    try {
+      return await sponsoredSend();
+    } catch (error) {
+      if (classifyTransferError(error).state !== 'not-sent') throw error;
+      const reason = error instanceof Error ? error.message : String(error);
+      const haveLamports = await connection.getBalance(from, 'confirmed').catch(() => 0);
+      if (haveLamports < needLamports) {
+        throw new Error(`Kivo couldn't pay the Solana network fee for this withdrawal right now (${reason.replace(/\.?\s*Nothing was (sent|signed)[^.]*\.?/gi, '').trim() || 'sponsor unavailable'}), and this wallet has no SOL to pay it itself. Nothing was sent. Try again in a few minutes, or add about ${(needLamports / 1e9 + 0.001).toFixed(3)} SOL to pay the fee yourself.`);
+      }
+      selfPaid = true;
+    }
+  } else {
+    const haveLamports = await connection.getBalance(from, 'confirmed');
+    if (haveLamports < needLamports) return sponsoredSend();
+  }
 
   const {blockhash, lastValidBlockHeight} = await connection.getLatestBlockhash('confirmed');
   const transaction = new Transaction({recentBlockhash: blockhash, feePayer: from});
-  transaction.add(...instructions);
+  // Paying its own fee, the wallet pays Kivo no withdrawal fee.
+  transaction.add(...instructions.filter(ix => ix !== feeIx));
   transaction.sign(solanaKeypair);
   // Known before broadcasting, so a later failure can still point at this transaction.
   const signature = transaction.signature ? bs58.encode(transaction.signature) : '';
@@ -178,7 +268,7 @@ async function sendSolanaUsdc(
   } catch (error) {
     // Rejected in preflight, so nothing was broadcast: safe to sponsor instead.
     const message = error instanceof Error ? error.message : String(error);
-    if (/insufficient lamports|no record of a prior credit|AccountNotFound|InsufficientFundsFor(Fee|Rent)/i.test(message)) return sponsoredSend();
+    if (!selfPaid && /insufficient lamports|no record of a prior credit|AccountNotFound|InsufficientFundsFor(Fee|Rent)/i.test(message)) return sponsoredSend();
     throw solanaSubmitDefinitelyRejected(error) ? error : markMaybeBroadcast(error, {signature});
   }
   try {
@@ -188,7 +278,7 @@ async function sendSolanaUsdc(
     if (error instanceof Error && (error as {kivoFailedOnChain?: boolean}).kivoFailedOnChain) throw error;
     throw markMaybeBroadcast(new Error(`Transaction ${signature} was sent but is not confirmed yet. Do not retry; check its status first.`), {signature});
   }
-  return {hash: signature};
+  return {hash: signature, ...(selfPaid ? {selfPaid: true} : {})};
 }
 
 export async function withdrawUsdc(
@@ -198,7 +288,7 @@ export async function withdrawUsdc(
   to: string,
   amount: string,
   feeMode: WithdrawalFeeMode,
-): Promise<{hash: string; requestId?: string}> {
+): Promise<{hash: string; requestId?: string; selfPaid?: boolean}> {
   if (!isValidRecipientAddress(chainKey, to)) {
     throw new Error(`That doesn't look like a valid ${chainKey === 'solana' ? 'Solana' : 'wallet'} address.`);
   }
@@ -213,55 +303,39 @@ export async function sendUsdc(chainKey: ChainKey, account: LocalAccount, to: st
   return withdrawUsdcGasless({account, chainKey, to, amount});
 }
 
-/** Relay app fees are capped at 5% by Kivo's server: the smallest bridged withdrawal is the fee x 20. */
-const HOME_WITHDRAWAL_MAX_FEE_BPS = 500n;
-
-/** Kivo's withdrawal fee on a bridged home withdrawal of `amountUnits` (USDC, 6 decimals), as Relay app-fee bps (rounded up). */
-export function homeWithdrawalFeeBps(amountUnits: bigint): bigint {
-  const fee = withdrawalFeeUnits('solana', 6);
-  return amountUnits > 0n ? (fee * 10_000n + amountUnits - 1n) / amountUnits : HOME_WITHDRAWAL_MAX_FEE_BPS + 1n;
-}
-
-/** The smallest amount a home balance can withdraw to another network (USD). */
-export function minHomeBridgeWithdrawalUsd(): number {
-  return withdrawalFeeUsd('solana') * 10_000 / Number(HOME_WITHDRAWAL_MAX_FEE_BPS);
-}
-
 /**
  * Withdrawal from Kivo's home balance (USDC on Solana) to any network: one
  * Relay route, USDC on Solana -> USDC (USDG on Robinhood) on `chainKey`,
  * delivered straight to `to`. Kivo's withdrawal fee (fees.ts, $0.10 from the
- * home balance) is the route's app fee; Relay's own execution cost (≈$0.02 +
- * destination gas) also comes out of the amount. Both are shown before
- * confirming. The Solana network fee is paid by Kivo's fee payer; new
- * token-account rent is recovered in the same transaction.
+ * home balance) comes off the amount and is paid in USDC to Kivo's Solana
+ * sponsor inside the route's own Solana transaction (so the sponsor never
+ * quota-limits it); Relay bridges the rest, its own cost (≈$0.02 +
+ * destination gas) coming out of that. Both are shown before confirming.
  */
 function homeWithdrawalParams(chainKey: ChainKey, solanaAddress: string, to: string, amount: string) {
   const usdcSolana = TOKEN_ADDRESSES.USDC?.solana;
   if (!usdcSolana) throw new Error('No verified USDC mint for Solana.');
   if (!isValidRecipientAddress(chainKey, to)) throw new Error("That doesn't look like a valid wallet address for this network.");
-  const amountUnits = parseUnits(amount.trim(), 6);
-  const feeBps = homeWithdrawalFeeBps(amountUnits);
-  if (feeBps > HOME_WITHDRAWAL_MAX_FEE_BPS) throw new Error(`Withdrawals to another network must be at least $${minHomeBridgeWithdrawalUsd().toFixed(2)}.`);
+  const split = splitWithdrawal('solana', parseUnits(amount.trim(), 6), 6);
+  if (!split) throw new Error(withdrawalTooSmallMessage('solana'));
   return {
     fromChainKey: 'solana' as ChainKey,
     toChainKey: chainKey,
     originCurrency: usdcSolana,
     destinationCurrency: cashAssetAddress(chainKey),
-    amountBaseUnits: amountUnits.toString(),
+    amountBaseUnits: split.receiveUnits.toString(),
     userAddress: solanaAddress,
     recipientAddress: to.trim(),
     waiveAppFee: true,
-    withdrawalFeeBps: feeBps.toString(),
+    feeUnits: split.feeUnits,
   };
 }
 
 /** What the recipient gets for a home withdrawal to another network (shown before confirming). */
 export async function quoteHomeWithdrawal(chainKey: ChainKey, solanaAddress: string, to: string, amount: string): Promise<QuoteSummary & {kivoFeeUsd: number}> {
-  const params = homeWithdrawalParams(chainKey, solanaAddress, to, amount);
+  const {feeUnits, ...params} = homeWithdrawalParams(chainKey, solanaAddress, to, amount);
   const summary = summarizeQuote(await getRelayQuote(params), assetDecimalsForChain(chainKey, cashAssetSymbol(chainKey)) ?? 6);
-  const kivoFeeUsd = Number(BigInt(params.amountBaseUnits) * BigInt(params.withdrawalFeeBps) / 10_000n) / 1e6;
-  return {...summary, kivoFeeUsd};
+  return {...summary, kivoFeeUsd: Number(feeUnits) / 1e6};
 }
 
 /** How far below the reviewed "they receive" amount the executed quote may land before Kivo refuses to sign it. */
@@ -280,7 +354,7 @@ export function receiveWithinTolerance(reviewed: number, executed: number | null
 
 export async function withdrawFromHome(chainKey: ChainKey, accounts: DerivedAccounts, to: string, amount: string, reviewedReceive?: number): Promise<{hash: string; requestId?: string; pending?: boolean}> {
   if (!accounts.solana?.address) throw new Error('This wallet has no Solana account. Nothing was sent.');
-  const params = homeWithdrawalParams(chainKey, accounts.solana.address, to, amount);
+  const {feeUnits, ...params} = homeWithdrawalParams(chainKey, accounts.solana.address, to, amount);
   const decimals = assetDecimalsForChain(chainKey, cashAssetSymbol(chainKey)) ?? 6;
   const guardedQuote = async () => {
     const quote = await getRelayQuote(params);
@@ -292,7 +366,7 @@ export async function withdrawFromHome(chainKey: ChainKey, accounts: DerivedAcco
     }
     return quote;
   };
-  const result = await executeRelayQuote(await guardedQuote(), accounts, undefined, {requote: guardedQuote});
+  const result = await executeRelayQuote(await guardedQuote(), accounts, undefined, {requote: guardedQuote, solanaWithdrawalFeeUnits: feeUnits});
   if (result.status === 'refunded') throw markFailedOnChain(new Error('The transfer could not be completed and was refunded to your Solana USDC.'), {signature: result.txHashes[0], requestId: result.requestId ?? undefined});
   return {hash: result.txHashes[result.txHashes.length - 1] ?? '', requestId: result.requestId ?? undefined, pending: result.status === 'pending'};
 }
