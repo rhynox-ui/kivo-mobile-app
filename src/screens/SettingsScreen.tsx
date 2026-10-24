@@ -5,6 +5,8 @@ import { kivoTheme } from '../theme/kivoTheme';
 import { updateSettings, useSettings } from '../state/settingsStore';
 import { getTradeHistory } from '@kivo/trading/kivo/history';
 import { AppearanceHapticsScreen } from './AppearanceHapticsScreen';
+import { ChatSettingsScreen } from './ChatSettingsScreen';
+import { chatThemeById } from '../theme/chatThemes';
 import { api } from '../state/session';
 
 type SettingsItem = {
@@ -12,18 +14,20 @@ type SettingsItem = {
   icon: string;
   value?: string;
   destructive?: boolean;
-  action: 'wallet' | 'rewards' | 'profile' | 'haptics' | 'notifications' | 'language' | 'security' | 'legal' | 'taxes' | 'help' | 'docs' | 'x' | 'telegram' | 'logout' | 'delete';
+  action: 'wallet' | 'rewards' | 'profile' | 'haptics' | 'chat' | 'notifications' | 'language' | 'security' | 'legal' | 'taxes' | 'help' | 'docs' | 'x' | 'telegram' | 'logout' | 'delete';
 };
 
 export function SettingsScreen({ onBack, onOpenWallet, onOpenRewards, onOpenProfile, onOpenSecurity, onLogout }: { onBack:()=>void; onOpenWallet?:()=>void; onOpenRewards?:()=>void; onOpenProfile?:()=>void; onOpenSecurity?:()=>void; onLogout?:()=>void }) {
   const settings = useSettings();
   const [showAppearance, setShowAppearance] = React.useState(false);
+  const [showChat, setShowChat] = React.useState(false);
   const [deletion, setDeletion] = React.useState<{status: 'pending' | 'processing'; executeAt: number} | null>(null);
   React.useEffect(() => { let active = true; api.accountDeletionStatus().then(result => { if (active && result.pending && result.status && result.executeAt) setDeletion({status: result.status, executeAt: result.executeAt}); }).catch(() => {}); return () => { active = false; }; }, []);
   const items: SettingsItem[] = [
     { label:'Profile and Account',icon:'♙',action:'profile' },
     { label:'Rewards',icon:'🎁',value:'Who referred you?',action:'rewards' },
     { label:'Appearance and Haptics',icon:'◐',value:settings.haptics?'On':'Off',action:'haptics' },
+    { label:'Chat Settings',icon:'💬',value:chatThemeById(settings.chatTheme).name,action:'chat' },
     { label:'Language',icon:'◎',value:settings.language,action:'language' },
     { label:'Notifications',icon:'♧',value:settings.notifications?'On':'Off',action:'notifications' },
     { label:'Security',icon:'♢',action:'security' },
@@ -44,6 +48,7 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenRewards, onOpenProf
       case 'rewards': onOpenRewards?.(); return;
       case 'profile': onOpenProfile?.(); return;
       case 'haptics': setShowAppearance(true); return;
+      case 'chat': setShowChat(true); return;
       case 'notifications':
         updateSettings({notifications:!settings.notifications});
         Linking.openSettings().catch(()=>{});
@@ -94,6 +99,7 @@ export function SettingsScreen({ onBack, onOpenWallet, onOpenRewards, onOpenProf
   };
 
   if (showAppearance) return <AppearanceHapticsScreen onBack={() => setShowAppearance(false)} />;
+  if (showChat) return <ChatSettingsScreen onBack={() => setShowChat(false)} />;
 
   return <View style={styles.root}><ScrollView contentContainerStyle={styles.content}>
     <View style={styles.header}><Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={onBack} hitSlop={10}><Text style={styles.back}>‹</Text></Pressable><Text style={styles.title}>Settings</Text></View>
