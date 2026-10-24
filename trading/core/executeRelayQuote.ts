@@ -493,6 +493,37 @@ async function feeWalletShortfallError(
   return new Error(`This is Kivo's fee wallet, so it pays its own fees. This route needs about ${sol(total)} (${parts.join(', ')})${have === null ? '' : `; the wallet has ${sol(have)}`}. Nothing was sent.`);
 }
 
+/**
+ * Kivo's own fee wallet (also the sponsor) trading for itself: the same
+ * transaction, paid from its own SOL, after the same intent and spend checks.
+ */
+async function signAndSendOwnFeeSolanaStep(
+  instructions: InstanceType<typeof import('@solana/web3.js').TransactionInstruction>[],
+  lookupTables: InstanceType<typeof import('@solana/web3.js').AddressLookupTableAccount>[],
+  signer: SolanaTransactionSigner,
+  connection: InstanceType<typeof import('@solana/web3.js').Connection>,
+  simulationConnection: InstanceType<typeof import('@solana/web3.js').Connection>,
+  tokenAccountReadConnection: InstanceType<typeof import('@solana/web3.js').Connection>,
+  spendIntent?: SolanaSpendIntent,
+): Promise<{signature: string; warnings: string[]}> {
+  const [{TransactionMessage, VersionedTransaction}, bs58Module] = await Promise.all([import('@solana/web3.js'), import('bs58')]);
+  const {blockhash} = await connection.getLatestBlockhash('confirmed');
+  const unsigned = new VersionedTransaction(new TransactionMessage({payerKey: signer.publicKey, instructions, recentBlockhash: blockhash}).compileToV0Message(lookupTables));
+  const warnings = assertSolanaTransactionMatchesIntent(unsigned, {expectedSigner: signer.publicKey.toBase58(), addressLookupTableAccounts: lookupTables});
+  if (spendIntent) {
+    try {
+      await assertSolanaSpendWithinIntentWeb3(simulationConnection, unsigned, signer.publicKey.toBase58(), spendIntent, tokenAccountReadConnection);
+    } catch (guardErr) {
+      if (!isInsufficientSolSimulation(guardErr)) throw guardErr;
+      throw (await feeWalletShortfallError(connection, signer.publicKey, instructions, guardErr instanceof Error ? `${guardErr.message} ${(guardErr as {logs?: string[]}).logs?.join(' ') ?? ''}` : String(guardErr))) ?? guardErr;
+    }
+  }
+  const transaction = await signer.sign(unsigned);
+  const signature = bs58Module.default.encode(transaction.signatures[0]);
+  await connection.sendRawTransaction(transaction.serialize());
+  return {signature: await confirmSolanaSignature(connection, signature), warnings};
+}
+
 export async function signAndSendSponsoredSolanaStep(
   instructions: InstanceType<typeof import('@solana/web3.js').TransactionInstruction>[],
   lookupTables: InstanceType<typeof import('@solana/web3.js').AddressLookupTableAccount>[],
@@ -512,7 +543,7 @@ export async function signAndSendSponsoredSolanaStep(
   const feePayerPubkey = new PublicKey(await getSolanaFeePayerPublicKey());
   // Kivo's own fee wallet can't sponsor itself: it pays its own Solana fees.
   if (signer.publicKey.equals(feePayerPubkey)) {
-    throw new Error("This is Kivo's fee wallet, so Kivo can't cover its fees. Add a little SOL to it (about 0.01) or trade from a different wallet. Nothing was sent.");
+    return signAndSendOwnFeeSolanaStep(instructions, lookupTables, signer, connection, simulationConnection, tokenAccountReadConnection, spendIntent);
   }
   // AccountNotFound at this stage is a fee-payer validation failure on
   // Solana. Read the sponsor balance from the standard RPC before asking

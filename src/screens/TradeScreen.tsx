@@ -511,7 +511,7 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     : !wallet ? 'Create or import a Kivo wallet on this phone to trade.'
     : amountProblem ?? (parsed == null ? `Enter an amount to ${side} ${token?.symbol ?? ''}`
       : quoteState === 'loading' ? 'Finding the best route…'
-      : movingHome ? 'Moving your USDC to Solana for this buy…'
+      : movingHome ? 'Moving your USDC to Solana for this buy… (usually under a minute)'
       : quoteState === 'error' && moveHomeUsd != null ? `Tap Buy: Kivo first moves your USDC to Solana (free), then shows the review.`
       : quoteState === 'error' ? quoteError
       : expired ? 'Quote expired — tap Refresh.'
@@ -524,18 +524,27 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
     if (quoteState === 'error' && moveHomeUsd != null) {
       if (movingHome) return;
       setMovingHome(true);
-      void runAutoSweep({ upToUsd: moveHomeUsd }).then(moved => {
-        setMovingHome(false);
+      const needUsd = parsed ?? 0;
+      void runAutoSweep({ upToUsd: moveHomeUsd }).then(async moved => {
         if (!moved || moved.movedUsd <= 0) {
+          setMovingHome(false);
           setMoveHomeUsd(null);
           setQuoteError(moved?.failed[0]?.error ? `Couldn't move your USDC to Solana: ${moved.failed[0].error}` : 'Unlock your wallet and try again.');
           return;
         }
+        // The move is done on Relay's side; Solana RPCs can take a few seconds
+        // to show it. Wait until the home USDC covers the buy, then quote and
+        // open the review without another tap.
+        let fresh: SpendableBalance | null = null;
+        for (let attempt = 0; attempt < 30; attempt++) {
+          if (attempt > 0) await new Promise<void>(resolve => setTimeout(resolve, 3000));
+          clearSpendableBalanceCache();
+          fresh = address ? await fetchTradeCash(address, wallet?.source === 'local' ? wallet.solanaAddress : undefined, { forceFresh: true }).catch(() => null) : null;
+          if (fresh && token && totalSpendableUsd(spendableFor(onlyHomeCash(fresh), token)) >= needUsd - 0.01) break;
+        }
         reopenReview.current = true;
-        // The moved USDC can take a few seconds to show on Solana: read again until it has.
-        setBalanceNonce(n => n + 1);
-        setTimeout(() => setBalanceNonce(n => n + 1), 8000);
-        setTimeout(() => setBalanceNonce(n => n + 1), 20000);
+        setMovingHome(false);
+        if (fresh) setSpendable(fresh); else setBalanceNonce(n => n + 1);
       });
       return;
     }
