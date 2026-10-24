@@ -16,7 +16,8 @@ import {buyPool, legNeedsSponsorship} from '../trading/kivo/unified.ts';
 import {sweepCandidates} from '../trading/kivo/sweep.ts';
 import {convertGasPath, homeMoveFlags, quoteGasUsd} from '../trading/kivo/convert.ts';
 import {MIN_ETHEREUM_SWEEP_USD} from '../trading/kivo/sweep.ts';
-import {OWN_GAS_TRANSFER_CHAINS} from '../trading/kivo/cash.ts';
+import {evmWithdrawalCalls} from '../trading/kivo/cash.ts';
+import {withdrawalFeeUsd} from '../trading/core/fees.ts';
 import {homeMoveMessage, homeProofFor, cachedHomeProof, clearHomeProofs} from '../trading/kivo/homeProof.ts';
 import {configureRelayEndpoints, getRelayQuote} from '../trading/core/relayQuote.ts';
 import {TOKEN_ADDRESSES} from '../trading/core/chainData.ts';
@@ -114,8 +115,9 @@ assert.match(path.note, /larger amount|gas coin/);
 assert.equal(convertGasPath({fromChain: 'base', fromKind: 'cash', sponsorship: 'on: fee-free move home'}).note, null);
 assert.equal(convertGasPath({fromChain: 'base', fromKind: 'cash', sponsorship: 'off: the Solana recipient…', awaitingProof: true}).mode, 'sponsored', 're-quoted with the proof at confirmation');
 assert.equal(quoteGasUsd('dropped: sponsoring $2.0000 would exceed the $0.0020 fee', null), 2);
-// Transfers on Ethereum are never sponsored by Kivo: the wallet's own ETH pays (never a dead end).
-assert.ok(OWN_GAS_TRANSFER_CHAINS.has('ethereum'));
+// Transfers on Ethereum are sponsored like every network, paying the $3 withdrawal fee that covers L1 gas (no ETH needed).
+assert.equal(withdrawalFeeUsd('ethereum'), 3);
+assert.equal(evmWithdrawalCalls('ethereum', '0x' + '4'.repeat(40), 10_000_000n).length, 2);
 
 // A confirmed user-paid gas fee: sponsored, never the free cash-move flags.
 sentBody = null;

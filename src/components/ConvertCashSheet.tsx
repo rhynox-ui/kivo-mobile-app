@@ -129,7 +129,7 @@ export function ConvertCashSheet({visible,onClose,onConverted,moveHome=false}:{v
        const fromAddress=from.chain==='near'?session.near!.address:(from.chain==='solana'?wallet.solanaAddress!:wallet.address);
        const record=await fundOneClickQuote({response,expected:move.expected,originChainKey:from.chain==='near'?'near':from.chain as ChainKey,originSymbol:from.symbol,originDecimals:from.decimals,fromAddress,store:oneClickSwapStore,submitDepositTx:(txHash,depositAddress)=>submitOneClickDepositTx(txHash,depositAddress),send:async(toAddress,sendAmount)=>{
          if(from.chain==='near'){const call=await nearUsdcDepositCall(toAddress,parseUnits(sendAmount,NEAR_USDC_DECIMALS),nearView);const [outcome]=await import('@kivo/trading/core/nearSigning').then(m=>m.sendSponsoredNearCalls(session,[call]));return outcome.hash;}
-         const {withdrawUsdc}=await import('@kivo/trading/kivo/cash'); return (await withdrawUsdc(from.chain as ChainKey,accounts.evm,accounts.solana,toAddress,sendAmount)).hash;
+         const {withdrawUsdc}=await import('@kivo/trading/kivo/cash'); return (await withdrawUsdc(from.chain as ChainKey,accounts.evm,accounts.solana,toAddress,sendAmount,from.chain==='solana'?'none':'on-top')).hash;
        }});
        setNearRecord(record);setOutcome({tone:'pending',from,to});setHashes(record.depositTxHash?[record.depositTxHash]:[]);setSent({paid:`${amount} ${from.symbol}`,received:quote.receivedAmountFormatted?`${quote.receivedAmountFormatted} ${to.symbol}`:null});setNearSending(false);
      });

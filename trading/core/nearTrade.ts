@@ -152,9 +152,10 @@ export async function fundNearUsdcForTrade(
           if (sourceChain === 'solana') {
             if (!session.solana) throw new NearTradeError('The Solana signing key is unavailable.');
             const solanaKeypair = Keypair.fromSecretKey(bs58.decode(session.solana.privateKey));
-            return (await withdrawUsdc('solana', evmAccount, solanaKeypair, to, sendAmount)).hash;
+            return (await withdrawUsdc('solana', evmAccount, solanaKeypair, to, sendAmount, 'none')).hash;
           }
-          return (await withdrawUsdc(sourceChain, evmAccount, Keypair.generate(), to, sendAmount)).hash;
+          // The exact amount must reach the deposit address: Kivo's EVM withdrawal fee is paid on top.
+          return (await withdrawUsdc(sourceChain, evmAccount, Keypair.generate(), to, sendAmount, 'on-top')).hash;
         },
         store,
         submitDepositTx: (txHash, depositAddress) => submitOneClickDepositTx(txHash, depositAddress, {baseUrl: ONE_CLICK_PROXY_BASE_URL}),

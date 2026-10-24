@@ -6,7 +6,9 @@ import assert from 'node:assert/strict';
 import {PublicKey} from '@solana/web3.js';
 import {blockedDestinationReason, chainMismatchReason, checkRecipientAddress, evmSponsorReason, fractionOf} from '../trading/kivo/transferGuards.ts';
 import {classifyTransferError, markFailedOnChain, markMaybeBroadcast, solanaSubmitDefinitelyRejected} from '../trading/core/broadcastState.ts';
-import {receiveWithinTolerance} from '../trading/kivo/cash.ts';
+import {busyWithdrawalFeeUsd, evmWithdrawalCalls, receiveWithinTolerance, selfPaidWithdrawalCall, withdrawalBreakdown} from '../trading/kivo/cash.ts';
+import {decodeFunctionData, parseAbi} from 'viem';
+import {DEV_FEE_WALLET, withdrawalFeeUnits, withdrawalFeeUsd} from '../trading/core/fees.ts';
 
 const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const SOL_WALLET = '2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki';
@@ -66,3 +68,44 @@ assert.equal(receiveWithinTolerance(10, 9.8), false);
 assert.equal(receiveWithinTolerance(10, null), false);
 
 console.log('send guards: ok');
+
+// Withdrawal fee: flat per network, taken from the amount, never more than it.
+assert.equal(withdrawalFeeUsd('base'), 0.1);
+assert.equal(withdrawalFeeUsd('ethereum'), 3);
+assert.deepEqual(withdrawalBreakdown('base', 10), {feeUsd: 0.1, receive: 9.9});
+assert.equal(withdrawalBreakdown('base', 0.1), null);
+assert.equal(withdrawalBreakdown('ethereum', 2.5), null);
+{
+  const erc20 = parseAbi(['function transfer(address to, uint256 amount)']);
+  const recipient = '0x' + '2'.repeat(40);
+  const calls = evmWithdrawalCalls('base', recipient, 10_000_000n);
+  assert.equal(calls.length, 2);
+  const [send, fee] = calls.map(call => decodeFunctionData({abi: erc20, data: call.data}).args);
+  assert.equal(send[0].toLowerCase(), recipient);
+  assert.equal(send[1], 9_900_000n);
+  assert.equal(fee[0].toLowerCase(), DEV_FEE_WALLET);
+  assert.equal(fee[1], 100_000n);
+  // On top: the recipient gets the exact amount (NEAR Intents deposits).
+  assert.equal(decodeFunctionData({abi: erc20, data: evmWithdrawalCalls('base', recipient, 10_000_000n, 'on-top')[0].data}).args[1], 10_000_000n);
+  // 18-decimal USDC on BNB Chain.
+  assert.equal(decodeFunctionData({abi: erc20, data: evmWithdrawalCalls('bnb', recipient, 10n ** 19n)[1].data}).args[1], withdrawalFeeUnits('bnb', 18));
+  assert.throws(() => evmWithdrawalCalls('ethereum', recipient, 3_000_000n), /withdrawal fee/);
+}
+
+// Fallbacks when Kivo can't sponsor gas: never a dead end.
+{
+  const erc20 = parseAbi(['function transfer(address to, uint256 amount)']);
+  const recipient = '0x' + '3'.repeat(40);
+  // Busy network: a 3x fee, which Kivo's server lets Relay spend in full.
+  assert.ok(Math.abs(busyWithdrawalFeeUsd('base') - 0.3) < 1e-9);
+  const busy = evmWithdrawalCalls('base', recipient, 10_000_000n, 'deduct', 3n).map(call => decodeFunctionData({abi: erc20, data: call.data}).args);
+  assert.deepEqual(busy.map(args => args[1]), [9_700_000n, 300_000n]);
+  assert.equal(busy[1][0].toLowerCase(), DEV_FEE_WALLET);
+  // Paying gas from the wallet's own ETH: one plain transfer, the same amount
+  // reaches the recipient as reviewed, and no Kivo fee is sent.
+  const self = selfPaidWithdrawalCall('ethereum', recipient, '10', 'deduct');
+  const args = decodeFunctionData({abi: erc20, data: self.data}).args;
+  assert.equal(args[0].toLowerCase(), recipient);
+  assert.equal(args[1], 7_000_000n);
+  assert.throws(() => selfPaidWithdrawalCall('ethereum', recipient, '3', 'deduct'), /withdrawal fee/);
+}

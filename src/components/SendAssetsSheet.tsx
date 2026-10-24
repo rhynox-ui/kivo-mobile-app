@@ -1,10 +1,9 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
-import {encodeFunctionData, formatUnits, parseUnits} from 'viem';
+import {formatUnits, parseUnits} from 'viem';
 import {Connection, PublicKey, SystemProgram} from '@solana/web3.js';
 import {TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, calculateEpochFee, createAssociatedTokenAccountInstruction, createTransferCheckedInstruction, getAccountLenForMint, getAssociatedTokenAddress, getMint, getTransferFeeConfig} from '@solana/spl-token';
 import {getViemChain} from '@kivo/trading/core/chainRegistry';
-import {sendTransferCalls} from '@kivo/trading/kivo/cash';
 import {SOLANA_NATIVE_SPEND} from '@kivo/trading/core/solanaSpendGuard';
 import {signAndSendSponsoredSolanaStep, sponsorRepaymentUsdcUnits, type SolanaTransactionSigner} from '@kivo/trading/core/executeRelayQuote';
 import {CLASSIC_TOKEN_ACCOUNT_SPACE, rentExemptLamports} from '@kivo/trading/core/solanaAccountCreation';
@@ -15,6 +14,9 @@ import {getTradeHistory, recordTransfer, updateTransferStatus} from '@kivo/tradi
 import {readTokenBalance, readTokenDecimals} from '@kivo/trading/kivo/balances';
 import {relayRequestUrl, transactionLink} from '@kivo/trading/kivo/execute';
 import {checkTransferStatus} from '@kivo/trading/kivo/transferStatus';
+import {estimateSelfPaidWithdrawal, evmWithdrawalCalls, withdrawUsdcSelfPaid, withdrawalTooSmallMessage, type SelfPaidEstimate} from '@kivo/trading/kivo/cash';
+import {sendEvmCallsViaRelayGasless} from '@kivo/trading/core/relayGaslessEvm';
+import {withdrawalFeeUnits} from '@kivo/trading/core/fees';
 import {SOLANA_MAX_RESERVE_LAMPORTS, TOKEN_PROGRAM_OWNERS, blockedDestinationReason, chainMismatchReason, checkRecipientAddress, evmSponsorReason, fractionOf} from '@kivo/trading/kivo/transferGuards';
 import {TokenIcon} from './TokenIcon';
 import {kivoTheme} from '../theme/kivoTheme';
@@ -24,7 +26,6 @@ import {ResultCard} from './ResultCard';
 const SOLANA_RPC_URL = 'https://rpc.solanatracker.io/public';
 const SOLANA_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
-const ABI = [{type:'function',name:'transfer',stateMutability:'nonpayable',inputs:[{name:'to',type:'address'},{name:'amount',type:'uint256'}],outputs:[{name:'',type:'bool'}]}] as const;
 const ZERO = '0x0000000000000000000000000000000000000000';
 /** Send by wallet address only. `initialRecipient` optionally prefills the address field. */
 type Props = {visible:boolean; initialRecipient?:string; onClose:()=>void};
@@ -58,6 +59,7 @@ async function solanaMintInfo(connection:Connection,mintAddress:string){
 }
 export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
  const [transferResult,setTransferResult]=useState<TransferResult|null>(null);
+ const [ownGas,setOwnGas]=useState<SelfPaidEstimate|null>(null);
  const [recipient,setRecipient]=useState(initialRecipient),[target,setTarget]=useState<Target|null>(null),[assets,setAssets]=useState<Holding[]>(defaults()),[selectedKey,setSelectedKey]=useState(''),[amount,setAmount]=useState(''),[loading,setLoading]=useState(false),[sending,setSending]=useState(false),[error,setError]=useState(''),[menuOpen,setMenuOpen]=useState(false),[step,setStep]=useState<'recipient'|'transfer'|'review'>('recipient'),[reviewed,setReviewed]=useState<Reviewed|null>(null),[checking,setChecking]=useState(false);
  // A synchronous lock: two taps in the same frame both see `sending === false`.
  const busy=useRef(false);
@@ -120,6 +122,8 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
     else{mintInfo=await solanaMintInfo(connection,item.address);decimals=mintInfo.decimals;programId=mintInfo.programId.toBase58();accountLen=mintInfo.accountLen;}
    }else if(item.kind!=='native')decimals=await readTokenDecimals(item.chainKey as ChainKey,item.address);
    let raw:bigint;try{raw=parseUnits(value,decimals);}catch{throw new Error(item.symbol+' supports at most '+decimals+' decimal places.');}
+   // EVM USDC sends pay Kivo's withdrawal fee (it covers the gas Kivo sponsors), taken from the amount.
+   if(item.chainKey!=='solana'){feeRaw=withdrawalFeeUnits(item.chainKey as ChainKey,decimals);if(raw<=feeRaw)throw new Error(withdrawalTooSmallMessage(item.chainKey as ChainKey));}
    if(mintInfo?.feeConfig){const epoch=await new Connection(SOLANA_RPC_URL,'confirmed').getEpochInfo('confirmed');feeRaw=calculateEpochFee(mintInfo.feeConfig,BigInt(epoch.epoch),raw);}
    setReviewed({key:item.key,chainKey:item.chainKey,address:item.address,kind:item.kind,symbol:item.symbol,value,raw,decimals,to:target.address,programId,feeRaw,accountLen});
    setStep('review');
@@ -127,8 +131,8 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
   finally{setSending(false);}
  }
 
- async function confirmAndSend(){
-  if(busy.current)return;
+ async function confirmAndSend(mode:'sponsored'|'self-paid'='sponsored'){
+  if(busy.current)return;setOwnGas(null);
   const snapshot=reviewed;const item=selected;
   if(!snapshot||!item||!target||snapshot.key!==item.key||snapshot.address!==item.address||snapshot.value!==amount.trim()||snapshot.to!==target.address){
    setReviewed(null);setStep('transfer');setError('The asset, amount or address changed after review. Review the transfer again. Nothing was sent.');return;
@@ -175,10 +179,12 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
     });
     setTransferResult({...base,tone:'success',message:'Your transfer is confirmed on Solana.',hash:signature,transferId:record('success',signature),canRetry:false});
    }else{
-    const call={to:snapshot.address as `0x${string}`,value:0n,data:encodeFunctionData({abi:ABI,functionName:'transfer',args:[snapshot.to as `0x${string}`,snapshot.raw]})};
-    const result=await withDeviceAccounts('Confirm asset transfer',async({evm})=>
-     // Ethereum mainnet: Kivo never sponsors transfers there, so the wallet's own ETH pays the gas (checked first).
-     sendTransferCalls({chain:getViemChain(snapshot.chainKey as ChainKey),chainKey:snapshot.chainKey as ChainKey,account:evm,calls:[call]}));
+    // The transfer plus Kivo's withdrawal fee, in one batch (Kivo's server sponsors only that).
+    const calls=evmWithdrawalCalls(snapshot.chainKey as ChainKey,snapshot.to,snapshot.raw,'deduct');
+    const result:{hash:string;requestId?:string}=await withDeviceAccounts('Confirm asset transfer',async({evm})=>mode==='self-paid'
+     // Fallback the person chose after seeing its cost: their own gas coin pays, no Kivo fee.
+     ?withdrawUsdcSelfPaid({account:evm,chainKey:snapshot.chainKey as ChainKey,to:snapshot.to,amount:snapshot.value,feeMode:'deduct'})
+     :sendEvmCallsViaRelayGasless({chain:getViemChain(snapshot.chainKey as ChainKey),fromAddress:evm.address,account:evm,calls}));
     // Relay reported success: the transfer is on-chain.
     setTransferResult({...base,tone:'success',message:'Your transfer is confirmed on '+network+'.',hash:result.hash,requestId:result.requestId,transferId:record('success',result.hash,result.requestId),canRetry:false});
    }
@@ -189,6 +195,12 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
     setTransferResult({...base,tone:'pending',message:classified.message,hash,requestId:classified.requestId,transferId:record('pending',hash,classified.requestId,classified.message),safe:{ok:false,text:'This transfer may already be on-chain. Do not send it again: check its status first.'},canRetry:false});
    }else if(classified.state==='failed-on-chain'){
     setTransferResult({...base,tone:'error',message:classified.message,hash:classified.signature,requestId:classified.requestId,safe:{ok:true,text:'The transaction failed on-chain, so your tokens did not move.'},canRetry:true});
+   }else if(snapshot.chainKey!=='solana'&&mode==='sponsored'&&wallet){
+    // Kivo couldn't sponsor it: never a dead end. Stay on the review and offer
+    // paying gas from the wallet's own coin, with its cost shown first.
+    const message=/nothing was sent/i.test(classified.message)?classified.message:classified.message+' Nothing was sent.';
+    setError(message);
+    estimateSelfPaidWithdrawal(snapshot.chainKey as ChainKey,wallet.address,snapshot.to,snapshot.value).then(setOwnGas).catch(()=>{});
    }else{
     const message=/nothing was sent/i.test(classified.message)?classified.message:classified.message+' Nothing was sent.';
     setTransferResult({...base,tone:'error',message,safe:{ok:true,text:'Nothing was sent. Your balance is unchanged.'},canRetry:true});
@@ -241,9 +253,12 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
      <View style={styles.reviewAddress}><Text style={styles.muted}>Recipient address</Text><Text style={styles.reviewAddressText} selectable>{reviewed.to}</Text></View>
      <View style={styles.reviewRow}><Text style={styles.muted}>Asset / network</Text><Text style={styles.reviewValue}>{reviewed.symbol+' · '+networkOf(reviewed.chainKey)}</Text></View>
      <View style={styles.reviewRow}><Text style={styles.muted}>Amount</Text><Text style={styles.reviewValue}>{reviewed.value+' '+reviewed.symbol}</Text></View>
-     {reviewed.feeRaw>0n?<><View style={styles.reviewRow}><Text style={styles.muted}>Token transfer fee</Text><Text style={styles.reviewValue}>{formatUnits(reviewed.feeRaw,reviewed.decimals)+' '+reviewed.symbol}</Text></View><View style={styles.reviewRow}><Text style={styles.muted}>Recipient receives</Text><Text style={styles.reviewValue}>{'≈ '+formatUnits(reviewed.raw-reviewed.feeRaw,reviewed.decimals)+' '+reviewed.symbol}</Text></View></>:null}
+     {reviewed.feeRaw>0n?<><View style={styles.reviewRow}><Text style={styles.muted}>{reviewed.chainKey==='solana'?'Token transfer fee':'Network fee'}</Text><Text style={styles.reviewValue}>{formatUnits(reviewed.feeRaw,reviewed.decimals)+' '+reviewed.symbol}</Text></View><View style={styles.reviewRow}><Text style={styles.muted}>Recipient receives</Text><Text style={styles.reviewValue}>{'≈ '+formatUnits(reviewed.raw-reviewed.feeRaw,reviewed.decimals)+' '+reviewed.symbol}</Text></View></>:null}
      <Text style={styles.muted}>Kivo covers the network fee. Check every character of the address: transfers can't be reversed.</Text></View></>:null}
     {error?<Text style={styles.error}>{error}</Text>:null}
+    {step==='review'&&ownGas&&reviewed?(ownGas.enough
+     ?<Pressable disabled={sending} onPress={()=>void confirmAndSend('self-paid')} style={[styles.send,sending&&{opacity:0.65}]}><Text style={styles.sendText}>{'Pay gas yourself: ~'+ownGas.costNative.toPrecision(2)+' '+ownGas.symbol+(ownGas.costUsd!=null?' ($'+ownGas.costUsd.toFixed(2)+')':'')+' · no Kivo fee'}</Text></Pressable>
+     :<Text style={styles.muted}>{'Paying gas yourself needs about '+ownGas.costNative.toPrecision(2)+' '+ownGas.symbol+'; this wallet has '+ownGas.haveNative.toPrecision(2)+'. Try again in a few minutes, or send from your Solana balance.'}</Text>):null}
     {step!=='recipient'?<Pressable disabled={sending} onPress={()=>{setError('');if(step==='review'){setReviewed(null);setStep('transfer');}else setStep('recipient');}} style={styles.back}><Text style={styles.backText}>{step==='review'?'Back to amount':'Change address'}</Text></Pressable>:null}
     {(()=>{const disabled=loading||sending||(step==='recipient'&&!addressCheck.ok)||(step==='transfer'&&!selected);return <Pressable disabled={disabled} onPress={()=>void submit()} style={[styles.send,disabled&&{opacity:0.65}]}><Text style={styles.sendText}>{sending?(step==='review'?'Sending…':'Checking…'):step==='recipient'?'Continue':step==='transfer'?'Review transfer':'Confirm and sign'}</Text></Pressable>;})()}
    </View>
