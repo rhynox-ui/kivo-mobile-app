@@ -5,7 +5,7 @@
 // wallet's own gas coin, with the cost shown first: never a dead end, and
 // never a silent switch to a gas-paying transfer.
 
-import {createWalletClient, encodeFunctionData, isAddress, parseUnits, type Address} from 'viem';
+import {createWalletClient, encodeFunctionData, isAddress, parseUnits, type Address, type Hex} from 'viem';
 import bs58 from 'bs58';
 import {executeRelayQuote, getSolanaFeePayerPublicKey, signAndSendSponsoredSolanaStep, sponsorRepaymentUsdcUnits, type SolanaTransactionSigner} from '../core/executeRelayQuote';
 import {CLASSIC_TOKEN_ACCOUNT_SPACE, rentExemptLamports} from '../core/solanaAccountCreation';
@@ -108,7 +108,19 @@ export function busyWithdrawalFeeUsd(chainKey: ChainKey): number {
 }
 
 /** What paying gas from the wallet's own ETH/BNB/... costs for this withdrawal (estimated, shown before confirming). */
-export type SelfPaidEstimate = {costNative: number; costUsd: number | null; symbol: string; enough: boolean; haveNative: number};
+export type SelfPaidEstimate = {costNative: number; costUsd: number | null; symbol: string; enough: boolean; haveNative: number; costWei: bigint; haveWei: bigint};
+
+/** One plain EVM transfer this wallet signs and pays gas for. */
+export type SelfPaidCall = {to: Address; data: Hex; value: bigint};
+
+/** Any EVM asset to a friend: the native coin as value, an ERC-20 as transfer(). */
+export function evmAssetTransferCall(asset: {kind: string; address: string}, to: string, raw: bigint): SelfPaidCall {
+  if (!isAddress(to)) throw new Error('Enter a valid 0x… address.');
+  if (raw <= 0n) throw new Error('Enter an amount greater than zero.');
+  if (asset.kind === 'native') return {to: to as Address, data: '0x', value: raw};
+  if (!isAddress(asset.address)) throw new Error('This token has no valid contract address. Nothing was sent.');
+  return {to: asset.address as Address, data: encodeFunctionData({abi: ERC20_TRANSFER_ABI, functionName: 'transfer', args: [to as Address, raw]}), value: 0n};
+}
 
 export function selfPaidWithdrawalCall(chainKey: ChainKey, to: string, amount: string, feeMode: WithdrawalFeeMode) {
   const cashSymbol = cashAssetSymbol(chainKey);
@@ -124,10 +136,14 @@ export function selfPaidWithdrawalCall(chainKey: ChainKey, to: string, amount: s
 }
 
 export async function estimateSelfPaidWithdrawal(chainKey: ChainKey, from: string, to: string, amount: string, feeMode: WithdrawalFeeMode = 'deduct'): Promise<SelfPaidEstimate> {
+  return estimateSelfPaidCall(chainKey, from, {...selfPaidWithdrawalCall(chainKey, to.trim(), amount, feeMode), value: 0n});
+}
+
+/** Gas for one self-paid call, and whether the wallet's native coin covers it plus any value sent. */
+export async function estimateSelfPaidCall(chainKey: ChainKey, from: string, call: SelfPaidCall): Promise<SelfPaidEstimate> {
   const client = publicClientForChainId(MAINNET_CHAIN_IDS[chainKey]);
-  const call = selfPaidWithdrawalCall(chainKey, to.trim(), amount, feeMode);
   const [gas, fees, balance, prices] = await Promise.all([
-    client.estimateGas({account: from as Address, to: call.to, data: call.data}).catch(() => 80_000n),
+    client.estimateGas({account: from as Address, to: call.to, data: call.data, value: call.value}).catch(() => call.data === '0x' ? 21_000n : 80_000n),
     client.estimateFeesPerGas().catch(async () => ({maxFeePerGas: await client.getGasPrice()})),
     client.getBalance({address: from as Address}),
     fetchWalletPrices().catch(() => ({} as Record<string, number>)),
@@ -138,7 +154,7 @@ export async function estimateSelfPaidWithdrawal(chainKey: ChainKey, from: strin
   const symbol = NATIVE_SYMBOL[chainKey];
   const costNative = Number(costWei) / 1e18;
   const price = prices[symbol];
-  return {costNative, costUsd: price ? costNative * price : null, symbol, enough: balance >= costWei, haveNative: Number(balance) / 1e18};
+  return {costNative, costUsd: price ? costNative * price : null, symbol, enough: balance >= costWei + call.value, haveNative: Number(balance) / 1e18, costWei, haveWei: balance};
 }
 
 /**
@@ -147,14 +163,19 @@ export async function estimateSelfPaidWithdrawal(chainKey: ChainKey, from: strin
  * saw estimateSelfPaidWithdrawal's cost.
  */
 export async function withdrawUsdcSelfPaid(params: {account: LocalAccount; chainKey: ChainKey; to: string; amount: string; feeMode?: WithdrawalFeeMode}): Promise<{hash: string}> {
-  const {account, chainKey} = params;
   const to = params.to.trim();
   if (!isAddress(to)) throw new Error('Enter a valid 0x… address.');
-  const call = selfPaidWithdrawalCall(chainKey, to, params.amount, params.feeMode ?? 'deduct');
+  const call = selfPaidWithdrawalCall(params.chainKey, to, params.amount, params.feeMode ?? 'deduct');
+  return sendSelfPaidCall({account: params.account, chainKey: params.chainKey, call: {...call, value: 0n}});
+}
+
+/** Signs and sends one call paying gas in the wallet's own coin, then waits for its receipt. */
+export async function sendSelfPaidCall(params: {account: LocalAccount; chainKey: ChainKey; call: SelfPaidCall}): Promise<{hash: string}> {
+  const {account, chainKey, call} = params;
   const chain = getViemChain(chainKey);
   const walletClient = createWalletClient({account, chain, transport: transportFor(chain.id)});
   const client = publicClientForChainId(chain.id);
-  const hash = await walletClient.sendTransaction({account, chain, to: call.to, data: call.data, value: 0n});
+  const hash = await walletClient.sendTransaction({account, chain, to: call.to, data: call.data, value: call.value});
   try {
     const receipt = await client.waitForTransactionReceipt({hash, timeout: 120_000});
     if (receipt.status !== 'success') throw markFailedOnChain(new Error(`Transaction ${hash} failed on-chain.`), {signature: hash});
