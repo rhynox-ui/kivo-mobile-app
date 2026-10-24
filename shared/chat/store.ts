@@ -9,8 +9,9 @@
 import type {KivoApi} from '../api/client';
 import type {ApiConversation, ApiMessage, ApiProfile} from '../api/types';
 import type {ChatPollPayload} from '../polls/types';
-import {kivoUserIdForWallet, messageCharLimit, messageLength, normalizeWalletAddress, shortWallet, walletAddressOfUserId} from '../api/types';
+import {kivoUserIdForWallet, messageCharLimit, messageLength, normalizeWalletAddress} from '../api/types';
 import type {KeyValueStorage} from '../storage';
+import {userHandle} from '../profile/userLabel';
 
 export type LocalMessage = ApiMessage & {status: 'sent' | 'pending' | 'failed'; error?: string};
 
@@ -266,6 +267,18 @@ export async function refreshConversation(id: string): Promise<void> {
   } catch { /* normal chat rendering should not depend on a refresh */ }
 }
 
+/** Load one older page of a conversation and merge it into local chat state. */
+export async function loadHistoryBefore(id: string, beforeSeq: number): Promise<number> {
+  if (!opts?.api.isSignedIn(state.owner) || !Number.isFinite(beforeSeq) || beforeSeq <= 0) return 0;
+  const generation = ownerGeneration;
+  const history = await opts.api.history(id, beforeSeq);
+  if (generation !== ownerGeneration || !history.length) return 0;
+  merge(history);
+  await loadSenderProfiles(history);
+  emit();
+  return history.length;
+}
+
 export function setActiveConversation(id: string | null) {
   activeConversation = id;
   lastChatActivityAt = Date.now();
@@ -305,7 +318,7 @@ function upsertLocal(message: LocalMessage) {
   emit();
 }
 
-async function deliver(local: LocalMessage, payload: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; token?: {chain: string; address: string}; replyTo?: string}) {
+async function deliver(local: LocalMessage, payload: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; token?: {chain: string; address: string}; replyTo?: string; quoteText?: string}) {
   lastChatActivityAt = Date.now();
   if (!opts) return;
   const generation = ownerGeneration;
@@ -345,15 +358,15 @@ export async function sendPoll(conversationId: string, poll: ChatPollPayload) {
   emit();
 }
 
-export async function sendText(conversationId: string, text: string, replyTo?: string, token?: {chain: string; address: string; symbol?: string; name?: string; imageUrl?: string | null}) {
+export async function sendText(conversationId: string, text: string, replyTo?: string, token?: {chain: string; address: string; symbol?: string; name?: string; imageUrl?: string | null}, quoteText?: string) {
   const trimmed = text.normalize('NFC').trim();
   if (!trimmed && !token) return;
   if (messageLength(trimmed) > messageCharLimit(true)) throw new Error('This message is too long.');
   const me = myUserId();
   if (!me) throw new Error('Connect your wallet to chat.');
-  const local: LocalMessage = {seq: 0, id: 'm_' + clientId(), conversationId, senderId: me, text: trimmed, media: null, token: token ? {chain: token.chain, address: token.address, symbol: token.symbol ?? '', name: token.name ?? '', imageUrl: token.imageUrl ?? null} : null, replyTo: replyTo ?? null, createdAt: Date.now(), deleted: false, status: 'pending'};
+  const local: LocalMessage = {seq: 0, id: 'm_' + clientId(), conversationId, senderId: me, text: trimmed, media: null, token: token ? {chain: token.chain, address: token.address, symbol: token.symbol ?? '', name: token.name ?? '', imageUrl: token.imageUrl ?? null} : null, replyTo: replyTo ?? null, quoteText: replyTo && quoteText ? quoteText.slice(0, 1000) : null, createdAt: Date.now(), deleted: false, status: 'pending'};
   upsertLocal(local);
-  await deliver(local, {text: trimmed, token: token ? {chain: token.chain, address: token.address} : undefined, replyTo});
+  await deliver(local, {text: trimmed, token: token ? {chain: token.chain, address: token.address} : undefined, replyTo, quoteText: replyTo && quoteText ? quoteText.slice(0, 1000) : undefined});
 }
 
 /** Sends an already-compressed image (see web/mobile compressors). */
@@ -378,7 +391,7 @@ export async function retryMessage(conversationId: string, id: string) {
   const message = state.messages[conversationId]?.find(m => m.id === id);
   if (!message || message.status !== 'failed' || message.media) return;
   upsertLocal({...message, status: 'pending', error: undefined});
-  await deliver(message, {text: message.text, replyTo: message.replyTo ?? undefined});
+  await deliver(message, {text: message.text, replyTo: message.replyTo ?? undefined, quoteText: message.quoteText ?? undefined});
 }
 
 export function discardMessage(conversationId: string, id: string) {
@@ -430,8 +443,7 @@ export function displayName(userId: string | null | undefined): string {
   if (!userId) return 'Unknown';
   if (userId === myUserId()) return 'You';
   const profile = state.profiles[userId];
-  if (profile?.username) return '@' + profile.username;
-  return shortWallet(walletAddressOfUserId(userId));
+  return userHandle(profile?.username, userId);
 }
 
 export function rememberProfiles(profiles: ApiProfile[]) {

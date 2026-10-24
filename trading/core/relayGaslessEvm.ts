@@ -10,6 +10,7 @@ import {
 } from 'viem';
 import type {LocalAccount} from 'viem/accounts';
 import {transportFor, viemChainForChainId} from './chainRegistry.ts';
+import {markFailedOnChain, markMaybeBroadcast} from './broadcastState.ts';
 
 // Kivo's backend (/api/relay/execute) adds the Relay API key server-side;
 // the key never ships in the app. Set by the mobile client at startup.
@@ -62,21 +63,32 @@ const GASLESS_BATCH_TTL_SECONDS = 15 * 60;
 
 async function postRelayExecute(body: Record<string, unknown>): Promise<RelayExecuteResponse> {
   if (!RELAY_EXECUTE_PROXY_URL) throw new Error('Gasless execution is not configured in this build.');
-  const res = await fetch(RELAY_EXECUTE_PROXY_URL, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
+  let res: Response;
+  let text: string;
+  try {
+    res = await fetch(RELAY_EXECUTE_PROXY_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    text = await res.text();
+  } catch {
+    // The signed batch may have reached Relay before the connection dropped.
+    throw markMaybeBroadcast(new Error('The connection dropped while submitting this transfer, so it may still go through. Do not retry; check Activity or the explorer in a few minutes.'), {});
+  }
   let parsed: RelayExecuteResponse = {};
   try { parsed = JSON.parse(text) as RelayExecuteResponse; } catch {}
-  if (res.status === 403 && (!parsed.message || /^forbidden$/i.test(parsed.message.trim()))) {
-    // Relay refused to sponsor gas here (gasless execution is enabled per API key and chain). Nothing was sent.
-    const chainId = Number((body.data as {chainId?: unknown} | undefined)?.chainId);
-    const chainName = viemChainForChainId(chainId)?.name ?? `chain ${chainId}`;
-    throw new Error(`Gas-free trading isn't switched on for ${chainName} yet, so nothing was sent and your tokens are untouched. Trades starting on other networks still work.`);
+  // Kivo's proxy returns its own validation failures in `error`, while
+  // Relay responses commonly use `message`. Preserve either detail before
+  // treating a bare "Forbidden" as a generic sponsorship failure.
+  const detail = parsed.message || parsed.error;
+  if (res.status === 403 && (!detail || /^forbidden$/i.test(detail.trim()))) {
+    // A generic 403 does not prove that gasless execution is disabled for
+    // this chain: Kivo's proxy can also reject a quote that was not recorded
+    // as eligible for sponsorship. Do not misdiagnose that as a chain toggle.
+    throw new Error('Kivo could not authorize gasless execution for this quote (HTTP 403). Nothing was sent. Refresh the quote and try again.');
   }
-  if (!res.ok) throw new Error(parsed.message || parsed.error || `Relay gasless execution failed (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(detail || `Relay gasless execution failed (HTTP ${res.status}).`);
   if (!parsed.requestId) throw new Error('Relay accepted gasless execution without a requestId.');
   return parsed;
 }
@@ -94,13 +106,16 @@ export class RelayGaslessPendingError extends Error {
 async function pollRelayStatus(requestId: string): Promise<string> {
   const started = Date.now();
   while (Date.now() - started < 10 * 60 * 1000) {
-    const res = await fetch(`${RELAY_STATUS_URL}?requestId=${encodeURIComponent(requestId)}`);
-    if (res.ok) {
-      const body = await res.json() as {status?: string; message?: string; failReason?: string; txHashes?: string[]};
+    // A failed status read says nothing about the batch: keep polling.
+    const body = await fetch(`${RELAY_STATUS_URL}?requestId=${encodeURIComponent(requestId)}`)
+      .then(res => res.ok ? res.json() as Promise<{status?: string; message?: string; failReason?: string; txHashes?: string[]}> : null)
+      .catch(() => null);
+    if (body) {
       if (body.status === 'success') return body.txHashes?.[0] || requestId;
       if (body.status === 'failure' || body.status === 'refund') {
         const reason = body.failReason && !/^(N\/A|UNKNOWN)$/i.test(body.failReason) ? ` (${body.failReason.replace(/_/g, ' ').toLowerCase()})` : '';
-        throw new Error(body.message || `Relay gasless execution ended with status ${body.status}${reason}.`);
+        // The batch reverts as a whole (revertOnFailure), so the tokens did not move.
+        throw markFailedOnChain(new Error(body.message || `Relay gasless execution ended with status ${body.status}${reason}.`), {requestId, signature: body.txHashes?.[0]});
       }
     }
     await new Promise<void>(resolve => setTimeout(() => resolve(), 2000));

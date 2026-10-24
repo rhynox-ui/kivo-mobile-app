@@ -9,7 +9,7 @@ import {
   type SecretRecord,
 } from './walletCipher';
 import { tryNativePbkdf2Sha256 } from './nativePbkdf2';
-import { checkPasswordPolicy } from './passwordPolicy';
+import { checkPasswordPolicy, MIN_PASSWORD_LENGTH } from './passwordPolicy';
 import { getLockoutStatus, recordFailedAttempt, recordSuccessfulUnlock } from './unlockAttempts';
 
 const SERVICE = 'com.kivo.chat.vault';
@@ -80,7 +80,7 @@ export async function decryptSecret(record: SecretRecord, password: string): Pro
 export async function createVault(mnemonic: string, password: string) {
   const policy = checkPasswordPolicy(password);
   if (!policy.ok) {
-    throw new Error('Password must be at least 14 characters and not be a common or predictable password.');
+    throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters and not be a common or predictable password.`);
   }
 
   // The service is dedicated to this wallet vault. Any existing credential

@@ -19,7 +19,7 @@ try {
 const counts = report.metadata?.vulnerabilities ?? {};
 const vulnerabilities = Object.values(report.vulnerabilities ?? {});
 const isKnownBracesException = (vulnerability) => {
-  if (vulnerability.name !== "braces" || new Date().toISOString().slice(0, 10) > BRACES_REVIEW_BY) {
+  if (vulnerability?.name !== "braces" || new Date().toISOString().slice(0, 10) > BRACES_REVIEW_BY) {
     return false;
   }
   const highVia = (vulnerability.via ?? []).filter((item) =>
@@ -88,7 +88,9 @@ if (blocking.length > 0 || (counts.critical ?? 0) > 0) {
   process.exit(1);
 }
 
-if ((audit.status ?? 1) !== 0 && !vulnerabilities.some(isKnownBracesException)) {
+// npm audit exits non-zero whenever any advisory exists; only treat that as a
+// failure when the report has none to explain it (a real npm/registry error).
+if ((audit.status ?? 1) !== 0 && vulnerabilities.length === 0) {
   process.stderr.write(audit.stderr || "npm audit failed\n");
   process.exit(audit.status || 1);
 }

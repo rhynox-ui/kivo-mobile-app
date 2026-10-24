@@ -1,22 +1,22 @@
-import React,{useCallback,useEffect,useState} from 'react';
-import {ActivityIndicator,Pressable,StyleSheet,Text,TextInput,View} from 'react-native';
+import React, {useCallback} from 'react';
 import type {ChatPollResults} from '@kivo/shared/polls/types';
 import {api} from '../state/session';
-import {kivoTheme} from '../theme/kivoTheme';
-const c=kivoTheme.colors;
-export function ChatPollCard({messageId,onError}:{messageId:string;onError?:(message:string)=>void}){
- const [result,setResult]=useState<ChatPollResults|null>(null),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[selected,setSelected]=useState<string[]>([]),[suggestion,setSuggestion]=useState('');
- const refresh=useCallback(async()=>{setLoading(true);try{const r=await api.chatPoll(messageId);setResult(r);setSelected(r.viewerOptionIds??[]);}catch(e){onError?.(e instanceof Error?e.message:'Could not load poll.');}finally{setLoading(false);}},[messageId,onError]);
- useEffect(()=>{let active=true;void api.chatPoll(messageId).then(r=>{if(active){setResult(r);setSelected(r.viewerOptionIds??[]);}}).catch(e=>{if(active)onError?.(e instanceof Error?e.message:'Could not load poll.');}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[messageId]);
- const act=async(fn:()=>Promise<ChatPollResults>)=>{if(busy)return;setBusy(true);try{const r=await fn();setResult(r);setSelected(r.viewerOptionIds??[]);}catch(e){onError?.(e instanceof Error?e.message:'Poll action failed.');}finally{setBusy(false);}};
- if(loading&&!result)return <View style={s.loading}><ActivityIndicator color={c.accent}/><Text style={s.muted}>Loading poll…</Text></View>;
- if(!result)return <View style={s.loading}><Text style={s.muted}>Poll unavailable.</Text><Pressable onPress={()=>void refresh()}><Text style={s.link}>Retry</Text></Pressable></View>;
- const poll=result.poll,hasVoted=(result.viewerOptionIds??[]).length>0,canVote=!result.closed&&(!hasVoted||poll.settings.allowRevoting);
- return <View style={s.card}><Text style={s.question}>{poll.question}</Text>{!!poll.description&&<Text style={s.muted}>{poll.description}</Text>}
- {result.options.map(o=>{const picked=selected.includes(o.id),percent=result.totalVoters?Math.round(o.voteCount/Math.max(1,result.totalVoters)*100):0;return <Pressable key={o.id} disabled={!canVote||busy} onPress={()=>setSelected(old=>picked?(poll.settings.allowMultiple?old.filter(id=>id!==o.id):old):poll.settings.allowMultiple?[...old,o.id]:[o.id])} style={[s.option,picked&&s.picked]}><View style={s.row}><Text style={s.label}>{o.label}</Text><Text style={s.muted}>{o.voteCount} · {percent}%</Text></View><View style={s.track}><View style={[s.bar,{width:percent+'%'}]}/></View>{poll.settings.showVoters&&o.voterNames?.length?<Text style={s.muted}>{o.voterNames.join(', ')}</Text>:null}</Pressable>})}
- <View style={s.row}><Text style={s.muted}>{result.totalVoters} vote{result.totalVoters===1?'':'s'}{poll.endsAt?' · '+(result.closed?'Closed':'Ends '+new Date(poll.endsAt).toLocaleString()):' · No time limit'}</Text><Pressable onPress={()=>void refresh()}><Text style={s.link}>Refresh</Text></Pressable></View>
- {canVote?<Pressable disabled={busy||!selected.length} onPress={()=>void act(()=>api.voteChatPoll(messageId,selected))} style={[s.vote,(busy||!selected.length)&&s.disabled]}><Text style={s.voteText}>{busy?'Saving…':hasVoted?'Change vote':'Vote'}</Text></Pressable>:<Text style={s.muted}>{result.closed?'Poll closed':'Voting closed'}</Text>}
- {!result.closed&&poll.settings.allowAddingOptions&&<View style={s.row}><TextInput value={suggestion} onChangeText={setSuggestion} maxLength={100} placeholder="Suggest an option" placeholderTextColor={c.textMuted} style={s.input}/><Pressable disabled={busy||!suggestion.trim()} onPress={()=>void act(()=>api.addChatPollOption(messageId,suggestion.trim()).then(r=>{setSuggestion('');return r;}))}><Text style={s.link}>Add</Text></Pressable></View>}
- </View>;
+import {PollCard, type PollCardData} from './PollCard';
+
+const normalize = (result: ChatPollResults): PollCardData => ({
+  question: result.poll.question,
+  description: result.poll.description,
+  options: result.options,
+  settings: result.poll.settings,
+  endsAt: result.poll.endsAt,
+  closed: result.closed,
+  totalVoters: result.totalVoters,
+  viewerOptionIds: result.viewerOptionIds ?? [],
+});
+
+export function ChatPollCard({messageId, onError}: {messageId: string; onError?: (message: string) => void}) {
+  const load = useCallback(async () => normalize(await api.chatPoll(messageId)), [messageId]);
+  const vote = useCallback(async (optionIds: string[]) => normalize(await api.voteChatPoll(messageId, optionIds)), [messageId]);
+  const addOption = useCallback(async (label: string) => normalize(await api.addChatPollOption(messageId, label)), [messageId]);
+  return <PollCard variant="chat" load={load} vote={vote} addOption={addOption} onError={onError}/>;
 }
-const s=StyleSheet.create({card:{borderWidth:1,borderColor:c.border,borderRadius:14,padding:10,gap:9,backgroundColor:c.background,minWidth:220},loading:{padding:12,alignItems:'center'},question:{color:c.text,fontSize:16,fontWeight:'900'},option:{borderWidth:1,borderColor:c.border,borderRadius:9,padding:8,gap:5},picked:{borderColor:c.accent},row:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:8},label:{color:c.text,fontWeight:'700',flex:1},muted:{color:c.textMuted,fontSize:11,flexShrink:1},track:{height:4,backgroundColor:c.surfaceRaised,borderRadius:3,overflow:'hidden'},bar:{height:4,backgroundColor:c.accent},link:{color:c.accent,fontWeight:'800'},vote:{alignItems:'center',padding:9,borderRadius:10,backgroundColor:c.accent},voteText:{color:c.backgroundDeep,fontWeight:'900'},disabled:{opacity:.45},input:{flex:1,color:c.text,borderWidth:1,borderColor:c.border,borderRadius:8,paddingHorizontal:8,paddingVertical:6}});

@@ -23,6 +23,7 @@ import { WalletUnlockScreen } from '../screens/WalletUnlockScreen';
 import { LegacyMigrationScreen } from '../screens/LegacyMigrationScreen';
 import { PasswordSetupScreen } from '../screens/PasswordSetupScreen';
 import { ProfileSetupScreen } from '../screens/ProfileSetupScreen';
+import { ReferralOnboardingScreen } from '../screens/ReferralOnboardingScreen';
 import { MainShell } from '../screens/MainShell';
 import { kivoTheme } from '../theme/kivoTheme';
 import { getWalletSession, clearLocalWallet, lockWalletSession } from '../state/walletStore';
@@ -57,6 +58,7 @@ export type RootStackParamList = {
   BiometricUnlock: undefined;
   WalletUnlock: undefined;
   ProfileSetup: undefined;
+  ReferralOnboarding: undefined;
   Home: undefined;
 };
 
@@ -248,7 +250,7 @@ export function RootNavigator() {
           component={({ navigation }: NativeStackScreenProps<RootStackParamList, 'ImportWallet'>) => (
             <ImportWalletScreen
               onBack={() => navigation.goBack()}
-              onDone={() => navigation.replace('Home')}
+              onDone={() => navigation.reset({ index: 0, routes: [{ name: 'Home' }] })}
               onPassword={(mnemonic) =>
                 navigation.navigate('PasswordSetup', { mnemonic, mode: 'import' })
               }
@@ -360,7 +362,16 @@ export function RootNavigator() {
         <Stack.Screen
           name="ProfileSetup"
           component={({ navigation }: NativeStackScreenProps<RootStackParamList, 'ProfileSetup'>) => (
-            <ProfileSetupScreen onDone={() => navigation.replace('Home')} />
+            <ProfileSetupScreen onDone={() => navigation.replace('ReferralOnboarding')} />
+          )}
+        />
+        <Stack.Screen
+          name="ReferralOnboarding"
+          component={({ navigation }: NativeStackScreenProps<RootStackParamList, 'ReferralOnboarding'>) => (
+            <ReferralOnboardingScreen
+              onBack={() => navigation.goBack()}
+              onDone={() => navigation.replace('Home')}
+            />
           )}
         />
         <Stack.Screen name="Home">

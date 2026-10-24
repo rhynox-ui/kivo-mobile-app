@@ -4,27 +4,31 @@ import type {ProfileSocial, PublicCommunityCard} from './types';
 import type {ChatPollPayload, ChatPollResults, FeedPoll, PollSettingsWithDuration} from '../polls/types';
 import type {ApiBan, CallStats, CommunityGate, GateCheck, ApiCommunity, ApiConversation, ApiMember, ApiMessage, ApiProfile, AuthChallenge, AuthSession, CommunityKind, CommunitySettingsInput, ProfileApprovalChallenge, ProfileLinks, SyncResponse} from './types';
 
+export type FollowListPage = {users: ApiProfile[]; nextCursor: string | null};
+
 export type WatchlistToken = {chainKey: string; tokenAddress: string; symbol: string; name: string; imageUrl: string | null; savedAt: number};
 import {kivoUserIdForWallet, normalizeWalletAddress} from './types';
 
 export type FeedPost = {
-  id: string; userId: string; username: string; avatarUrl: string | null; body: string; imageUrl: string | null; createdAt: number;
+  /** Published username, or the author's short wallet when `hasUsername` is false. */
+  id: string; userId: string; username: string; hasUsername?: boolean; avatarUrl: string | null; body: string; imageUrl: string | null; createdAt: number;
   token: null | {chain: string; address: string; symbol: string; name: string; imageUrl: string | null; entryMarketCapUsd: number | null};
   likeCount: number; dislikeCount: number; replyCount: number; likedByViewer: boolean; dislikedByViewer: boolean; pinned: boolean; pollId?: string | null; nextCursor?: string;
 };
-export type FeedReply = {id: string; postId: string; userId: string; username: string; avatarUrl: string | null; body: string; createdAt: number};
+export type FeedReply = {id: string; postId: string; userId: string; username: string; hasUsername?: boolean; avatarUrl: string | null; body: string; createdAt: number};
 export type FeedPostNotification = {id: string; kind: 'post' | 'like' | 'dislike' | 'reply'; postId: string; actorId: string; actorUsername: string; postPreview: string; createdAt: number; readAt: number | null};
 
-export type ReferralUser = {userId: string; username: string; avatarUrl: string | null; verified: boolean};
+/** `username` is null until the person publishes one; `address` (newer servers) is their wallet. */
+export type ReferralUser = {userId: string; username: string | null; address?: string; avatarUrl: string | null; verified: boolean};
 export type ReferralSource = 'install' | 'manual';
 export type ReferralsMe = {
   username: string; link: string; feeBps: number; referredBy: ReferralUser | null; canSetReferrer: boolean;
   referralCount: number; tradedCount: number; clickCount?: number; totalEarnedUsd: number; thisWeekUsd: number; pendingUsd: number; paidUsd: number;
   referrals: (ReferralUser & {joinedAt: number; feesUsd: number; earnedUsd: number})[];
-  recentRewards: {referredUsername: string; referredAvatarUrl: string | null; feeUsd: number; rewardUsd: number; chain: string; txHash: string; createdAt: number}[];
+  recentRewards: {referredUsername: string | null; referredId?: string; referredAddress?: string; referredAvatarUrl: string | null; feeUsd: number; rewardUsd: number; chain: string; txHash: string; createdAt: number}[];
   payouts: {amountUsd: number; chain: string; txHash: string; createdAt: number}[];
 };
-export type ReferralTradeResult = {recorded: boolean; rewardUsd?: number; needsSolanaLink?: boolean};
+export type ReferralTradeResult = {recorded: boolean; rewardUsd?: number; needsSolanaLink?: boolean; retry?: boolean};
 
 export class ApiError extends Error {
   status: number;
@@ -199,6 +203,10 @@ export class KivoApi {
   profiles(ids: string[]) { return ids.length ? this.request<ApiProfile[]>('GET', `/api/profiles?ids=${encodeURIComponent(ids.slice(0, 100).join(','))}`, undefined, false) : Promise.resolve([]); }
   profileLinks(userId: string) { return this.request<{verified: boolean; links: ProfileLinks}>('GET', `/api/profiles/${encodeURIComponent(userId)}/links`, undefined, false); }
   social(userId: string) { return this.request<ProfileSocial>('GET', `/api/profiles/${encodeURIComponent(userId)}/social`); }
+  followers(userId: string, cursor: string | null = null) { return this.request<FollowListPage>('GET', `/api/profiles/${encodeURIComponent(userId)}/connections?kind=followers${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, false); }
+  following(userId: string, cursor: string | null = null) { return this.request<FollowListPage>('GET', `/api/profiles/${encodeURIComponent(userId)}/connections?kind=following${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, false); }
+  knownFollowers(userId: string, cursor: string | null = null) { return this.request<FollowListPage>('GET', `/api/profiles/${encodeURIComponent(userId)}/connections?kind=known${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`); }
+  profileMutuals(userId: string) { return this.request<{count: number; users: ApiProfile[]}>('GET', `/api/profiles/${encodeURIComponent(userId)}/mutuals`); }
   publicCommunitiesOf(userId: string) { return this.request<PublicCommunityCard[]>('GET', `/api/profiles/${encodeURIComponent(userId)}/communities`, undefined, false); }
   follow(userId: string) { return this.request<ProfileSocial>('POST', `/api/follows/${encodeURIComponent(userId)}`, {}); }
   unfollow(userId: string) { return this.request<ProfileSocial>('DELETE', `/api/follows/${encodeURIComponent(userId)}`); }
@@ -261,6 +269,8 @@ export class KivoApi {
   cancelAccountDeletion() { return this.request<{pending: false; cancelled: true}>('DELETE', '/api/account-deletion'); }
   moderationStatus() { return this.request<{cooldownUntil: number; reason: string}>('GET', '/api/moderation/status'); }
   feedPosts(cursor?: string, following = false) { const params = new URLSearchParams(); if (cursor) params.set('cursor', cursor); if (following) params.set('following', '1'); const query = params.toString(); return this.request<FeedPost[]>('GET', `/api/feed${query ? `?${query}` : ''}`); }
+  /** Chronological posts authored by one profile, independent of For You ranking. */
+  profileFeedPosts(userId: string, cursor?: string) { const params = new URLSearchParams(); if (cursor) params.set('cursor', cursor); const query = params.toString(); return this.request<FeedPost[]>('GET', `/api/profiles/${encodeURIComponent(userId)}/posts${query ? `?${query}` : ''}`, undefined, false); }
   createFeedPost(input: {body: string; imageKey?: string | null; token?: {chain: string; address: string} | null}) { return this.request<FeedPost>('POST', '/api/feed', input); }
   createFeedPoll(input: {question: string; description?: string; options: string[]; settings?: Partial<PollSettingsWithDuration>}) { return this.request<FeedPost>('POST', '/api/feed/polls', input); }
   feedPoll(postId: string) { return this.request<FeedPoll>('GET', `/api/feed/${encodeURIComponent(postId)}/poll`); }
@@ -277,12 +287,17 @@ export class KivoApi {
   createFeedReply(postId: string, body: string) { return this.request<FeedReply>('POST', `/api/feed/${encodeURIComponent(postId)}/replies`, {body}); }
   feedNotifications() { return this.request<FeedPostNotification[]>('GET', '/api/feed/notifications'); }
   markFeedNotificationsRead() { return this.request<{updated: boolean}>('POST', '/api/feed/notifications/read', {}); }
+  registerPushDevice(token: string, platform: 'android' | 'ios' | 'web') { return this.request<{registered: boolean}>('POST', '/api/push/devices', {token, platform}); }
+  unregisterPushDevice(token: string) { return this.request<{registered: boolean}>('DELETE', '/api/push/devices', {token}); }
+  notifyTradeFollowers(payload: {chain: string; txHash: string; side: 'buy' | 'sell' | 'swap'; tokenSymbol: string; tokenAmount: string; quoteSymbol: string; quoteAmount: string; tokenAddress?: string}) {
+    return this.request<{sent: number; duplicate: boolean}>('POST', '/api/trades/notify-followers', payload);
+  }
   feedPostNotificationSubscription(authorId: string) { return this.request<{enabled: boolean}>('GET', `/api/feed/notifications/${encodeURIComponent(authorId)}`); }
   setFeedPostNotificationSubscription(authorId: string, enabled: boolean) { return this.request<{enabled: boolean}>('POST', `/api/feed/notifications/${encodeURIComponent(authorId)}`, {enabled}); }
   conversations() { return this.request<ApiConversation[]>('GET', '/api/conversations'); }
   openDm(address: string) { return this.request<{id: string}>('POST', '/api/conversations/dm', {address}); }
   history(conversationId: string, before?: number) { return this.request<ApiMessage[]>('GET', `/api/conversations/${encodeURIComponent(conversationId)}/messages${before ? `?before=${before}` : ''}`); }
-  send(conversationId: string, input: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; token?: {chain: string; address: string}; poll?: ChatPollPayload; replyTo?: string; clientId: string}) { return this.request<ApiMessage>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/messages`, input); }
+  send(conversationId: string, input: {text: string; mediaKey?: string; mediaWidth?: number; mediaHeight?: number; token?: {chain: string; address: string}; poll?: ChatPollPayload; replyTo?: string; quoteText?: string; clientId: string}) { return this.request<ApiMessage>('POST', `/api/conversations/${encodeURIComponent(conversationId)}/messages`, input); }
   chatPoll(messageId: string) { return this.request<ChatPollResults>('GET', `/api/messages/${encodeURIComponent(messageId)}/poll`); }
   voteChatPoll(messageId: string, optionIds: string[]) { return this.request<ChatPollResults>('POST', `/api/messages/${encodeURIComponent(messageId)}/poll/vote`, {optionIds}); }
   addChatPollOption(messageId: string, label: string) { return this.request<ChatPollResults>('POST', `/api/messages/${encodeURIComponent(messageId)}/poll/options`, {label}); }
@@ -309,5 +324,6 @@ export class KivoApi {
   lookupReferrer(username: string) { return this.request<ReferralUser>('GET', `/api/referrals/lookup?username=${encodeURIComponent(username)}`); }
   claimReferral(username: string, source: ReferralSource = 'manual') { return this.request<{referredBy: ReferralUser}>('POST', '/api/referrals/claim', {username, source}); }
   reportReferralTrade(input: {chain: string; txHash: string; requestId?: string}) { return this.request<ReferralTradeResult>('POST', '/api/referrals/trade', input); }
+  reportRelayReferralTrade(requestId: string) { return this.request<ReferralTradeResult>('POST', '/api/referrals/relay-trade', {requestId}); }
   sync(since: number) { return this.request<SyncResponse>('GET', `/api/sync?since=${since}`); }
 }

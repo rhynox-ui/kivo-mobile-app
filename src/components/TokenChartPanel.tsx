@@ -126,20 +126,23 @@ export function TokenChartPanel({ token }: { token: KivoToken }) {
         ) : !embedUrl ? (
           <Text style={styles.errorText}>DexScreener hasn't indexed a pair for this token on this network yet.</Text>
         ) : (
-          <WebView
-            key={embedUrl}
-            source={{ uri: embedUrl }}
-            style={styles.webview}
-            containerStyle={styles.webviewContainer}
-            originWhitelist={['https://dexscreener.com']}
-            onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
-            javaScriptEnabled
-            domStorageEnabled
-            scrollEnabled={false}
-            backgroundColor={CHART_BG}
-            renderLoading={() => <ActivityIndicator color="#77777D" style={styles.centered} />}
-            startInLoadingState
-          />
+          <View style={styles.chartFrame}>
+            <WebView
+              key={embedUrl}
+              source={{ uri: embedUrl }}
+              style={styles.webview}
+              containerStyle={styles.webviewContainer}
+              originWhitelist={['https://dexscreener.com']}
+              onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
+              javaScriptEnabled
+              domStorageEnabled
+              scrollEnabled={false}
+              backgroundColor={CHART_BG}
+              renderLoading={() => <ActivityIndicator color="#77777D" style={styles.centered} />}
+              startInLoadingState
+            />
+            <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.chartBrandCover} />
+          </View>
         )}
       </View>
 
@@ -203,8 +206,11 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     overflow: 'hidden',
   },
+  chartFrame: { flex: 1, minHeight: 0, overflow: 'hidden' },
   webview: { flex: 1, backgroundColor: CHART_BG },
   webviewContainer: { flex: 1, backgroundColor: CHART_BG },
+  // Match the embedded chart's bottom strip and cover its leftover attribution sliver.
+  chartBrandCover: { position: 'absolute', left: -2, right: -2, bottom: 0, height: 38, backgroundColor: '#0D1313' },
   centered: { alignSelf: 'center' },
   errorText: { color: kivoTheme.colors.textMuted, fontSize: 12, textAlign: 'center', marginHorizontal: 16 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: 24 },

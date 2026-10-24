@@ -22,7 +22,9 @@
     "verify:dependency-overrides": "node scripts/verify-dependency-overrides.mjs",
     "verify:unified-balance": "node --experimental-strip-types --import ./scripts/ts-extensionless.mjs scripts/verify-unified-balance.mjs",
     "verify:convert": "node --experimental-strip-types --import ./scripts/ts-extensionless.mjs scripts/verify-convert.mjs",
-    "verify:sponsor-recovery": "node --experimental-strip-types --import ./scripts/ts-extensionless.mjs scripts/verify-sponsor-recovery.mjs"
+    "verify:sponsor-recovery": "node --experimental-strip-types --import ./scripts/ts-extensionless.mjs scripts/verify-sponsor-recovery.mjs",
+    "verify:send-guards": "node --experimental-strip-types --import ./scripts/ts-extensionless.mjs scripts/verify-send-guards.mjs",
+    "verify:trade-cash": "node --experimental-strip-types --import ./scripts/ts-extensionless.mjs scripts/verify-trade-cash.mjs"
   },
   "dependencies": {
     "@near-js/crypto": "2.5.1",
@@ -76,7 +78,8 @@
     "node": ">= 22.11.0"
   },
   "overrides": {
-    "toml": "4.2.0",
-    "uuid": "11.1.1"
+    "toml": "5.0.1",
+    "uuid": "11.1.1",
+    "body-parser": "2.4.0"
   }
 }

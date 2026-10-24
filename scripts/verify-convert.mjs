@@ -29,7 +29,15 @@ const bnbNative = withSol.find(t => t.chainKey === 'bnb' && t.kind === 'native')
 const toBase = convertQuoteParams({from: cashAsset('ethereum'), to: cashAsset('base'), amountBaseUnits: '1000000', amountUsd: 1, evmAddress: evm});
 assert.equal(toBase.fundingTransfer, true);
 const cashToSol = convertQuoteParams({from: cashAsset('base'), to: cashAsset('solana'), amountBaseUnits: '1000000', amountUsd: 1, evmAddress: evm, solanaAddress: sol});
-assert.equal(cashToSol.waiveAppFee, true);
+// Home (Solana): a fee-free move home, sponsored and recorded by Kivo's server (never waiveAppFee, which is never sponsored).
+assert.equal(cashToSol.homeMove, true);
+assert.equal(cashToSol.waiveAppFee, undefined);
+assert.equal(cashToSol.sweepHome, undefined);
+assert.equal(cashToSol.originGasOverhead, '80000', 'gas-free on the EVM origin');
+// From Ethereum mainnet, where gas costs dollars, the move's fee recovers the gas.
+const ethToSol = convertQuoteParams({from: cashAsset('ethereum'), to: cashAsset('solana'), amountBaseUnits: '1000000', amountUsd: 1, evmAddress: evm, solanaAddress: sol});
+assert.equal(ethToSol.sweepHome, true);
+assert.equal(ethToSol.homeMove, undefined);
 assert.equal(cashToSol.recipientAddress, sol);
 const swap = convertQuoteParams({from: solNative, to: bnbNative, amountBaseUnits: '10000000', amountUsd: 1.5, evmAddress: evm, solanaAddress: sol});
 assert.equal(swap.waiveAppFee, undefined);

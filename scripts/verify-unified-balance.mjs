@@ -19,9 +19,9 @@ const balance = {assets: [
 ], errors: []};
 assert.equal(totalSpendableUsd(balance), 10);
 
-// Cash first (largest first), then native; the token's own network leads within a kind.
-assert.deepEqual(spendOrder(balance.assets, 'arbitrum').map(a => a.chainKey), ['robinhood', 'bnb', 'base', 'solana']);
-assert.deepEqual(spendOrder(balance.assets, 'bnb').map(a => a.chainKey), ['bnb', 'robinhood', 'base', 'solana']);
+// Cash first (largest first), then native; the token's own network leads within a kind, then Solana (home).
+assert.deepEqual(spendOrder(balance.assets, 'arbitrum').map(a => a.chainKey), ['robinhood', 'bnb', 'solana', 'base']);
+assert.deepEqual(spendOrder(balance.assets, 'bnb').map(a => a.chainKey), ['bnb', 'robinhood', 'solana', 'base']);
 
 // Buying ETH on Base never spends ETH on Base.
 const ethOnBase = {chainKey: 'base', tokenAddress: '0x0000000000000000000000000000000000000000'};

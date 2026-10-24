@@ -1,5 +1,5 @@
 import React, {useEffect, useRef} from 'react';
-import {Animated, Dimensions, PanResponder, StyleSheet, View} from 'react-native';
+import {Animated, Dimensions, KeyboardAvoidingView, PanResponder, StyleSheet, View} from 'react-native';
 import {KivoModal} from './KivoModal';
 import {kivoTheme} from '../theme/kivoTheme';
 
@@ -38,7 +38,10 @@ export function BottomSheet({visible,onClose,children,maxHeight}:{visible:boolea
   if (!visible) return null;
   return (
     <KivoModal visible transparent animationType="none" onRequestClose={close}>
-      <View style={styles.overlay}>
+      {/* The keypad must not cover the sheet's inputs (Convert amount…). The
+          modal draws edge-to-edge, so the window may not resize for the
+          keyboard: padding by the measured overlap lifts the sheet either way. */}
+      <KeyboardAvoidingView style={styles.overlay} behavior="padding">
         <Animated.View style={[styles.backdrop,{opacity:backdropOpacity}]}>
           <View style={StyleSheet.absoluteFill} onTouchEnd={close}/>
         </Animated.View>
@@ -46,7 +49,7 @@ export function BottomSheet({visible,onClose,children,maxHeight}:{visible:boolea
           <View {...panResponder.panHandlers} style={styles.handleArea}><View style={styles.handle}/></View>
           {children}
         </Animated.View>
-      </View>
+      </KeyboardAvoidingView>
     </KivoModal>
   );
 }

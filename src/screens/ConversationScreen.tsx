@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Clipboard from '@react-native-clipboard/clipboard';
-import { AppState, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
+import { AppState, Dimensions, FlatList, Image, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions, type TextStyle } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { kivoAlert } from '../components/KivoAlert';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { API_LIMITS, messageCharLimit, messageLength, shortWallet, type ApiMessage } from '@kivo/shared/api/types';
-import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, getChatState, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
+import { deleteForEveryone, discardMessage, displayName, editMessage, forwardMessage, getChatState, loadHistoryBefore, myUserId, retryMessage, sendImage, sendText, type LocalMessage } from '@kivo/shared/chat/store';
 import { kivoTheme } from '../theme/kivoTheme';
 import { useActiveConversation, useChatState } from '../state/useChat';
 import { Avatar } from './ChatListScreen';
@@ -20,6 +20,7 @@ import { ChatPollCard } from '../components/ChatPollCard';
 import { sendPoll } from '@kivo/shared/chat/store';
 import { DEFAULT_POLL_SETTINGS, POLL_DURATION_OPTIONS, normalizePollQuestion, normalizePollDescription, normalizePollOptions, type PollSettings } from '@kivo/shared/polls/types';
 
+import { SelectTextSheet } from '../components/SelectTextSheet';
 type Item = { type: 'day'; key: string; label: string } | { type: 'unread'; key: string } | { type: 'message'; key: string; message: LocalMessage; showName: boolean; showAvatar: boolean };
 
 // Server-defined reactions: one per person per message, members only.
@@ -84,16 +85,43 @@ function pinnedPreview(message: LocalMessage): string {
 }
 
 function renderLinkedText(text: string, myUsername?: string | null, onMention?: (username: string) => void): React.ReactNode[] {
-  const nodes: React.ReactNode[]=[]; const pattern= /https?:\/\/[^\s<>"']+|www\.[^\s<>"']+|#[\p{L}\p{N}_]+|\$[A-Za-z][A-Za-z0-9_]*|@[A-Za-z0-9_]+/gu; let cursor=0; let key=0; const mine=myUsername?.replace(/^@/,'').toLowerCase();
-  for(const match of text.matchAll(pattern)){const raw=match[0];const start=match.index??0;
-    // @mentions: only at a word start (so emails stay plain text); the viewer's own handle is stronger.
-    if(raw.startsWith('@')){if(start>0&&/[\w.]/.test(text[start-1]))continue;if(start>cursor)nodes.push(text.slice(cursor,start));nodes.push(<Text key={`mention-${key++}`} accessibilityRole={onMention?'link':undefined} onPress={onMention?()=>onMention(raw.slice(1)):undefined} style={mine&&raw.slice(1).toLowerCase()===mine?styles.messageMentionMe:styles.messageMention}>{raw}</Text>);cursor=start+raw.length;continue;}
-    if(start>cursor)nodes.push(text.slice(cursor,start));let url:string;let style:TextStyle=styles.messageLink;
-    if(raw.startsWith('#')){url='https://x.com/hashtag/'+encodeURIComponent(raw.slice(1));style=styles.messageHashtag;}
-    else if(raw.startsWith('$')){url='https://dexscreener.com/search?q='+encodeURIComponent(raw.slice(1));style=styles.messageTicker;}
-    else{const clean=raw.replace(/[),.!?;:]+$/,'');url=clean.startsWith('www.')?'https://'+clean:clean;nodes.push(<Text key={`link-${key++}`} accessibilityRole="link" onPress={()=>Linking.openURL(url).catch(()=>kivoAlert('Link','Could not open this link.'))} style={style}>{clean}</Text>);const tail=raw.slice(clean.length);if(tail)nodes.push(tail);cursor=start+raw.length;continue;}
-    nodes.push(<Text key={`link-${key++}`} accessibilityRole="link" onPress={()=>Linking.openURL(url).catch(()=>kivoAlert('Link','Could not open this link.'))} style={style}>{raw}</Text>);cursor=start+raw.length;
-  } if(cursor<text.length)nodes.push(text.slice(cursor));return nodes.length?nodes:[text];
+  const nodes: React.ReactNode[] = [];
+  // Match Web's full EVM addresses and Solana public keys, as well as existing links and tags.
+  const pattern = /https?:\/\/[^\s<>"']+|www\.[^\s<>"']+|(?<![1-9A-HJ-NP-Za-km-z])(?:0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})(?![1-9A-HJ-NP-Za-km-z])|#[\p{L}\p{N}_]+|\$[A-Za-z][A-Za-z0-9_]*|@[A-Za-z0-9_]+/gu;
+  let cursor = 0; let key = 0; const mine = myUsername?.replace(/^@/, '').toLowerCase();
+  for (const match of text.matchAll(pattern)) {
+    const raw = match[0]; const start = match.index ?? 0;
+    if (raw.startsWith('@') && start > 0 && /[\w.]/.test(text[start - 1])) continue;
+    if (start > cursor) nodes.push(text.slice(cursor, start));
+    if (/^0x[a-fA-F0-9]{40}$/.test(raw) || /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(raw)) {
+      nodes.push(<React.Fragment key={'address-' + key++}>
+        <Text selectable>{raw}</Text>
+        <Text accessibilityRole="button" accessibilityLabel="Copy address" onPress={() => {
+          Clipboard.setString(raw);
+          kivoAlert('Address copied', 'Address copied to clipboard.');
+        }} style={styles.messageLink}> ⧉</Text>
+      </React.Fragment>);
+      cursor = start + raw.length;
+      continue;
+    }
+    if (raw.startsWith('@')) {
+      nodes.push(<Text key={'mention-' + key++} accessibilityRole={onMention ? 'link' : undefined} onPress={onMention ? () => onMention(raw.slice(1)) : undefined} style={mine && raw.slice(1).toLowerCase() === mine ? styles.messageMentionMe : styles.messageMention}>{raw}</Text>);
+      cursor = start + raw.length;
+      continue;
+    }
+    let url: string; let style: TextStyle = styles.messageLink;
+    if (raw.startsWith('#')) { url = 'https://x.com/hashtag/' + encodeURIComponent(raw.slice(1)); style = styles.messageHashtag; }
+    else if (raw.startsWith('$')) { url = 'https://dexscreener.com/search?q=' + encodeURIComponent(raw.slice(1)); style = styles.messageTicker; }
+    else {
+      const clean = raw.replace(/[),.!?;:]+$/, ''); url = clean.startsWith('www.') ? 'https://' + clean : clean;
+      nodes.push(<Text key={'link-' + key++} accessibilityRole="link" onPress={() => Linking.openURL(url).catch(() => kivoAlert('Link', 'Could not open this link.'))} style={style}>{clean}</Text>);
+      const tail = raw.slice(clean.length); if (tail) nodes.push(tail); cursor = start + raw.length; continue;
+    }
+    nodes.push(<Text key={'link-' + key++} accessibilityRole="link" onPress={() => Linking.openURL(url).catch(() => kivoAlert('Link', 'Could not open this link.'))} style={style}>{raw}</Text>);
+    cursor = start + raw.length;
+  }
+  if (cursor < text.length) nodes.push(text.slice(cursor));
+  return nodes.length ? nodes : [text];
 }
 
 /**
@@ -112,7 +140,7 @@ async function pickCompressedPhoto(): Promise<{ bytes: Blob; type: string; width
   return { bytes, type: asset.type === 'image/png' ? 'image/png' : 'image/jpeg', width: asset.width ?? 0, height: asset.height ?? 0, previewUrl: asset.uri };
 }
 
-function MessagePhoto({ uri, width, height, onOpen, onLongPress }: { uri: string; width: number | null; height: number | null; onOpen?: () => void; onLongPress?: () => void }) {
+function MessagePhoto({ uri, width, height, onOpen, onLongPress, fullWidth = false }: { uri: string; width: number | null; height: number | null; onOpen?: () => void; onLongPress?: () => void; fullWidth?: boolean }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => { setFailed(false); }, [uri]);
   const dimensions = width && height ? { aspectRatio: width / height } : null;
@@ -127,7 +155,7 @@ function MessagePhoto({ uri, width, height, onOpen, onLongPress }: { uri: string
     <Pressable onPress={onOpen} onLongPress={onLongPress} disabled={!onOpen} accessibilityRole="imagebutton" accessibilityLabel="Open photo">
       <Image
         source={{ uri: uri.split('?')[0], headers: api.mediaHeaders(uri.split('?')[0]) }}
-        style={[styles.photo, dimensions]}
+        style={[styles.photo, fullWidth && styles.photoFullWidth, dimensions]}
         resizeMode="cover"
         onError={() => setFailed(true)}
         accessibilityLabel="Message photo"
@@ -153,6 +181,20 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const [reactingTo, setReactingTo] = useState<LocalMessage | null>(null);
   const profile = useProfile();
   const [draft, setDraft] = useState('');
+  // Some Android edge-to-edge devices report the keyboard overlay without
+  // resizing the React Native window. Measure both values and only add the
+  // portion of the keyboard height that native adjustResize did not account for.
+  const initialWindowHeight = useRef(Dimensions.get('window').height);
+  const { height: windowHeight } = useWindowDimensions();
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', event => setKeyboardHeight(event.endCoordinates.height));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+  const androidKeyboardInset = Platform.OS === 'android'
+    ? Math.max(0, keyboardHeight - Math.max(0, initialWindowHeight.current - windowHeight))
+    : 0;
   const [pollComposerOpen,setPollComposerOpen]=useState(false),[pollQuestion,setPollQuestion]=useState(''),[pollDescription,setPollDescription]=useState(''),[pollOptions,setPollOptions]=useState(['','']),[pollSettings,setPollSettings]=useState<PollSettings>({...DEFAULT_POLL_SETTINGS}),[pollDuration,setPollDuration]=useState<number|null>(null),[pollSending,setPollSending]=useState(false);
   const [tokenAttachmentOpen, setTokenAttachmentOpen] = useState(false);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
@@ -161,7 +203,16 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   type MenuItem = { text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void };
   const [optionsMenu, setOptionsMenu] = useState<MenuItem[] | null>(null);
+  const [selectingMessage, setSelectingMessage] = useState<LocalMessage | null>(null);
+  // The quoted fragment to mark inside the original after a quote is tapped.
+  const [highlightedFragment, setHighlightedFragment] = useState<{ id: string; text: string } | null>(null);
+  const [optionsMessage, setOptionsMessage] = useState<LocalMessage | null>(null);
+  // Distinguish a text-selection long press from a long press on the surrounding message panel.
+  const textTouchingMessage = useRef<string | null>(null);
+  const textTouchResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (textTouchResetTimer.current) clearTimeout(textTouchResetTimer.current); }, []);
   const [replyingTo, setReplyingTo] = useState<LocalMessage | null>(null);
+  const [quoteText, setQuoteText] = useState<string | null>(null);
   const [viewing, setViewing] = useState<LocalMessage | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<LocalMessage | null>(null);
   const list = useRef<FlatList<Item>>(null);
@@ -203,6 +254,17 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 1000 }).current;
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: { key: string; isViewable: boolean }[] }) => viewabilityHandler.current(viewableItems.filter(v => v.isViewable).map(v => v.key))).current;
   // @username taps open that Kivo profile.
+  /** Message text with links/mentions; the quoted fragment is marked while its original is highlighted. */
+  const renderMessageText = (message: LocalMessage): React.ReactNode[] => {
+    const fragment = highlightedFragment?.id === message.id && highlightedId === message.id ? highlightedFragment.text : null;
+    const at = fragment ? message.text.indexOf(fragment) : -1;
+    if (!fragment || at < 0) return renderLinkedText(message.text, myUsername, openMention);
+    return [
+      <React.Fragment key="before">{renderLinkedText(message.text.slice(0, at), myUsername, openMention)}</React.Fragment>,
+      <Text key="quoted" style={styles.quotedFragment}>{renderLinkedText(fragment, myUsername, openMention)}</Text>,
+      <React.Fragment key="after">{renderLinkedText(message.text.slice(at + fragment.length), myUsername, openMention)}</React.Fragment>,
+    ];
+  };
   const openMention = (username: string) => {
     resolveUsername(username).then(userId => { if (userId) onOpenPerson?.(userId); else kivoAlert('Mention', `No Kivo user @${username}`); })
       .catch(error => kivoAlert('Mention', error instanceof Error ? error.message : 'Could not open this profile.'));
@@ -300,11 +362,12 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const [pinIndex, setPinIndex] = useState(0);
   const [pinsOpen, setPinsOpen] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  useEffect(() => { if (!highlightedId) return; const timer = setTimeout(() => setHighlightedId(null), 1600); return () => clearTimeout(timer); }, [highlightedId]);
+  const [pendingQuoteJumpId, setPendingQuoteJumpId] = useState<string | null>(null);
+  useEffect(() => { if (!highlightedId) { setHighlightedFragment(null); return; } const timer = setTimeout(() => setHighlightedId(null), 2400); return () => clearTimeout(timer); }, [highlightedId]);
   const shownPinIndex = pins.length ? Math.min(pinIndex, pins.length - 1) : 0;
   const pinned = pins[shownPinIndex] ?? null;
   useEffect(() => { if (!pins.length) setPinsOpen(false); }, [pins.length]);
-  const listExtra = useMemo(() => ({ extras, highlightedId }), [extras, highlightedId]);
+  const listExtra = useMemo(() => ({ extras, highlightedId, highlightedFragment }), [extras, highlightedId, highlightedFragment]);
   // @-mentions: groups, channels (admins post there) and DMs (the other person).
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [forcedSelection, setForcedSelection] = useState<{ start: number; end: number } | null>(null);
@@ -362,14 +425,22 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     let lastDay = '';
-    messages.forEach((message, index) => {
+    // Deleted messages are omitted from the feed entirely; keep the original
+    // collection available for quote previews and history lookup.
+    const visibleMessages = messages.filter(message => !message.deleted);
+    visibleMessages.forEach((message, index) => {
       const day = new Date(message.createdAt).toDateString();
       if (day !== lastDay) {
         lastDay = day;
         out.push({ type: 'day', key: 'day-' + day, label: day === new Date().toDateString() ? 'Today' : new Date(message.createdAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) });
       }
       if (message.id === firstUnreadId) out.push({ type: 'unread', key: 'unread-divider' });
-      out.push({ type: 'message', key: message.id, message, showName: conversation?.kind !== 'dm' && message.senderId !== me && messages[index - 1]?.senderId !== message.senderId, showAvatar: conversation?.kind === 'group' && message.senderId !== me && messages[index + 1]?.senderId !== message.senderId });
+      // Polls are standalone cards: always show their real author identity in groups/channels,
+      // even when normal sender grouping would hide it. Keep regular messages grouped.
+      const pollAuthor = Boolean(message.poll && !message.deleted && conversation?.kind !== 'dm');
+      out.push({ type: 'message', key: message.id, message,
+        showName: conversation?.kind !== 'dm' && (pollAuthor || (message.senderId !== me && visibleMessages[index - 1]?.senderId !== message.senderId)),
+        showAvatar: conversation?.kind !== 'dm' && conversation?.kind !== 'channel' && (pollAuthor || (conversation?.kind === 'group' && message.senderId !== me && visibleMessages[index + 1]?.senderId !== message.senderId)) });
     });
     return out;
   }, [messages, conversation?.kind, me, firstUnreadId]);
@@ -378,6 +449,43 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
     if (!scrollToItem(messageId)) { kivoAlert(what, 'This message is older than the history on this phone.'); return false; }
     atBottom.current = false; setHighlightedId(messageId); return true;
   };
+  const jumpToQuotedMessage = async (messageId: string, fragment?: string | null) => {
+    // Mark the quoted words inside the original while it flashes.
+    setHighlightedFragment(fragment?.trim() ? { id: messageId, text: fragment.trim() } : null);
+    const known = (getChatState().messages[id] ?? []).find(message => message.id === messageId);
+    if (known?.deleted) { kivoAlert('Quoted message', 'That message has been deleted.'); return; }
+    if (jumpToMessage(messageId, 'Quoted message')) return;
+    // The quoted original may be older than the currently cached 50-message page.
+    // Fetch backwards in bounded pages; the pending ID is consumed after FlatList
+    // has incorporated the newly merged messages.
+    setPendingQuoteJumpId(messageId);
+    try {
+      for (let page = 0; page < 20; page += 1) {
+        const loaded = getChatState().messages[id] ?? [];
+        const found = loaded.find(message => message.id === messageId);
+        if (found) {
+          if (found.deleted) { setPendingQuoteJumpId(null); kivoAlert('Quoted message', 'That message has been deleted.'); }
+          return;
+        }
+        const oldestSeq = loaded.reduce((min, message) => message.seq > 0 ? Math.min(min, message.seq) : min, Number.POSITIVE_INFINITY);
+        if (!Number.isFinite(oldestSeq)) break;
+        const count = await loadHistoryBefore(id, oldestSeq);
+        if (!count) break;
+      }
+      if (!(getChatState().messages[id] ?? []).some(message => message.id === messageId)) {
+        setPendingQuoteJumpId(null);
+        kivoAlert('Quoted message', 'The original message could not be found in this conversation.');
+      }
+    } catch {
+      setPendingQuoteJumpId(null);
+      kivoAlert('Quoted message', 'Could not load older messages. Check your connection and try again.');
+    }
+  };
+  useEffect(() => {
+    if (!pendingQuoteJumpId || !items.some(item => item.key === pendingQuoteJumpId)) return;
+    setPendingQuoteJumpId(null);
+    requestAnimationFrame(() => jumpToMessage(pendingQuoteJumpId, 'Quoted message'));
+  }, [items, pendingQuoteJumpId]);
   const scrollToItem = (key: string, animated = true) => {
     const index = items.findIndex(item => item.key === key);
     if (index < 0) return false;
@@ -403,9 +511,10 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
         setEditingMessageId(null);
         setDraft('');
       } else {
-        await sendText(id, text, replyingTo?.id, verifiedTokenAttachment ?? undefined);
+        await sendText(id, text, replyingTo?.id, verifiedTokenAttachment ?? undefined, quoteText ?? undefined);
         setDraft('');
         setReplyingTo(null);
+        setQuoteText(null);
         setVerifiedTokenAttachment(null);
         setTokenAttachmentOpen(false);
       }
@@ -429,12 +538,18 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
       return;
     }
     if (message.status !== 'sent' || message.deleted) return;
-    // Same options as the web app, in a Kivo-styled sheet instead of the system dialog.
+    // Match Web: show quick reactions in the same message-options sheet.
+    setOptionsMessage(message);
     setOptionsMenu([
-      ...(canPost ? [{ text: 'Reply', onPress: () => { setEditingMessageId(null); setReplyingTo(message); } }] : []),
-      ...(canReact ? [{ text: 'React', onPress: () => setReactingTo(message) }] : []),
+      ...(message.text ? [
+        // Partial selection: a native selectable view of the message (Android long-press handles + Copy).
+        { text: canPost ? 'Select text / quote part' : 'Select text', onPress: () => { setTimeout(() => setSelectingMessage(message), 250); } },
+        { text: 'Copy text', onPress: () => { Clipboard.setString(message.text); kivoAlert('Copied', 'Message copied to clipboard.'); } },
+      ] : []),
+      ...(message.text && canPost ? [{ text: 'Quote message', onPress: () => { setEditingMessageId(null); setReplyingTo(message); setQuoteText(message.text.slice(0, 1000)); } }] : []),
+      ...(canPost ? [{ text: 'Reply', onPress: () => { setEditingMessageId(null); setReplyingTo(message); setQuoteText(null); } }] : []),
       ...(canPin ? (() => { const isPinned = pins.some(p => p.id === message.id); return [{ text: isPinned ? 'Unpin message' : 'Pin message', onPress: () => setPin(message.id, !isPinned) }]; })() : []),
-      ...(message.senderId === me ? [{ text: 'Edit message', onPress: () => { setReplyingTo(null); setEditingMessageId(message.id); setDraft(message.text); } }] : []),
+      ...(message.senderId === me ? [{ text: 'Edit message', onPress: () => { setReplyingTo(null); setQuoteText(null); setEditingMessageId(message.id); setDraft(message.text); } }] : []),
       { text: 'Forward message', onPress: () => setForwardingMessage(message) },
       ...(message.senderId === me || canModerate ? [{ text: 'Delete message', style: 'destructive' as const, onPress: () => kivoAlert('Delete message', 'Delete this message for everyone?', [
         { text: 'Cancel', style: 'cancel' },
@@ -469,7 +584,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
   const subtitle = !state.online ? 'Offline — will sync when back' : conversation?.kind === 'dm' ? (conversation.peer ? shortWallet(conversation.peer.address) : 'Direct message') : isChannel ? 'Channel' : 'Group';
 
   return (
-    <KeyboardAvoidingView style={styles.root} behavior="padding">
+    <KeyboardAvoidingView style={[styles.root, Platform.OS === 'android' && androidKeyboardInset > 0 ? { paddingBottom: androidKeyboardInset } : null]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.header}>
         <Pressable onPress={onBack} hitSlop={10} accessibilityLabel="Back"><Text style={styles.back}>‹</Text></Pressable>
         <Pressable onPress={() => conversation?.kind === 'dm' && conversation.peer?.userId ? onOpenPerson?.(conversation.peer.userId) : conversation && conversation.kind !== 'dm' ? onOpenInfo?.(id, conversation.kind) : undefined} accessibilityLabel={conversation?.kind === 'dm' ? 'View user profile' : 'Open conversation info'}>
@@ -507,7 +622,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
         ref={list}
         data={items}
         keyExtractor={item => item.key}
-        contentContainerStyle={styles.messages}
+        contentContainerStyle={[styles.messages, isChannel && styles.channelMessages]}
         extraData={listExtra}
         onScrollToIndexFailed={info => {
           // Rows far above are not rendered yet: move near them, then retry once they are.
@@ -543,24 +658,51 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           const { message } = item;
           const mine = message.senderId === me && !isChannel;
           return (
-            <View style={[styles.bubbleRow, mine && styles.bubbleRowMine, conversation?.kind === 'group' && !mine && styles.bubbleRowGroupIncoming]}>
-              {conversation?.kind === 'group' && !mine ? <View style={styles.avatarColumn}>{item.showAvatar ? <Avatar name={displayName(message.senderId)} uri={state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /> : null}</View> : null}
-              <Pressable onLongPress={() => onLongPress(message)} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted, unreadMentionSet.has(message.id) && styles.bubbleMention, message.id === highlightedId && styles.bubbleHighlight]}>
+            <View style={[styles.bubbleRow, mine && styles.bubbleRowMine, conversation?.kind === 'group' && !mine && styles.bubbleRowGroupIncoming, isChannel && styles.channelBubbleRow]}>
+              {conversation?.kind !== 'dm' && item.showAvatar && !mine ? <View style={styles.avatarColumn}><Avatar name={displayName(message.senderId)} uri={state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /></View> : null}
+              <Pressable onLongPress={() => { if (textTouchingMessage.current !== message.id) onLongPress(message); }} style={[styles.bubble, mine && styles.bubbleMine, isChannel && styles.post, message.deleted && styles.deleted, unreadMentionSet.has(message.id) && styles.bubbleMention, message.id === highlightedId && styles.bubbleHighlight]}>
                 {message.forwardedFrom ? <Text style={styles.forwardedLabel}>↪ Forwarded from {displayName(message.forwardedFrom)}</Text> : null}
-                {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
+                {item.showName && <Pressable onPress={() => onOpenPerson?.(message.senderId)} disabled={!onOpenPerson} hitSlop={6}><View style={styles.senderLine}><Text style={styles.sender}>{message.senderId === me && message.poll ? '@' + (profile.username || 'You') : displayName(message.senderId)}</Text>{verifiedSenders.has(message.senderId) ? <Text accessibilityLabel="Blue Star verified profile" style={styles.senderVerifiedBadge}>★</Text> : null}</View></Pressable>}
                 {message.token && <TokenAttachmentCard token={message.token} compact onPress={onOpenToken ? () => onOpenToken(message.token!) : undefined} />}
                 {message.poll && !message.deleted && <ChatPollCard messageId={message.id} onError={message=>kivoAlert('Poll',message)} />}
-                {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} />}
+                {message.media && <MessagePhoto uri={message.media.url} width={message.media.width} height={message.media.height} onOpen={() => setViewing(message)} onLongPress={() => onLongPress(message)} fullWidth={isChannel} />}
                 {message.replyTo && !message.deleted ? (() => {
                   const quoted = messages.find(item => item.id === message.replyTo);
-                  return <View style={styles.replyQuote}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={2}>{quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available'}</Text></View>;
+                  return <Pressable style={styles.replyQuote} onPress={() => { void jumpToQuotedMessage(message.replyTo!, message.quoteText); }} accessibilityRole="button" accessibilityLabel={`Jump to original message from ${quoted ? displayName(quoted.senderId) : 'sender'}`}><Text style={styles.replyQuoteName} numberOfLines={1}>{quoted ? displayName(quoted.senderId) : 'Reply'}</Text><Text style={styles.replyQuoteText} numberOfLines={3}>{message.quoteText ?? (quoted ? (quoted.deleted ? 'Message deleted' : quoted.text || '📷 Photo') : 'Original message is not available')}</Text></Pressable>;
                 })() : null}
                 {message.deleted ? <Text style={styles.deletedText}>Message deleted{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text> : message.text ? (() => {
                   // Long messages collapse after ~12 lines so one post can't take over the chat.
                   const long = messageLength(message.text) > 700 || message.text.split('\n').length > 12;
                   const open = expanded[message.id] === true;
                   return <View>
-                    <Text style={[styles.text, isChannel && styles.postText]} numberOfLines={long && !open ? 12 : undefined}>{renderLinkedText(message.text, myUsername, openMention)}{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text>
+                    <Text
+                      selectable
+                      selectionColor={c.accent}
+                      onPressIn={() => {
+                        if (textTouchResetTimer.current) clearTimeout(textTouchResetTimer.current);
+                        textTouchResetTimer.current = null;
+                        textTouchingMessage.current = message.id;
+                      }}
+                      onLongPress={() => {
+                        // Keep the parent bubble's long-press menu suppressed while
+                        // Android opens the native Copy / Select all text toolbar.
+                        if (textTouchResetTimer.current) clearTimeout(textTouchResetTimer.current);
+                        textTouchResetTimer.current = null;
+                        textTouchingMessage.current = message.id;
+                      }}
+                      onPressOut={() => {
+                        // Parent Pressable may deliver its long-press callback just
+                        // after Text's press-out on Android. Retain the guard briefly
+                        // so selecting text never opens the message-options sheet.
+                        if (textTouchResetTimer.current) clearTimeout(textTouchResetTimer.current);
+                        textTouchResetTimer.current = setTimeout(() => {
+                          if (textTouchingMessage.current === message.id) textTouchingMessage.current = null;
+                          textTouchResetTimer.current = null;
+                        }, 700);
+                      }}
+                      style={[styles.text, isChannel && styles.postText]}
+                      numberOfLines={long && !open ? 12 : undefined}
+                    >{renderMessageText(message)}{inlineMeta(message) && !hasReactions(message) ? metaSpacer(message) : null}</Text>
                     {long ? <Pressable hitSlop={6} onPress={() => setExpanded(prev => ({ ...prev, [message.id]: !open }))}><Text style={styles.showMore}>{open ? 'Show less' : 'Show more'}</Text></Pressable> : null}
                   </View>;
                 })() : null}
@@ -575,6 +717,8 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
                 })()}
                 <Text style={[styles.meta, inlineMeta(message) && styles.metaInline]}>{metaLabel(message)}</Text>
               </Pressable>
+              {isChannel && message.status === 'sent' && <Pressable style={styles.channelForward} onPress={() => setForwardingMessage(message)} accessibilityRole="button" accessibilityLabel="Forward channel post" hitSlop={8}><Text style={styles.channelForwardText}>↪</Text></Pressable>}
+              {conversation?.kind !== 'dm' && item.showAvatar && mine && message.poll && <View style={[styles.avatarColumn, { marginRight: 0, marginLeft: 8 }]}><Avatar name={'@' + (profile.username || 'You')} uri={profile.avatarUri ?? state.profiles[message.senderId]?.avatarUrl} size={30} verified={verifiedSenders.has(message.senderId)} /></View>}
             </View>
           );
         }}
@@ -595,7 +739,7 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
       </View>
       {canPost ? (
         <View>
-        {replyingTo && !editingMessageId && <View style={styles.editingBar}><View style={{ flex: 1, marginRight: 12 }}><Text style={styles.editingLabel}>Replying to {displayName(replyingTo.senderId)}</Text><Text style={styles.replyBarText} numberOfLines={1}>{replyingTo.text || '📷 Photo'}</Text></View><Pressable onPress={() => setReplyingTo(null)} hitSlop={10}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
+        {replyingTo && !editingMessageId && <View style={styles.editingBar}><View style={{ flex: 1, marginRight: 12 }}><Text style={styles.editingLabel}>{quoteText ? `Reply to quote from ${displayName(replyingTo.senderId)}` : `Replying to ${displayName(replyingTo.senderId)}`}</Text><Text style={styles.replyBarText} numberOfLines={2}>{quoteText ?? (replyingTo.text || '📷 Photo')}</Text></View><Pressable onPress={() => { setReplyingTo(null); setQuoteText(null); }} hitSlop={10}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
         {editingMessageId && <View style={styles.editingBar}><Text style={styles.editingLabel}>Editing message</Text><Pressable onPress={() => { setEditingMessageId(null); setDraft(''); }}><Text style={styles.editingCancel}>Cancel</Text></Pressable></View>}
         {showCounter ? (
           <View style={styles.limitRow} accessibilityLiveRegion="polite">
@@ -689,14 +833,31 @@ export function ConversationScreen({ id, onBack, onOpenInfo, onOpenPerson, onOpe
           </View>
         </View>
       </KivoModal>
-      <BottomSheet visible={!!optionsMenu} onClose={() => setOptionsMenu(null)}>
+      <SelectTextSheet visible={selectingMessage !== null} text={selectingMessage?.text ?? ''} onClose={() => setSelectingMessage(null)} onMention={openMention}
+        onQuote={canPost && selectingMessage ? fragment => { const target = selectingMessage; setEditingMessageId(null); setReplyingTo(target); setQuoteText(fragment); } : undefined} />
+      <BottomSheet visible={!!optionsMenu} onClose={() => { setOptionsMenu(null); setOptionsMessage(null); }}>
         <Text style={styles.sheetTitle}>Message options</Text>
+        {optionsMessage && canReact && (
+          <View style={styles.webParityReactionSection}>
+            <Text style={styles.webParityReactionLabel}>React</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.webParityReactionRow}>
+              {REACTIONS.map(emoji => {
+                const selected = extras?.reactions[optionsMessage.id]?.mine === emoji;
+                return <Pressable key={emoji} style={[styles.reactionOption, selected && styles.reactionOptionMine]} accessibilityRole="button" accessibilityLabel={`React with ${emoji}`} accessibilityState={{ selected }} onPress={() => {
+                  const target = optionsMessage;
+                  setOptionsMenu(null); setOptionsMessage(null);
+                  if (target) react(target.id, emoji);
+                }}><Text style={styles.reactionOptionText}>{emoji}</Text></Pressable>;
+              })}
+            </ScrollView>
+          </View>
+        )}
         {(optionsMenu ?? []).map(item => (
-          <Pressable key={item.text} style={styles.sheetRow} accessibilityRole="button" onPress={() => { setOptionsMenu(null); item.onPress?.(); }}>
+          <Pressable key={item.text} style={styles.sheetRow} accessibilityRole="button" onPress={() => { setOptionsMenu(null); setOptionsMessage(null); item.onPress?.(); }}>
             <Text style={[styles.sheetRowText, item.style === 'destructive' && styles.sheetRowDanger]}>{item.text}</Text>
           </Pressable>
         ))}
-        <Pressable style={styles.sheetRow} accessibilityRole="button" onPress={() => setOptionsMenu(null)}><Text style={styles.sheetCancel}>Cancel</Text></Pressable>
+        <Pressable style={styles.sheetRow} accessibilityRole="button" onPress={() => { setOptionsMenu(null); setOptionsMessage(null); }}><Text style={styles.sheetCancel}>Cancel</Text></Pressable>
       </BottomSheet>
       <BottomSheet visible={!!reactingTo} onClose={() => setReactingTo(null)}>
         <Text style={styles.sheetTitle}>React</Text>
@@ -732,6 +893,10 @@ const styles = StyleSheet.create({
   info: { color: c.cream, fontSize: 20, paddingHorizontal: 6 },
   listWrap: { flex: 1, position: 'relative' },
   messages: { padding: 10, paddingBottom: 16, gap: 3 },
+  channelMessages: { paddingLeft: 0, paddingRight: 6 },
+  channelBubbleRow: { width: '100%', marginLeft: 0, marginRight: 0, paddingLeft: 0, paddingRight: 0, justifyContent: 'flex-start', alignItems: 'flex-start', gap: 6 },
+  channelForward: { width: 34, height: 34, flexShrink: 0, alignSelf: 'flex-end', marginBottom: 3, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+  channelForwardText: { color: c.text, fontSize: 20, fontWeight: '800', lineHeight: 24 },
   editingBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 7, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border },
   editingLabel: { color: c.accent, fontSize: 12.5, fontWeight: '800' },
   editingCancel: { color: c.textMuted, fontSize: 12.5, fontWeight: '700' },
@@ -763,6 +928,7 @@ const styles = StyleSheet.create({
   pinSegment: { flex: 1, borderRadius: 2, backgroundColor: c.border },
   pinSegmentActive: { backgroundColor: c.accent },
   bubbleHighlight: { borderWidth: 2, borderColor: c.accent },
+  quotedFragment: { backgroundColor: 'rgba(183,226,123,0.32)', borderRadius: 3 },
   bubbleMention: { borderLeftWidth: 3, borderLeftColor: '#2589F5', backgroundColor: '#22384F' },
   pinsScreen: { flex: 1, backgroundColor: c.background },
   pinsHeader: { minHeight: 60, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: 1, borderBottomColor: c.border },
@@ -785,6 +951,9 @@ const styles = StyleSheet.create({
   reactionChipMine: { backgroundColor: 'rgba(37,137,245,0.28)', borderColor: '#2589F5' },
   reactionChipText: { color: c.text, fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
   reactionChipTextMine: { color: '#FFFFFF' },
+  webParityReactionSection: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 12, gap: 10 },
+  webParityReactionLabel: { color: kivoTheme.colors.textMuted, fontSize: 13 },
+  webParityReactionRow: { flexDirection: 'row', gap: 8, paddingRight: 4 },
   reactionPicker: { flexDirection: 'row', gap: 4, paddingVertical: 12 },
   reactionOption: { flex: 1, aspectRatio: 1, maxWidth: 52, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface },
   reactionOptionMine: { backgroundColor: 'rgba(37,137,245,0.28)', borderWidth: 1, borderColor: '#2589F5' },
@@ -798,7 +967,7 @@ const styles = StyleSheet.create({
   avatarColumn: { width: 34, flexShrink: 0, marginRight: 8, alignItems: 'center', justifyContent: 'flex-end' },
   bubble: { maxWidth: '84%', paddingHorizontal: 9, paddingTop: 5, paddingBottom: 4, borderRadius: 16, borderBottomLeftRadius: 4, backgroundColor: c.surfaceRaised, gap: 2 },
   bubbleMine: { backgroundColor: '#1D6B4C', borderBottomLeftRadius: 16, borderBottomRightRadius: 4 },
-  post: { maxWidth: '86%', borderRadius: 14 },
+  post: { flexGrow: 0, flexShrink: 1, minWidth: 0, maxWidth: '100%', alignSelf: 'flex-start', borderRadius: 14, borderTopLeftRadius: 4, borderBottomLeftRadius: 4 },
   postText: { fontSize: 14, lineHeight: 19 },
   deleted: { opacity: 0.6 },
   senderLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -818,6 +987,7 @@ const styles = StyleSheet.create({
   forwardDestinationTitle: { color: c.text, fontSize: 14, fontWeight: '800' },
   forwardDestinationKind: { color: c.textMuted, fontSize: 11.5, marginTop: 3 },
   photo: { width: 240, maxWidth: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: c.background },
+  photoFullWidth: { width: '100%' },
   photoUnavailable: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: c.border },
   photoUnavailableText: { color: c.textMuted, fontSize: 12, fontWeight: '700' },
   text: { color: c.text, fontSize: 15, lineHeight: 20 },
