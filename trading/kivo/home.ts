@@ -17,12 +17,12 @@ export function homeCashAsset(): QuoteAsset {
 
 // Trade cash is strictly USDC (and USDG where Kivo treats it as equivalent cash).
 // Long-term SOL, ETH, USDT, and other holdings are never auto-converted to fund a buy.
-const isUsdcCash = (asset: SpendableAsset) => asset.kind === 'cash' && ['USDC', 'USDG'].includes(asset.symbol.toUpperCase());
+const isUsdcCash = (asset: SpendableAsset) => asset.kind === 'cash' && asset.symbol.toUpperCase() === 'USDC';
 const isHomeCash = (asset: SpendableAsset) => asset.chainKey === HOME_CHAIN && isUsdcCash(asset);
 
 /** The part of a balance a trade may spend: USDC cash on Solana only. */
 export function onlyHomeCash(balance: SpendableBalance): SpendableBalance {
-  return {assets: balance.assets.filter(isHomeCash), errors: balance.errors.filter(e => e.chainKey === HOME_CHAIN && ['USDC', 'USDG'].includes(e.symbol.toUpperCase()))};
+  return {assets: balance.assets.filter(isHomeCash), errors: balance.errors.filter(e => e.chainKey === HOME_CHAIN && e.symbol.toUpperCase() === 'USDC')};
 }
 
 /** USDC cash held on other supported networks, available to move to Solana. */
