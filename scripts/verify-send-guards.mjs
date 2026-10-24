@@ -6,7 +6,9 @@ import assert from 'node:assert/strict';
 import {PublicKey} from '@solana/web3.js';
 import {blockedDestinationReason, chainMismatchReason, checkRecipientAddress, evmSponsorReason, fractionOf} from '../trading/kivo/transferGuards.ts';
 import {classifyTransferError, markFailedOnChain, markMaybeBroadcast, solanaSubmitDefinitelyRejected} from '../trading/core/broadcastState.ts';
-import {receiveWithinTolerance} from '../trading/kivo/cash.ts';
+import {evmWithdrawalCalls, homeWithdrawalFeeBps, minHomeBridgeWithdrawalUsd, receiveWithinTolerance, withdrawalBreakdown} from '../trading/kivo/cash.ts';
+import {decodeFunctionData, parseAbi} from 'viem';
+import {DEV_FEE_WALLET, withdrawalFeeUnits, withdrawalFeeUsd} from '../trading/core/fees.ts';
 
 const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const SOL_WALLET = '2ApuoLHkMnhX13w6wnSfnP64sbBAgCABiqfHeFYAamki';
@@ -66,3 +68,33 @@ assert.equal(receiveWithinTolerance(10, 9.8), false);
 assert.equal(receiveWithinTolerance(10, null), false);
 
 console.log('send guards: ok');
+
+// Withdrawal fee: flat per network, taken from the amount, never more than it.
+assert.equal(withdrawalFeeUsd('base'), 0.1);
+assert.equal(withdrawalFeeUsd('ethereum'), 3);
+assert.deepEqual(withdrawalBreakdown('base', 10), {feeUsd: 0.1, receive: 9.9});
+assert.equal(withdrawalBreakdown('base', 0.1), null);
+assert.equal(withdrawalBreakdown('ethereum', 2.5), null);
+{
+  const erc20 = parseAbi(['function transfer(address to, uint256 amount)']);
+  const recipient = '0x' + '2'.repeat(40);
+  const calls = evmWithdrawalCalls('base', recipient, 10_000_000n);
+  assert.equal(calls.length, 2);
+  const [send, fee] = calls.map(call => decodeFunctionData({abi: erc20, data: call.data}).args);
+  assert.equal(send[0].toLowerCase(), recipient);
+  assert.equal(send[1], 9_900_000n);
+  assert.equal(fee[0].toLowerCase(), DEV_FEE_WALLET);
+  assert.equal(fee[1], 100_000n);
+  // On top: the recipient gets the exact amount (NEAR Intents deposits).
+  assert.equal(decodeFunctionData({abi: erc20, data: evmWithdrawalCalls('base', recipient, 10_000_000n, 'on-top')[0].data}).args[1], 10_000_000n);
+  // 18-decimal USDC on BNB Chain.
+  assert.equal(decodeFunctionData({abi: erc20, data: evmWithdrawalCalls('bnb', recipient, 10n ** 19n)[1].data}).args[1], withdrawalFeeUnits('bnb', 18));
+  assert.throws(() => evmWithdrawalCalls('ethereum', recipient, 3_000_000n), /withdrawal fee/);
+}
+// Bridged home withdrawals: the $0.10 fee as Relay app-fee bps, at most 5% ($2 minimum).
+assert.equal(homeWithdrawalFeeBps(10_000_000n), 100n);
+assert.equal(homeWithdrawalFeeBps(7_330_000n), 137n);
+assert.equal(homeWithdrawalFeeBps(2_000_000n), 500n);
+assert.ok(homeWithdrawalFeeBps(1_999_999n) > 500n);
+assert.equal(minHomeBridgeWithdrawalUsd(), 2);
+

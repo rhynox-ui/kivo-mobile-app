@@ -35,7 +35,7 @@ import { classifyTransferError } from '@kivo/trading/core/broadcastState';
 import { checkTransferStatus } from '@kivo/trading/kivo/transferStatus';
 import { recordTransfer, updateTransferStatus } from '@kivo/trading/kivo/history';
 import { clearCashBalanceCache, fetchCashBalances, totalCashUsd, CASH_CHAINS, cashAssetSymbol, type CashBalanceRow } from '@kivo/trading/kivo/balances';
-import { isValidRecipientAddress, quoteHomeWithdrawal, withdrawFromHome, withdrawUsdc } from '@kivo/trading/kivo/cash';
+import { isValidRecipientAddress, minHomeBridgeWithdrawalUsd, quoteHomeWithdrawal, withdrawalBreakdown, withdrawalTooSmallMessage, withdrawFromHome, withdrawUsdc } from '@kivo/trading/kivo/cash';
 import { fetchGaslessStatus, type GaslessStatus } from '@kivo/trading/kivo/gasless';
 import { formatAmount, formatBalanceUsd, formatUsd, shortAddress } from '@kivo/trading/kivo/tokens';
 import { NetworkIcon } from '../wallet/NetworkIcon';
@@ -361,6 +361,11 @@ function DepositSheet({
   );
 }
 
+/** Same rule as WithdrawSheet's crossNetwork: the home balance sending to a network other than Solana. */
+function crossNetworkFor(homeMode: boolean, chain: WithdrawNetwork | null): boolean {
+  return homeMode && chain !== null && chain !== 'solana';
+}
+
 function WithdrawSheet({
   visible,
   rows,
@@ -399,11 +404,18 @@ function WithdrawSheet({
   const row = chain && chain !== 'near' ? rows?.find(r => r.chainKey === chain) : null;
   const available = chain === 'near' ? nearBalance : homeMode ? homeBalance : (row?.status === 'ok' ? row.balance.amount : 0);
   const crossNetwork = homeMode && chain !== null && chain !== 'solana';
-  const [homeQuote, setHomeQuote] = useState<{ state: 'idle' | 'loading' | 'ready' | 'error'; received?: string | null; feeUsd?: number | null; error?: string }>({ state: 'idle' });
+  const [homeQuote, setHomeQuote] = useState<{ state: 'idle' | 'loading' | 'ready' | 'error'; received?: string | null; feeUsd?: number | null; kivoFeeUsd?: number; error?: string }>({ state: 'idle' });
   const parsed = Number(amount);
+  // Kivo's flat withdrawal fee (like an exchange's), set by the network Kivo
+  // pays gas on: Solana for the home balance, else the chosen network. It
+  // comes out of the amount; NEAR withdrawals carry none.
+  const feeNetwork: ChainKey | null = chain === null || chain === 'near' ? null : homeMode ? 'solana' : chain;
+  const breakdown = feeNetwork && Number.isFinite(parsed) && parsed > 0 ? withdrawalBreakdown(feeNetwork, parsed) : null;
+  const minBridge = minHomeBridgeWithdrawalUsd();
+  const coversFee = feeNetwork === null || (breakdown !== null && (!crossNetworkFor(homeMode, chain) || parsed >= minBridge - 1e-9));
   const addressValid = chain ? (chain === 'near' ? isValidRecipientAddress(destination, to.trim()) : isValidRecipientAddress(chain, to.trim())) : false;
   const maxWithdrawable = Math.max(0, available);
-  const amountValid = Number.isFinite(parsed) && parsed > 0 && parsed <= maxWithdrawable + 1e-9;
+  const amountValid = Number.isFinite(parsed) && parsed > 0 && parsed <= maxWithdrawable + 1e-9 && coversFee;
   const sponsorshipNeeded = !homeMode && chain !== 'solana' && chain !== 'near';
   const nearDestinationReady = chain !== 'near' || nearCashMoveChains().includes(destination);
   const sponsorshipReady = !sponsorshipNeeded || gasless?.available === true;
@@ -430,7 +442,7 @@ function WithdrawSheet({
     let active = true;
     setHomeQuote({ state: 'loading' });
     quoteHomeWithdrawal(chain as ChainKey, wallet.solanaAddress, to.trim(), amount)
-      .then(q => { if (active) setHomeQuote({ state: 'ready', received: q.receivedAmountFormatted, feeUsd: q.totalFeeUsd }); })
+      .then(q => { if (active) setHomeQuote({ state: 'ready', received: q.receivedAmountFormatted, feeUsd: q.totalFeeUsd, kivoFeeUsd: q.kivoFeeUsd }); })
       .catch(error => { if (active) setHomeQuote({ state: 'error', error: error instanceof Error ? error.message : 'Could not price this transfer.' }); });
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -448,6 +460,10 @@ function WithdrawSheet({
             ? 'Enter an amount greater than zero.'
             : parsed > available + 1e-9
               ? `More than the ${formatAmount(available, 2)} ${homeMode ? 'USDC' : cashCoin(chain)} available${homeMode ? ' in your balance' : ` on ${chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}`}.`
+              : feeNetwork && !breakdown
+                ? withdrawalTooSmallMessage(feeNetwork)
+              : crossNetwork && parsed < minBridge - 1e-9
+                ? `Withdrawals to another network must be at least $${minBridge.toFixed(2)}.`
               : sponsorshipNeeded && gasless?.available === false
                 ? gasless.reason ?? 'Gasless EVM withdrawals are not configured yet.'
                 : null;
@@ -465,7 +481,7 @@ function WithdrawSheet({
     try {
       const outcome: { hash?: string; requestId?: string; pending?: boolean } = await withDeviceAccounts(`Send ${sentAmount} ${symbol}`, async accounts => {
         if (crossNetwork) return withdrawFromHome(chain as ChainKey, accounts.relay, sentTo, sentAmount, reviewedReceive ?? undefined);
-        if (chain !== 'near') return withdrawUsdc(chain, accounts.evm, accounts.solana, sentTo, sentAmount);
+        if (chain !== 'near') return withdrawUsdc(chain, accounts.evm, accounts.solana, sentTo, sentAmount, 'deduct');
         const tokens = await fetchOneClickTokens();
         const move = nearCashMoveRequest({direction: 'from-near', chainKey: destination, amountBaseUnits: parseUnits(sentAmount, NEAR_USDC_DECIMALS).toString(), session: accounts.relay, tokens, dry: false, recipient: sentTo});
         const response = await requestOneClickQuote(move.request);
@@ -561,7 +577,7 @@ function WithdrawSheet({
                   kicker={result.ok ? (result.submitted ? 'Withdrawal submitted' : 'Sent') : result.maybeSent ? 'Withdrawal pending' : 'Withdrawal failed'}
                   headline={result.ok || result.maybeSent ? `${result.amount} ${result.symbol}` : splitError(result.message).headline}
                   reason={result.ok ? undefined : result.maybeSent ? result.message : splitError(result.message).reason}
-                  subline={result.ok ? (result.submitted ? (result.requestId || result.hash ? 'Still settling. Do not send it again.' : 'NEAR Intents delivers it in a few minutes.') : `on ${result.network} · network fee paid by Kivo`) : result.maybeSent ? 'It may still go through. Do not send it again.' : undefined}
+                  subline={result.ok ? (result.submitted ? (result.requestId || result.hash ? 'Still settling. Do not send it again.' : 'NEAR Intents delivers it in a few minutes.') : `on ${result.network} · withdrawal fee included`) : result.maybeSent ? 'It may still go through. Do not send it again.' : undefined}
                   safeNote={result.ok ? undefined
                     : result.maybeSent ? { ok: false, text: 'This withdrawal may already be on-chain. Do not try again: check its status first.' }
                     : result.failedOnChain ? { ok: true, text: 'The transaction failed on-chain, so your funds did not move.' }
@@ -650,14 +666,23 @@ function WithdrawSheet({
                     </View>
 
                     <Text style={styles.available}>{homeMode ? 'Your USDC balance' : `Available on ${chain === 'near' ? 'NEAR' : CHAIN_LABEL[chain]}`}: {formatBalanceUsd(maxWithdrawable)}</Text>
+                    {feeNetwork && breakdown ? (
+                      <Text style={styles.available}>
+                        {crossNetwork
+                          ? `Withdrawal fee ${formatUsd(breakdown.feeUsd)} + bridge cost (shown next)`
+                          : `Network fee ${formatUsd(breakdown.feeUsd)} · They receive ${formatAmount(breakdown.receive, 2)} ${cashCoin(chain)}`}
+                      </Text>
+                    ) : feeNetwork ? (
+                      <Text style={styles.available}>Withdrawal fee on {CHAIN_LABEL[feeNetwork]}: {formatUsd(withdrawalBreakdown(feeNetwork, 1e9)?.feeUsd ?? 0)}, taken from the amount.</Text>
+                    ) : null}
                     {problem && <Text style={styles.warn}>{problem}</Text>}
                     {chain === 'near'
                       ? <Text style={styles.note}>NEAR withdrawals use NEAR Intents. Kivo pays NEAR transaction gas through the existing sponsored call path.</Text>
                       : crossNetwork
-                        ? <Text style={styles.note}>Sent from your USDC on Solana and delivered as {cashCoin(chain)} on {CHAIN_LABEL[chain as ChainKey]} in one step. No Kivo fee; the small bridge cost is shown before you confirm.</Text>
+                        ? <Text style={styles.note}>Sent from your USDC on Solana and delivered as {cashCoin(chain)} on {CHAIN_LABEL[chain as ChainKey]} in one step. Kivo's withdrawal fee and the bridge cost come out of the amount and are shown before you confirm.</Text>
                       : chain === 'solana'
-                        ? <Text style={styles.note}>Kivo pays the Solana network fee for you.</Text>
-                        : <Text style={styles.note}>EVM withdrawals require Kivo Relay sponsorship. Kivo never silently switches to a user-paid gas transfer.</Text>}
+                        ? <Text style={styles.note}>Kivo pays the Solana network fee; the withdrawal fee covers it. MAX withdraws everything, fee included.</Text>
+                        : <Text style={styles.note}>Kivo pays the gas; the withdrawal fee covers it, so you need no {chain === 'bnb' ? 'BNB' : 'ETH'}. MAX withdraws everything, fee included.</Text>}
                     {result && <Text style={result.ok ? styles.ok : styles.warn}>{result.message}</Text>}
                     {result?.hash ? <Pressable hitSlop={8} onPress={() => { Linking.openURL(transactionLink(result.hash!, result.chainId)).catch(() => {}); }}><Text style={styles.ok}>{shortAddress(result.hash)}  ↗ View on explorer</Text></Pressable> : null}
 
@@ -680,12 +705,17 @@ function WithdrawSheet({
                 <ReviewRow label="Network" value={chain === 'near' ? `NEAR → ${CHAIN_LABEL[destination]}` : chain ? CHAIN_LABEL[chain] : '—'} />
                 <ReviewRow label="Asset" value={cashCoin(chain)} />
                 <ReviewRow label="Amount" value={`${amount} ${homeMode ? 'USDC' : cashCoin(chain)}`} />
+                {!crossNetwork && breakdown ? <>
+                  <ReviewRow label="Network fee" value={formatUsd(breakdown.feeUsd)} />
+                  <ReviewRow label="They receive" value={`${formatAmount(breakdown.receive, 6)} ${cashCoin(chain)}`} />
+                </> : null}
                 {crossNetwork ? (
                   homeQuote.state === 'loading' ? <ActivityIndicator color={kivoTheme.colors.accent} style={{ marginVertical: 8 }} />
                     : homeQuote.state === 'error' ? <Text style={styles.warn}>{homeQuote.error} Go back and review again to get a new price.</Text>
                     : homeQuote.state === 'ready' ? <>
+                      <ReviewRow label="Withdrawal fee" value={formatUsd(homeQuote.kivoFeeUsd ?? breakdown?.feeUsd ?? 0)} />
+                      <ReviewRow label="Bridge & network cost" value={homeQuote.feeUsd != null ? formatUsd(Math.max(0, homeQuote.feeUsd - (homeQuote.kivoFeeUsd ?? 0))) : '—'} />
                       <ReviewRow label="They receive" value={`≈ ${homeQuote.received ? formatAmount(Number(homeQuote.received), 4) : '—'} ${cashCoin(chain)}`} />
-                      <ReviewRow label="Bridge & network cost" value={homeQuote.feeUsd != null ? formatUsd(homeQuote.feeUsd) : '—'} />
                       <Text style={styles.note}>If the price moves by more than 1% before sending, Kivo stops and nothing is sent.</Text>
                     </> : null
                 ) : null}
@@ -698,11 +728,11 @@ function WithdrawSheet({
 
                 {confirming && !busy ? (
                   <View style={styles.confirmCard}>
-                    <Text style={styles.confirmTitle}>Send {amount} {cashCoin(chain)}?</Text>
+                    <Text style={styles.confirmTitle}>Withdraw {amount} {homeMode ? 'USDC' : cashCoin(chain)}?</Text>
                     <Text style={styles.confirmBody}>
                       {chain === 'near'
                         ? `From NEAR to ${CHAIN_LABEL[destination]} at ${shortAddress(to.trim())}.`
-                        : `On ${chain ? CHAIN_LABEL[chain] : ''} to ${shortAddress(to.trim())}.`}
+                        : `On ${chain ? CHAIN_LABEL[chain] : ''} to ${shortAddress(to.trim())}${!crossNetwork && breakdown ? `: they receive ${formatAmount(breakdown.receive, 6)} ${cashCoin(chain)} after the ${formatUsd(breakdown.feeUsd)} fee` : ''}.`}
                       {' '}This can't be reversed.
                     </Text>
                     <View style={styles.confirmButtons}>

@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
-import {encodeFunctionData, formatUnits, parseUnits} from 'viem';
+import {formatUnits, parseUnits} from 'viem';
 import {Connection, PublicKey, SystemProgram} from '@solana/web3.js';
 import {TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, calculateEpochFee, createAssociatedTokenAccountInstruction, createTransferCheckedInstruction, getAccountLenForMint, getAssociatedTokenAddress, getMint, getTransferFeeConfig} from '@solana/spl-token';
 import {getViemChain} from '@kivo/trading/core/chainRegistry';
@@ -15,6 +15,8 @@ import {getTradeHistory, recordTransfer, updateTransferStatus} from '@kivo/tradi
 import {readTokenBalance, readTokenDecimals} from '@kivo/trading/kivo/balances';
 import {relayRequestUrl, transactionLink} from '@kivo/trading/kivo/execute';
 import {checkTransferStatus} from '@kivo/trading/kivo/transferStatus';
+import {evmWithdrawalCalls, withdrawalTooSmallMessage} from '@kivo/trading/kivo/cash';
+import {withdrawalFeeUnits} from '@kivo/trading/core/fees';
 import {SOLANA_MAX_RESERVE_LAMPORTS, TOKEN_PROGRAM_OWNERS, blockedDestinationReason, chainMismatchReason, checkRecipientAddress, evmSponsorReason, fractionOf} from '@kivo/trading/kivo/transferGuards';
 import {TokenIcon} from './TokenIcon';
 import {kivoTheme} from '../theme/kivoTheme';
@@ -24,7 +26,6 @@ import {ResultCard} from './ResultCard';
 const SOLANA_RPC_URL = 'https://rpc.solanatracker.io/public';
 const SOLANA_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
-const ABI = [{type:'function',name:'transfer',stateMutability:'nonpayable',inputs:[{name:'to',type:'address'},{name:'amount',type:'uint256'}],outputs:[{name:'',type:'bool'}]}] as const;
 const ZERO = '0x0000000000000000000000000000000000000000';
 /** Send by wallet address only. `initialRecipient` optionally prefills the address field. */
 type Props = {visible:boolean; initialRecipient?:string; onClose:()=>void};
@@ -120,6 +121,8 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
     else{mintInfo=await solanaMintInfo(connection,item.address);decimals=mintInfo.decimals;programId=mintInfo.programId.toBase58();accountLen=mintInfo.accountLen;}
    }else if(item.kind!=='native')decimals=await readTokenDecimals(item.chainKey as ChainKey,item.address);
    let raw:bigint;try{raw=parseUnits(value,decimals);}catch{throw new Error(item.symbol+' supports at most '+decimals+' decimal places.');}
+   // EVM USDC sends pay Kivo's withdrawal fee (it covers the gas Kivo sponsors), taken from the amount.
+   if(item.chainKey!=='solana'){feeRaw=withdrawalFeeUnits(item.chainKey as ChainKey,decimals);if(raw<=feeRaw)throw new Error(withdrawalTooSmallMessage(item.chainKey as ChainKey));}
    if(mintInfo?.feeConfig){const epoch=await new Connection(SOLANA_RPC_URL,'confirmed').getEpochInfo('confirmed');feeRaw=calculateEpochFee(mintInfo.feeConfig,BigInt(epoch.epoch),raw);}
    setReviewed({key:item.key,chainKey:item.chainKey,address:item.address,kind:item.kind,symbol:item.symbol,value,raw,decimals,to:target.address,programId,feeRaw,accountLen});
    setStep('review');
@@ -175,9 +178,10 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
     });
     setTransferResult({...base,tone:'success',message:'Your transfer is confirmed on Solana.',hash:signature,transferId:record('success',signature),canRetry:false});
    }else{
-    const call={to:snapshot.address as `0x${string}`,value:0n,data:encodeFunctionData({abi:ABI,functionName:'transfer',args:[snapshot.to as `0x${string}`,snapshot.raw]})};
+    // The transfer plus Kivo's withdrawal fee, in one batch (Kivo's server sponsors only that).
+    const calls=evmWithdrawalCalls(snapshot.chainKey as ChainKey,snapshot.to,snapshot.raw,'deduct');
     const result=await withDeviceAccounts('Confirm asset transfer',async({evm})=>
-     sendEvmCallsViaRelayGasless({chain:getViemChain(snapshot.chainKey as ChainKey),fromAddress:evm.address,account:evm,calls:[call]}));
+     sendEvmCallsViaRelayGasless({chain:getViemChain(snapshot.chainKey as ChainKey),fromAddress:evm.address,account:evm,calls}));
     // Relay reported success: the transfer is on-chain.
     setTransferResult({...base,tone:'success',message:'Your transfer is confirmed on '+network+'.',hash:result.hash,requestId:result.requestId,transferId:record('success',result.hash,result.requestId),canRetry:false});
    }
@@ -240,7 +244,7 @@ export function SendAssetsSheet({visible,initialRecipient='',onClose}:Props){
      <View style={styles.reviewAddress}><Text style={styles.muted}>Recipient address</Text><Text style={styles.reviewAddressText} selectable>{reviewed.to}</Text></View>
      <View style={styles.reviewRow}><Text style={styles.muted}>Asset / network</Text><Text style={styles.reviewValue}>{reviewed.symbol+' · '+networkOf(reviewed.chainKey)}</Text></View>
      <View style={styles.reviewRow}><Text style={styles.muted}>Amount</Text><Text style={styles.reviewValue}>{reviewed.value+' '+reviewed.symbol}</Text></View>
-     {reviewed.feeRaw>0n?<><View style={styles.reviewRow}><Text style={styles.muted}>Token transfer fee</Text><Text style={styles.reviewValue}>{formatUnits(reviewed.feeRaw,reviewed.decimals)+' '+reviewed.symbol}</Text></View><View style={styles.reviewRow}><Text style={styles.muted}>Recipient receives</Text><Text style={styles.reviewValue}>{'≈ '+formatUnits(reviewed.raw-reviewed.feeRaw,reviewed.decimals)+' '+reviewed.symbol}</Text></View></>:null}
+     {reviewed.feeRaw>0n?<><View style={styles.reviewRow}><Text style={styles.muted}>{reviewed.chainKey==='solana'?'Token transfer fee':'Network fee'}</Text><Text style={styles.reviewValue}>{formatUnits(reviewed.feeRaw,reviewed.decimals)+' '+reviewed.symbol}</Text></View><View style={styles.reviewRow}><Text style={styles.muted}>Recipient receives</Text><Text style={styles.reviewValue}>{'≈ '+formatUnits(reviewed.raw-reviewed.feeRaw,reviewed.decimals)+' '+reviewed.symbol}</Text></View></>:null}
      <Text style={styles.muted}>Kivo covers the network fee. Check every character of the address: transfers can't be reversed.</Text></View></>:null}
     {error?<Text style={styles.error}>{error}</Text>:null}
     {step!=='recipient'?<Pressable disabled={sending} onPress={()=>{setError('');if(step==='review'){setReviewed(null);setStep('transfer');}else setStep('recipient');}} style={styles.back}><Text style={styles.backText}>{step==='review'?'Back to amount':'Change address'}</Text></Pressable>:null}
