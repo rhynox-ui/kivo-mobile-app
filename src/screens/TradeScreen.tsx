@@ -506,7 +506,10 @@ export function TradeScreen({ onToken, onPickChain, onShareToFeed, selectedToken
       : quoteState === 'ready' ? `Review and ${side} ${token?.symbol ?? ''}` : '');
   const hintIsError = Boolean(amountProblem) || quoteState === 'error' || Boolean(view?.unsupportedReason) || belowMinimum;
   // Funds that arrived on another network are moved home only when a buy needs them.
-  const needsMoveHome = side === 'buy' && homeActive && awayUsd >= 0.5 && homeAvailable != null && parsed != null && parsed > homeAvailable + 1e-9;
+  // Never move funds for an order that exceeds the verified USDC total.
+  const needsMoveHome = side === 'buy' && homeActive && awayUsd >= 0.5
+    && homeAvailable != null && available != null && parsed != null
+    && parsed <= available + 1e-9 && parsed > homeAvailable + 1e-9;
   const pressSide = (target: TradeSide) => {
     if (target !== side) { setSide(target); return; }
     if (needsMoveHome) {
